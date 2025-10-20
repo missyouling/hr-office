@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: siapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: siapp
+      POSTGRES_USER: siapp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - siapp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siapp -d siapp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  siapp:
+    build: .
+    container_name: siapp-backend
+    restart: unless-stopped
+    environment:
+      # Database configuration
+      SIAPP_DATABASE_TYPE: postgres
+      SIAPP_DB_HOST: postgres
+      SIAPP_DB_PORT: 5432
+      SIAPP_DB_USER: siapp
+      SIAPP_DB_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+      SIAPP_DB_NAME: siapp
+      SIAPP_DB_SSLMODE: disable
+
+      # Server configuration
+      SIAPP_ADDR: 0.0.0.0:8080
+
+      # Security configuration
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+
+      # Email configuration (optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@example.com}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - siapp-network
+    volumes:
+      - ./data:/app/data
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  siapp-network:
+    driver: bridge

@@ -62,9 +62,15 @@ const (
 	ActionDownloadTemplate ActionType = "DOWNLOAD_TEMPLATE"
 
 	// System actions
-	ActionSystemStart  ActionType = "SYSTEM_START"
-	ActionSystemError  ActionType = "SYSTEM_ERROR"
-	ActionHealthCheck  ActionType = "HEALTH_CHECK"
+	ActionSystemStart     ActionType = "SYSTEM_START"
+	ActionSystemError     ActionType = "SYSTEM_ERROR"
+	ActionHealthCheck     ActionType = "HEALTH_CHECK"
+	ActionSystemMetrics   ActionType = "SYSTEM_METRICS"
+	ActionDatabaseStatus  ActionType = "DATABASE_STATUS"
+	ActionSystemInfo      ActionType = "SYSTEM_INFO"
+	ActionMaintenance     ActionType = "MAINTENANCE"
+	ActionReadinessCheck  ActionType = "READINESS_CHECK"
+	ActionLivenessCheck   ActionType = "LIVENESS_CHECK"
 
 	// Security events
 	ActionAuthFailure     ActionType = "AUTH_FAILURE"

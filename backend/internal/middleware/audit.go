@@ -208,9 +208,45 @@ func determineActionFromPath(method, path string) (models.ActionType, string, *s
 		action = models.ActionHealthCheck
 		resource = "system"
 
+	case "monitoring":
+		if len(pathParts) > 1 {
+			switch pathParts[1] {
+			case "metrics":
+				action = models.ActionSystemMetrics
+			case "database":
+				action = models.ActionDatabaseStatus
+			case "info":
+				action = models.ActionSystemInfo
+			case "maintenance":
+				action = models.ActionMaintenance
+			default:
+				action = models.ActionSystemMetrics
+			}
+		} else {
+			action = models.ActionSystemMetrics
+		}
+		resource = "system"
+
+	case "version":
+		action = models.ActionSystemInfo
+		resource = "system"
+
 	default:
-		action = models.ActionSystemStart
-		resource = "unknown"
+		// Check for health sub-paths
+		if len(pathParts) >= 2 && pathParts[0] == "health" {
+			switch pathParts[1] {
+			case "readiness":
+				action = models.ActionReadinessCheck
+			case "liveness":
+				action = models.ActionLivenessCheck
+			default:
+				action = models.ActionHealthCheck
+			}
+			resource = "system"
+		} else {
+			action = models.ActionSystemStart
+			resource = "unknown"
+		}
 	}
 
 	return action, resource, resourceID
