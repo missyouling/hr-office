@@ -19,6 +19,7 @@ import (
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 
+	"siapp/internal/auth"
 	"siapp/internal/models"
 	"siapp/internal/service"
 )
@@ -129,8 +130,14 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 }
 
 func (h *Handler) listPeriods(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
 	var periods []models.Period
-	if err := h.db.Order("year_month DESC").Find(&periods).Error; err != nil {
+	if err := h.db.Where("user_id = ?", userID).Order("year_month DESC").Find(&periods).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list periods", err)
 		return
 	}
@@ -142,6 +149,12 @@ type createPeriodRequest struct {
 }
 
 func (h *Handler) createPeriod(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
 	var req createPeriodRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid JSON body", err)
@@ -154,10 +167,12 @@ func (h *Handler) createPeriod(w http.ResponseWriter, r *http.Request) {
 	}
 
 	period := models.Period{
+		UserID:    userID,
 		YearMonth: req.YearMonth,
 		Status:    "draft",
 	}
-	if err := h.db.FirstOrCreate(&period, models.Period{YearMonth: req.YearMonth}).Error; err != nil {
+	// Check for existing period for this user
+	if err := h.db.FirstOrCreate(&period, models.Period{UserID: userID, YearMonth: req.YearMonth}).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create period", err)
 		return
 	}
@@ -826,6 +841,11 @@ func (h *Handler) exportChargesExcel(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, filename, time.Now(), bytes.NewReader(buf.Bytes()))
 }
 func (h *Handler) getPeriodByParam(r *http.Request) (*models.Period, error) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		return nil, fmt.Errorf("unauthorized: %w", err)
+	}
+
 	param := chi.URLParam(r, "periodID")
 	if param == "" {
 		return nil, fmt.Errorf("missing periodID")
@@ -835,7 +855,7 @@ func (h *Handler) getPeriodByParam(r *http.Request) (*models.Period, error) {
 		return nil, fmt.Errorf("invalid periodID: %w", err)
 	}
 	var period models.Period
-	if err := h.db.First(&period, id).Error; err != nil {
+	if err := h.db.Where("id = ? AND user_id = ?", id, userID).First(&period).Error; err != nil {
 		return nil, err
 	}
 	return &period, nil

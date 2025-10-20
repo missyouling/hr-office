@@ -81,6 +81,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { useAuth, useRequireAuth } from "@/lib/auth";
 
 const PART_LABELS: Record<Part, string> = {
   personal: "个人",
@@ -190,6 +191,10 @@ function guessPartScheme(fileName: string): { part: Part | ""; scheme: Scheme | 
 }
 
 export default function Home() {
+  const { isAuthenticated, isLoading } = useRequireAuth();
+  const { user, logout } = useAuth();
+
+  // All state declarations must come before any conditional returns
   const [periods, setPeriods] = useState<Period[]>([]);
   const [periodsLoading, setPeriodsLoading] = useState(true);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | null>(null);
@@ -199,18 +204,7 @@ export default function Home() {
   const [personalCharges, setPersonalCharges] = useState<PersonalCharge[]>([]);
   const [unitCharges, setUnitCharges] = useState<UnitCharge[]>([]);
   const [rosterEntries, setRosterEntries] = useState<RosterEntry[]>([]);
-
-  // 分离普通文件和补退文件
-  const normalFiles = useMemo(() =>
-    files.filter(file => file.file_type === 'normal' || !file.file_type),
-    [files]
-  );
-  const adjustmentFiles = useMemo(() =>
-    files.filter(file => file.file_type === 'adjustment'),
-    [files]
-  );
   const [processing, setProcessing] = useState(false);
-
   const [newPeriod, setNewPeriod] = useState(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -225,43 +219,44 @@ export default function Home() {
   const [templateDownloading, setTemplateDownloading] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [batchDrafts, setBatchDrafts] = useState<BatchDraft[]>([]);
-
-  // 补退上传相关状态
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
   const [selectedAdjustmentFiles, setSelectedAdjustmentFiles] = useState<File[]>([]);
   const [adjustmentUploading, setAdjustmentUploading] = useState(false);
   const [adjustmentProcessing, setAdjustmentProcessing] = useState(false);
-  const adjustmentFileInputRef = useRef<HTMLInputElement>(null);
   const [batchUploading, setBatchUploading] = useState(false);
   const [exportingPart, setExportingPart] = useState<Part | null>(null);
   const [clearingFiles, setClearingFiles] = useState(false);
   const [clearingAdjustments, setClearingAdjustments] = useState(false);
-
-  // 险种明细模态窗状态
   const [schemeModalOpen, setSchemeModalOpen] = useState(false);
   const [selectedScheme, setSelectedScheme] = useState<Scheme | null>(null);
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [schemeCharges, setSchemeCharges] = useState<SchemeChargeDetail[]>([]);
   const [schemeChargesLoading, setSchemeChargesLoading] = useState(false);
   const [schemeExporting, setSchemeExporting] = useState(false);
-
-  // 重置账期状态
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
-
-  // 删除账期状态
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  // 查询功能状态
   const [personalSearchText, setPersonalSearchText] = useState("");
   const [personalSearchDept, setPersonalSearchDept] = useState("__all__");
   const [unitSearchText, setUnitSearchText] = useState("");
   const [unitSearchDept, setUnitSearchDept] = useState("__all__");
 
+  // All refs must also come before conditional returns
+  const adjustmentFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rosterInputRef = useRef<HTMLInputElement | null>(null);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // All useMemo and derived state must come before conditional returns
+  const normalFiles = useMemo(() =>
+    files.filter(file => file.file_type === 'normal' || !file.file_type),
+    [files]
+  );
+  const adjustmentFiles = useMemo(() =>
+    files.filter(file => file.file_type === 'adjustment'),
+    [files]
+  );
 
   const selectedPeriod = useMemo(
     () => periods.find((item) => item.id === selectedPeriodId) ?? null,
@@ -290,7 +285,6 @@ export default function Home() {
     );
   }, [uploadKeySet.size]);
 
-  // 筛选后的数据 - 按人员分组但保持记录分离
   const filteredPersonalCharges = useMemo(() => {
     const filtered = personalCharges.filter((charge) => {
       const searchMatch = !personalSearchText ||
@@ -300,7 +294,6 @@ export default function Home() {
       return searchMatch && deptMatch;
     });
 
-    // 按姓名+证件号码分组，但保持记录分离
     const groupedMap = new Map<string, PersonalCharge[]>();
 
     filtered.forEach((charge) => {
@@ -311,11 +304,10 @@ export default function Home() {
       groupedMap.get(key)!.push(charge);
     });
 
-    // 展平分组，为同一人的记录添加分组信息
     const result: (PersonalCharge & { isFirstInGroup?: boolean; groupKey?: string })[] = [];
 
     for (const [groupKey, charges] of groupedMap.entries()) {
-      charges.sort((a, b) => (a.is_adjustment ? 1 : 0) - (b.is_adjustment ? 1 : 0)); // 正常记录在前
+      charges.sort((a, b) => (a.is_adjustment ? 1 : 0) - (b.is_adjustment ? 1 : 0));
       charges.forEach((charge, index) => {
         result.push({
           ...charge,
@@ -337,7 +329,6 @@ export default function Home() {
       return searchMatch && deptMatch;
     });
 
-    // 按姓名+证件号码分组，但保持记录分离
     const groupedMap = new Map<string, UnitCharge[]>();
 
     filtered.forEach((charge) => {
@@ -348,11 +339,10 @@ export default function Home() {
       groupedMap.get(key)!.push(charge);
     });
 
-    // 展平分组，为同一人的记录添加分组信息
     const result: (UnitCharge & { isFirstInGroup?: boolean; groupKey?: string })[] = [];
 
     for (const [groupKey, charges] of groupedMap.entries()) {
-      charges.sort((a, b) => (a.is_adjustment ? 1 : 0) - (b.is_adjustment ? 1 : 0)); // 正常记录在前
+      charges.sort((a, b) => (a.is_adjustment ? 1 : 0) - (b.is_adjustment ? 1 : 0));
       charges.forEach((charge, index) => {
         result.push({
           ...charge,
@@ -365,7 +355,6 @@ export default function Home() {
     return result;
   }, [unitCharges, unitSearchText, unitSearchDept]);
 
-  // 获取部门列表用于筛选选项
   const personalDepartments = useMemo(() => {
     const depts = new Set(personalCharges.map(charge => charge.department).filter(Boolean));
     return Array.from(depts).sort();
@@ -376,6 +365,15 @@ export default function Home() {
     return Array.from(depts).sort();
   }, [unitCharges]);
 
+  const allowedSchemes = useMemo(
+    () =>
+      SCHEME_OPTIONS.filter((option) =>
+        option.allowedParts.includes(uploadPart),
+      ),
+    [uploadPart],
+  );
+
+  // All useEffect hooks must also come before conditional returns
   useEffect(() => {
     const load = async () => {
       try {
@@ -433,6 +431,29 @@ export default function Home() {
     };
     loadPeriodData(selectedPeriodId);
   }, [selectedPeriodId]);
+
+  useEffect(() => {
+    if (!allowedSchemes.some((item) => item.value === uploadScheme)) {
+      setUploadScheme(allowedSchemes[0]?.value ?? "pension");
+    }
+  }, [allowedSchemes, uploadScheme]);
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="text-muted-foreground">正在验证身份...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated, the useRequireAuth hook will redirect
+  if (!isAuthenticated) {
+    return null;
+  }
 
   const handleCreatePeriod = async () => {
     if (!newPeriod) {
@@ -905,20 +926,6 @@ export default function Home() {
     }
   };
 
-  const allowedSchemes = useMemo(
-    () =>
-      SCHEME_OPTIONS.filter((option) =>
-        option.allowedParts.includes(uploadPart),
-      ),
-    [uploadPart],
-  );
-
-  useEffect(() => {
-    if (!allowedSchemes.some((item) => item.value === uploadScheme)) {
-      setUploadScheme(allowedSchemes[0]?.value ?? "pension");
-    }
-  }, [allowedSchemes, uploadScheme]);
-
   return (
     <div className="min-h-screen bg-muted/30">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 pb-16">
@@ -931,8 +938,18 @@ export default function Home() {
               <p className="text-muted-foreground">
                 上传各险种明细，生成社保总表与扣款明细。
               </p>
+              {user && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  欢迎，{user.full_name || user.username}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-4">
+              {user && (
+                <Button variant="outline" size="sm" onClick={logout}>
+                  退出登录
+                </Button>
+              )}
               {periods.length > 0 && (
                 <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-4 py-2 border">
                   <Label htmlFor="period-switcher" className="text-sm font-semibold text-gray-700">

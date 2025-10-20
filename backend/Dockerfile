@@ -1,8 +1,10 @@
 # 使用官方Go镜像
-FROM golang:1.24-alpine AS builder
+FROM golang:1.18-alpine AS builder
 
-# 安装构建依赖 (SQLite需要CGO支持)
-RUN apk add --no-cache gcc musl-dev sqlite-dev
+# 更换为国内Alpine镜像源并安装构建依赖
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache gcc musl-dev sqlite-dev
 
 # 设置工作目录
 WORKDIR /app

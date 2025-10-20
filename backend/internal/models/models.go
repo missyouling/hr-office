@@ -2,6 +2,8 @@ package models
 
 import (
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Part string
@@ -28,9 +30,59 @@ const (
 	SchemeInjury         Scheme = "injury"
 )
 
+// User represents a system user
+type User struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	Username  string    `json:"username" gorm:"uniqueIndex;not null"`
+	Email     string    `json:"email" gorm:"uniqueIndex;not null"`
+	Password  string    `json:"-" gorm:"not null"` // Password hash, never returned in JSON
+	FullName  string    `json:"full_name"`
+	Active    bool      `json:"active" gorm:"default:true"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SetPassword hashes and sets the user password
+func (u *User) SetPassword(password string) error {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	u.Password = string(hashedPassword)
+	return nil
+}
+
+// CheckPassword verifies if the provided password matches the user's password
+func (u *User) CheckPassword(password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
+	return err == nil
+}
+
+// LoginRequest represents the login request payload
+type LoginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// RegisterRequest represents the registration request payload
+type RegisterRequest struct {
+	Username string `json:"username" binding:"required,min=3,max=50"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=6"`
+	FullName string `json:"full_name" binding:"max=100"`
+}
+
+// AuthResponse represents the authentication response
+type AuthResponse struct {
+	Token string `json:"token"`
+	User  User   `json:"user"`
+}
+
 type Period struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
-	YearMonth string    `json:"year_month" gorm:"uniqueIndex"`
+	UserID    uint      `json:"user_id" gorm:"index;not null"`
+	User      User      `json:"-" gorm:"foreignKey:UserID"`
+	YearMonth string    `json:"year_month" gorm:"index"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -38,6 +90,8 @@ type Period struct {
 
 type SourceFile struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
+	UserID       uint      `json:"user_id" gorm:"index;not null"`
+	User         User      `json:"-" gorm:"foreignKey:UserID"`
 	PeriodID     uint      `json:"period_id" gorm:"index"`
 	Period       Period    `json:"-"`
 	FileName     string    `json:"file_name"`
@@ -56,6 +110,8 @@ type SourceFile struct {
 
 type RawRecord struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
+	UserID       uint      `json:"user_id" gorm:"index;not null"`
+	User         User      `json:"-" gorm:"foreignKey:UserID"`
 	PeriodID     uint      `json:"period_id" gorm:"index"`
 	SourceFileID uint      `json:"source_file_id" gorm:"index"`
 	Sequence     int       `json:"sequence"`
@@ -78,6 +134,8 @@ type RawRecord struct {
 
 type PeriodSummary struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
+	UserID       uint      `json:"user_id" gorm:"index;not null"`
+	User         User      `json:"-" gorm:"foreignKey:UserID"`
 	PeriodID     uint      `json:"period_id" gorm:"index"`
 	Scheme       Scheme    `json:"scheme"`
 	Part         Part      `json:"part"`
@@ -91,6 +149,8 @@ type PeriodSummary struct {
 
 type PersonalCharge struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
+	UserID           uint      `json:"user_id" gorm:"index;not null"`
+	User             User      `json:"-" gorm:"foreignKey:UserID"`
 	PeriodID         uint      `json:"period_id" gorm:"index"`
 	Name             string    `json:"name"`
 	IDNumber         string    `json:"id_number" gorm:"index"`
@@ -108,6 +168,8 @@ type PersonalCharge struct {
 
 type UnitCharge struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
+	UserID           uint      `json:"user_id" gorm:"index;not null"`
+	User             User      `json:"-" gorm:"foreignKey:UserID"`
 	PeriodID         uint      `json:"period_id" gorm:"index"`
 	Name             string    `json:"name"`
 	IDNumber         string    `json:"id_number" gorm:"index"`
@@ -126,6 +188,8 @@ type UnitCharge struct {
 
 type RosterEntry struct {
 	ID         uint      `json:"id" gorm:"primaryKey"`
+	UserID     uint      `json:"user_id" gorm:"index;not null"`
+	User       User      `json:"-" gorm:"foreignKey:UserID"`
 	PeriodID   uint      `json:"period_id" gorm:"index"`
 	Name       string    `json:"name"`
 	IDNumber   string    `json:"id_number" gorm:"index"`

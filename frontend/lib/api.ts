@@ -25,9 +25,14 @@ async function request<T>(
   console.log(`Making request to: ${url}`);
   console.log(`API_BASE is: ${API_BASE}`);
 
+  // Get token from localStorage for authenticated requests
+  const token = localStorage.getItem("token");
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(url, {
     ...init,
     headers: {
+      ...authHeaders,
       ...(init?.headers || {}),
     },
     cache: "no-store",
@@ -89,8 +94,12 @@ export async function uploadSourceFile({
   formData.append("part", part);
   formData.append("file", file);
 
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE}/periods/${periodId}/files`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
@@ -115,8 +124,12 @@ export async function uploadRoster(
   const formData = new FormData();
   formData.append("file", file);
 
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE}/periods/${periodId}/roster`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
@@ -137,9 +150,15 @@ export async function uploadRoster(
 export async function importLatestRoster(
   periodId: number,
 ): Promise<{ imported: number; message: string }> {
+  const token = localStorage.getItem("token");
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
   const res = await fetch(`${API_BASE}/periods/${periodId}/roster/import`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
   });
 
   if (!res.ok) {
@@ -172,8 +191,12 @@ export async function uploadSourceFilesBatch({
     formData.append("files", item.file);
   });
 
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE}/periods/${periodId}/files/batch`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
@@ -217,9 +240,13 @@ export async function downloadChargesExcel(
   periodId: number,
   part: Part,
 ): Promise<Blob> {
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(
     `${API_BASE}/periods/${periodId}/charges/export?part=${part}`,
     {
+      headers,
       cache: "no-store",
     },
   );
@@ -239,7 +266,11 @@ export async function downloadChargesExcel(
 }
 
 export async function downloadRosterTemplate(): Promise<Blob> {
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE}/roster-template`, {
+    headers,
     cache: "no-store",
   });
 
@@ -283,9 +314,13 @@ export async function downloadSchemeChargesExcel(
   scheme: Scheme,
   part: Part,
 ): Promise<Blob> {
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(
     `${API_BASE}/periods/${periodId}/charges/scheme/export?scheme=${scheme}&part=${part}`,
     {
+      headers,
       cache: "no-store",
     },
   );
@@ -326,8 +361,12 @@ export async function uploadAdjustmentsBatch(
     formData.append("files", file);
   });
 
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE}/periods/${periodId}/adjustments/batch`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
