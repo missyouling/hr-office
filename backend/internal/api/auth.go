@@ -9,19 +9,24 @@ import (
 	"gorm.io/gorm"
 	"siapp/internal/auth"
 	"siapp/internal/models"
+	"siapp/internal/service"
 )
 
 // AuthHandler handles authentication related requests
 type AuthHandler struct {
-	db         *gorm.DB
-	jwtManager *auth.JWTManager
+	db                   *gorm.DB
+	jwtManager           *auth.JWTManager
+	passwordResetService *service.PasswordResetService
+	emailService         *service.EmailService
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager) *AuthHandler {
+func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetService *service.PasswordResetService, emailService *service.EmailService) *AuthHandler {
 	return &AuthHandler{
-		db:         db,
-		jwtManager: jwtManager,
+		db:                   db,
+		jwtManager:           jwtManager,
+		passwordResetService: passwordResetService,
+		emailService:         emailService,
 	}
 }
 
@@ -76,6 +81,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
 		return
 	}
+
+	// Send welcome email (non-blocking)
+	go func() {
+		if err := h.emailService.SendWelcomeEmail(&user); err != nil {
+			// Log error but don't fail registration
+			// log.Printf("Failed to send welcome email to %s: %v", user.Email, err)
+		}
+	}()
 
 	// Return user and token
 	response := models.AuthResponse{
@@ -162,11 +175,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		CurrentPassword string `json:"current_password"`
-		NewPassword     string `json:"new_password"`
-	}
-
+	var req models.ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 		return
@@ -178,29 +187,23 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current user
+	// Use password reset service to change password
+	if err := h.passwordResetService.ChangePassword(userID, req.CurrentPassword, req.NewPassword); err != nil {
+		if err == service.ErrInvalidCurrentPassword {
+			http.Error(w, `{"error":"Current password is incorrect"}`, http.StatusBadRequest)
+		} else {
+			http.Error(w, `{"error":"Failed to change password"}`, http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Get user for email notification
 	var user models.User
-	if err := h.db.First(&user, userID).Error; err != nil {
-		http.Error(w, `{"error":"User not found"}`, http.StatusNotFound)
-		return
-	}
-
-	// Verify current password
-	if !user.CheckPassword(req.CurrentPassword) {
-		http.Error(w, `{"error":"Current password is incorrect"}`, http.StatusBadRequest)
-		return
-	}
-
-	// Set new password
-	if err := user.SetPassword(req.NewPassword); err != nil {
-		http.Error(w, `{"error":"Failed to process password"}`, http.StatusInternalServerError)
-		return
-	}
-
-	// Save user
-	if err := h.db.Save(&user).Error; err != nil {
-		http.Error(w, `{"error":"Failed to update password"}`, http.StatusInternalServerError)
-		return
+	if err := h.db.First(&user, userID).Error; err == nil {
+		// Send password changed notification (non-blocking)
+		go func() {
+			h.emailService.SendPasswordChangedEmail(&user)
+		}()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -267,6 +270,117 @@ func (h *AuthHandler) validatePassword(password string) error {
 	}
 
 	return nil
+}
+
+// RequestPasswordReset handles password reset requests
+func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req models.PasswordResetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Validate email format
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	if !emailRegex.MatchString(req.Email) {
+		http.Error(w, `{"error":"Invalid email format"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Create reset token
+	resetToken, err := h.passwordResetService.CreateResetToken(req.Email)
+	if err != nil {
+		if err == service.ErrUserNotFound {
+			// Don't reveal if email exists or not for security
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"message": "If the email exists, a password reset link has been sent",
+			})
+			return
+		}
+		http.Error(w, `{"error":"Failed to process request"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Send password reset email (non-blocking)
+	go func() {
+		if err := h.emailService.SendPasswordResetEmail(&resetToken.User, resetToken); err != nil {
+			// Log error but don't expose to user
+			// log.Printf("Failed to send password reset email: %v", err)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "If the email exists, a password reset link has been sent",
+	})
+}
+
+// ResetPassword handles password reset confirmation
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req models.PasswordResetConfirmRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Validate new password
+	if err := h.validatePassword(req.NewPassword); err != nil {
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Reset password using token
+	err := h.passwordResetService.ResetPassword(req.Token, req.NewPassword)
+	if err != nil {
+		switch err {
+		case service.ErrTokenNotFound:
+			http.Error(w, `{"error":"Invalid or expired reset link"}`, http.StatusBadRequest)
+		case service.ErrTokenExpired:
+			http.Error(w, `{"error":"Reset link has expired"}`, http.StatusBadRequest)
+		case service.ErrTokenAlreadyUsed:
+			http.Error(w, `{"error":"Reset link has already been used"}`, http.StatusBadRequest)
+		default:
+			http.Error(w, `{"error":"Failed to reset password"}`, http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Password reset successfully",
+	})
+}
+
+// ValidatePasswordResetToken validates a password reset token without using it
+func (h *AuthHandler) ValidatePasswordResetToken(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, `{"error":"Token is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Validate token
+	resetToken, err := h.passwordResetService.ValidateResetToken(token)
+	if err != nil {
+		switch err {
+		case service.ErrTokenNotFound:
+			http.Error(w, `{"error":"Invalid reset link"}`, http.StatusBadRequest)
+		case service.ErrTokenExpired:
+			http.Error(w, `{"error":"Reset link has expired"}`, http.StatusBadRequest)
+		case service.ErrTokenAlreadyUsed:
+			http.Error(w, `{"error":"Reset link has already been used"}`, http.StatusBadRequest)
+		default:
+			http.Error(w, `{"error":"Failed to validate token"}`, http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"valid": true,
+		"email": resetToken.User.Email,
+	})
 }
 
 // ValidationError represents a validation error

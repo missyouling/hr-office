@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -76,6 +78,56 @@ type RegisterRequest struct {
 type AuthResponse struct {
 	Token string `json:"token"`
 	User  User   `json:"user"`
+}
+
+// PasswordResetToken represents a password reset token
+type PasswordResetToken struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	UserID    uint      `json:"user_id" gorm:"index;not null"`
+	User      User      `json:"-" gorm:"foreignKey:UserID"`
+	Token     string    `json:"token" gorm:"uniqueIndex;not null;size:128"`
+	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
+	Used      bool      `json:"used" gorm:"default:false;index"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GenerateToken creates a new secure random token
+func (prt *PasswordResetToken) GenerateToken() error {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return err
+	}
+	prt.Token = hex.EncodeToString(bytes)
+	return nil
+}
+
+// IsExpired checks if the token has expired
+func (prt *PasswordResetToken) IsExpired() bool {
+	return time.Now().After(prt.ExpiresAt)
+}
+
+// IsValid checks if the token is valid (not used and not expired)
+func (prt *PasswordResetToken) IsValid() bool {
+	return !prt.Used && !prt.IsExpired()
+}
+
+// PasswordResetRequest represents the password reset request payload
+type PasswordResetRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// PasswordResetConfirmRequest represents the password reset confirmation payload
+type PasswordResetConfirmRequest struct {
+	Token       string `json:"token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+// ChangePasswordRequest represents the change password request payload
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=6"`
 }
 
 type Period struct {

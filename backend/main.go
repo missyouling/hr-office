@@ -35,6 +35,7 @@ func main() {
 
 	if err := db.AutoMigrate(
 		&models.User{},
+		&models.PasswordResetToken{},
 		&models.Period{},
 		&models.SourceFile{},
 		&models.RawRecord{},
@@ -52,10 +53,12 @@ func main() {
 
 	// Create services
 	auditService := service.NewAuditService(db)
+	passwordResetService := service.NewPasswordResetService(db)
+	emailService := service.NewEmailService()
 
 	// Create handlers
 	handler := api.NewHandler(db)
-	authHandler := api.NewAuthHandler(db, jwtManager)
+	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailService)
 	auditHandler := api.NewAuditHandler(db, auditService)
 
 	// Log system startup
@@ -102,6 +105,9 @@ func main() {
 			publicRouter.Use(auditmw.AuditMiddleware(auditService))
 			publicRouter.Post("/auth/register", authHandler.Register)
 			publicRouter.Post("/auth/login", authHandler.Login)
+			publicRouter.Post("/auth/request-password-reset", authHandler.RequestPasswordReset)
+			publicRouter.Post("/auth/reset-password", authHandler.ResetPassword)
+			publicRouter.Get("/auth/validate-reset-token", authHandler.ValidatePasswordResetToken)
 		})
 
 		// Protected routes with JWT auth first, then audit logging

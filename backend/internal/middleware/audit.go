@@ -107,6 +107,12 @@ func determineActionFromPath(method, path string) (models.ActionType, string, *s
 				action = models.ActionLogout
 			case "change-password":
 				action = models.ActionChangePassword
+			case "request-password-reset":
+				action = models.ActionRequestPasswordReset
+			case "reset-password":
+				action = models.ActionResetPassword
+			case "validate-reset-token":
+				action = models.ActionValidateResetToken
 			case "profile":
 				if method == "GET" {
 					action = models.ActionTokenRefresh

@@ -30,11 +30,14 @@ type ActionType string
 
 const (
 	// Authentication actions
-	ActionLogin          ActionType = "LOGIN"
-	ActionLogout         ActionType = "LOGOUT"
-	ActionRegister       ActionType = "REGISTER"
-	ActionChangePassword ActionType = "CHANGE_PASSWORD"
-	ActionTokenRefresh   ActionType = "TOKEN_REFRESH"
+	ActionLogin               ActionType = "LOGIN"
+	ActionLogout              ActionType = "LOGOUT"
+	ActionRegister            ActionType = "REGISTER"
+	ActionChangePassword      ActionType = "CHANGE_PASSWORD"
+	ActionTokenRefresh        ActionType = "TOKEN_REFRESH"
+	ActionRequestPasswordReset ActionType = "REQUEST_PASSWORD_RESET"
+	ActionResetPassword       ActionType = "RESET_PASSWORD"
+	ActionValidateResetToken  ActionType = "VALIDATE_RESET_TOKEN"
 
 	// Period management actions
 	ActionCreatePeriod ActionType = "CREATE_PERIOD"
