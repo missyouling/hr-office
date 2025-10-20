@@ -14,6 +14,8 @@ import (
 	"siapp/internal/api"
 	"siapp/internal/auth"
 	"siapp/internal/models"
+	"siapp/internal/service"
+	auditmw "siapp/internal/middleware"
 )
 
 func main() {
@@ -40,6 +42,7 @@ func main() {
 		&models.PersonalCharge{},
 		&models.UnitCharge{},
 		&models.RosterEntry{},
+		&models.AuditLog{}, // Add audit log table
 	); err != nil {
 		log.Fatalf("auto migrate: %v", err)
 	}
@@ -47,15 +50,34 @@ func main() {
 	// Create JWT manager
 	jwtManager := auth.NewJWTManager()
 
+	// Create services
+	auditService := service.NewAuditService(db)
+
 	// Create handlers
 	handler := api.NewHandler(db)
 	authHandler := api.NewAuthHandler(db, jwtManager)
+	auditHandler := api.NewAuditHandler(db, auditService)
+
+	// Log system startup
+	auditService.LogSystemEvent(
+		models.ActionSystemStart,
+		"Social insurance server starting up",
+		&models.LogDetails{
+			Custom: map[string]interface{}{
+				"database_path": dbPath,
+				"listen_addr":   os.Getenv("SIAPP_ADDR"),
+			},
+		},
+	)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	// Add audit context first
+	r.Use(auditmw.AuditContext(auditService))
 
 	// Improved CORS settings - more secure
 	corsOptions := cors.Options{
@@ -75,18 +97,25 @@ func main() {
 	r.Use(cors.Handler(corsOptions))
 
 	r.Route("/api", func(apiRouter chi.Router) {
-		// Public authentication routes
-		apiRouter.Post("/auth/register", authHandler.Register)
-		apiRouter.Post("/auth/login", authHandler.Login)
+		// Public authentication routes with audit logging
+		apiRouter.Group(func(publicRouter chi.Router) {
+			publicRouter.Use(auditmw.AuditMiddleware(auditService))
+			publicRouter.Post("/auth/register", authHandler.Register)
+			publicRouter.Post("/auth/login", authHandler.Login)
+		})
 
-		// Protected routes
+		// Protected routes with JWT auth first, then audit logging
 		apiRouter.Group(func(protectedRouter chi.Router) {
 			protectedRouter.Use(auth.JWTMiddleware(jwtManager))
+			protectedRouter.Use(auditmw.AuditMiddleware(auditService))
 
 			// Auth profile routes
 			protectedRouter.Get("/auth/profile", authHandler.GetProfile)
 			protectedRouter.Post("/auth/logout", authHandler.Logout)
 			protectedRouter.Post("/auth/change-password", authHandler.ChangePassword)
+
+			// Audit log routes
+			auditHandler.RegisterAuditRoutes(protectedRouter)
 
 			// All existing routes are now protected
 			handler.RegisterRoutes(protectedRouter)
