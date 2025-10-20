@@ -13,35 +13,33 @@ PostgreSQL 相比 SQLite 提供了以下优势：
 
 ## 前置要求
 
-### 1. Go 版本升级
+### 1. 系统要求确认
 
-**重要**: PostgreSQL 支持需要 Go 1.19 或更高版本。
-
-当前系统使用 Go 1.18，需要先升级：
+**当前系统要求**: Go 1.24+ 已支持完整的 PostgreSQL 功能。
 
 ```bash
 # 检查当前 Go 版本
 go version
+# 应该显示 go version go1.24+ linux/amd64
 
-# 升级到 Go 1.21 (推荐)
-wget https://golang.org/dl/go1.21.0.linux-amd64.tar.gz
+# 如需升级到 Go 1.24+
+wget https://golang.org/dl/go1.24.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.21.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.linux-amd64.tar.gz
 
 # 验证升级
 go version
 ```
 
-### 2. 启用 PostgreSQL 驱动
+### 2. PostgreSQL 驱动已启用
 
-升级 Go 版本后，在 `backend/main.go` 中：
+当前系统已完全支持 PostgreSQL，在 `backend/main.go` 中已包含：
 
 ```go
-// 取消注释这行
+// PostgreSQL 驱动已启用
 "gorm.io/driver/postgres"
 
-// 取消注释 PostgreSQL 连接代码
-// 在 connectDatabase() 函数中
+// PostgreSQL 连接功能已完全可用
 ```
 
 ## 迁移步骤
@@ -116,7 +114,7 @@ SIAPP_DB_SSLMODE=require
 ### 步骤 4: 初始化 PostgreSQL 数据库
 
 ```bash
-# 编译应用程序 (确保已升级 Go 版本)
+# 编译应用程序
 cd backend
 go build .
 
@@ -124,7 +122,10 @@ go build .
 ./siapp
 ```
 
-应用程序启动时，GORM 会自动执行 AutoMigrate 创建所有必要的表。
+应用程序启动时，GORM 会自动执行 AutoMigrate 创建所有必要的表，包括：
+- 用户认证相关表（users, password_reset_tokens, email_verification_tokens）
+- 业务数据表（periods, source_files, raw_records, etc.）
+- 审计日志表（audit_logs）
 
 ### 步骤 5: 数据迁移 (如果有现有数据)
 
@@ -235,10 +236,12 @@ cp .env.example .env
 # 3. 恢复数据库文件
 cp ./data/siapp.db.backup.* ./data/siapp.db
 
-# 4. 重新编译并启动 (注释掉 PostgreSQL 驱动)
+# 4. 重新编译并启动
 go build .
 ./siapp
 ```
+
+系统会自动根据 `SIAPP_DATABASE_TYPE` 环境变量选择数据库类型，无需修改代码。
 
 ## 生产环境迁移注意事项
 
@@ -265,28 +268,28 @@ go build .
 
 ### 常见问题
 
-1. **Go 版本错误**
-   ```
-   错误: module requires Go 1.19
-   解决: 升级 Go 版本到 1.19+
-   ```
-
-2. **连接被拒绝**
+1. **连接被拒绝**
    ```
    错误: connection refused
    解决: 检查 PostgreSQL 服务状态和端口配置
    ```
 
-3. **认证失败**
+2. **认证失败**
    ```
    错误: password authentication failed
    解决: 验证用户名、密码和数据库名称
    ```
 
-4. **SSL 连接错误**
+3. **SSL 连接错误**
    ```
    错误: SSL connection required
    解决: 设置 SIAPP_DB_SSLMODE=disable (开发) 或配置正确的 SSL
+   ```
+
+4. **数据库类型错误**
+   ```
+   错误: unsupported database type
+   解决: 确保 SIAPP_DATABASE_TYPE 设置为 sqlite 或 postgres
    ```
 
 ## 监控和维护

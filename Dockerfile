@@ -1,5 +1,5 @@
 # Multi-stage build for 社保整合系统 (Social Insurance Integration System)
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata

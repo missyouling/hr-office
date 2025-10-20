@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	// "gorm.io/driver/postgres" // Requires Go 1.19+ - enable when upgrading Go version
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -32,12 +32,6 @@ func connectDatabase() (*gorm.DB, error) {
 
 	switch dbType {
 	case "postgres", "postgresql":
-		// PostgreSQL support requires Go 1.19+
-		// Current Go version: 1.18 - upgrade Go to enable PostgreSQL support
-		return nil, fmt.Errorf("PostgreSQL support requires Go 1.19+ (current: 1.18). Please upgrade Go version or use SQLite (SIAPP_DATABASE_TYPE=sqlite)")
-
-		// Uncomment the following code after upgrading to Go 1.19+:
-		/*
 		// PostgreSQL connection
 		dbHost := os.Getenv("SIAPP_DB_HOST")
 		if dbHost == "" {
@@ -74,7 +68,6 @@ func connectDatabase() (*gorm.DB, error) {
 
 		log.Printf("Connecting to PostgreSQL database: host=%s dbname=%s", dbHost, dbName)
 		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		*/
 
 	case "sqlite":
 		// SQLite connection (default)

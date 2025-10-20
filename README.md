@@ -4,6 +4,7 @@
 
 ## 🚀 功能特性
 
+### 核心业务功能
 - **账期管理**: 创建和管理社保账期（如 "2025-08"）
 - **文件上传**: 支持单个或批量上传险种文件（Excel/CSV 格式）
 - **花名册管理**: 上传员工花名册，补充部门信息
@@ -11,14 +12,25 @@
 - **报表导出**: 生成个人和单位扣款明细 Excel 报表
 - **多险种支持**: 养老、基本医疗、大额/生育、失业、工伤保险
 
+### 系统安全与监控
+- **用户认证**: JWT 身份验证和注册登录系统
+- **邮箱验证**: 用户注册邮箱验证，阻止未验证用户登录
+- **密码重置**: 安全的密码重置流程，令牌过期和一次性使用
+- **操作审计**: 完整的用户操作审计日志系统
+- **系统监控**: 健康检查、指标监控、数据库状态监控
+- **数据库支持**: SQLite（默认）+ PostgreSQL（生产推荐）
+
 ## 🏗️ 系统架构
 
 ### 技术栈
 
 **后端**
-- Go 1.21+
+- Go 1.24+
 - Chi 路由器
-- GORM + SQLite
+- GORM + SQLite/PostgreSQL (双数据库支持)
+- JWT 身份认证
+- 完整审计日志系统
+- 系统监控与健康检查
 - Excelize (Excel 处理)
 
 **前端**
@@ -45,8 +57,9 @@
 
 ### 环境要求
 
-- Go 1.21+
+- Go 1.24+
 - Node.js 18+
+- PostgreSQL 15+ (推荐) 或 SQLite (默认)
 - Docker (可选)
 
 ### 本地开发
@@ -87,8 +100,32 @@ docker-compose up -d
 
 ### 后端环境变量
 
+#### 服务器配置
 - `SIAPP_ADDR`: HTTP 监听地址（默认 `:8080`）
+
+#### 数据库配置
+- `SIAPP_DATABASE_TYPE`: 数据库类型 (`sqlite` 或 `postgres`，默认 `sqlite`)
 - `SIAPP_DATABASE_PATH`: SQLite 文件路径（默认 `./data/siapp.db`）
+
+#### PostgreSQL 配置（当 SIAPP_DATABASE_TYPE=postgres 时）
+- `SIAPP_DB_HOST`: PostgreSQL 主机地址（默认 `localhost`）
+- `SIAPP_DB_PORT`: PostgreSQL 端口（默认 `5432`）
+- `SIAPP_DB_USER`: 数据库用户名（默认 `siapp`）
+- `SIAPP_DB_PASSWORD`: 数据库密码（必需）
+- `SIAPP_DB_NAME`: 数据库名称（默认 `siapp`）
+- `SIAPP_DB_SSLMODE`: SSL 模式（默认 `require`）
+
+#### 安全配置
+- `JWT_SECRET_KEY`: JWT 签名密钥（必需）
+- `JWT_TOKEN_DURATION`: JWT 令牌有效期（默认 `24h`）
+- `ALLOWED_ORIGINS`: CORS 允许的域名列表
+
+#### 邮件配置（SMTP）
+- `SMTP_HOST`: SMTP 服务器地址
+- `SMTP_PORT`: SMTP 端口（默认 `587`）
+- `SMTP_USERNAME`: SMTP 用户名
+- `SMTP_PASSWORD`: SMTP 密码
+- `SMTP_FROM`: 发件人邮箱地址
 
 ### 前端环境变量
 
@@ -117,21 +154,50 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 
 ## 🔌 API 接口
 
-### 账期管理
+### 用户认证（公开接口）
+- `POST /api/auth/register` - 用户注册
+- `POST /api/auth/login` - 用户登录
+- `POST /api/auth/request-password-reset` - 请求密码重置
+- `POST /api/auth/reset-password` - 重置密码
+- `GET /api/auth/verify-email` - 邮箱验证
+- `POST /api/auth/resend-verification` - 重发验证邮件
+
+### 用户管理（需要认证）
+- `GET /api/auth/profile` - 获取用户信息
+- `POST /api/auth/logout` - 用户登出
+- `POST /api/auth/change-password` - 修改密码
+
+### 系统监控（公开）
+- `GET /health` - 系统健康检查
+- `GET /health/readiness` - 就绪检查
+- `GET /health/liveness` - 存活检查
+- `GET /version` - 版本信息
+
+### 系统监控（需要认证）
+- `GET /api/monitoring/metrics` - 系统指标
+- `GET /api/monitoring/database` - 数据库状态
+- `GET /api/monitoring/info` - 系统信息
+- `POST /api/monitoring/maintenance` - 执行维护任务
+
+### 操作审计（需要认证）
+- `GET /api/audit/logs` - 查询审计日志
+- `GET /api/audit/stats` - 审计统计信息
+
+### 账期管理（需要认证）
 - `GET /api/periods` - 获取账期列表
 - `POST /api/periods` - 创建新账期
 
-### 文件上传
+### 文件上传（需要认证）
 - `POST /api/periods/{id}/files` - 单文件上传
 - `POST /api/periods/{id}/files/batch` - 批量文件上传
 - `POST /api/periods/{id}/roster` - 花名册上传
 
-### 数据处理
+### 数据处理（需要认证）
 - `POST /api/periods/{id}/process` - 处理数据和聚合
 - `GET /api/periods/{id}/summary` - 查看汇总统计
 - `GET /api/periods/{id}/charges` - 查看扣款明细
 
-### 报表导出
+### 报表导出（需要认证）
 - `GET /api/periods/{id}/charges/export?part=personal` - 导出个人扣款明细
 - `GET /api/periods/{id}/charges/export?part=unit` - 导出单位扣款明细
 
