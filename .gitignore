@@ -1,0 +1,59 @@
+# 社保数据文件（私密数据）
+*.xlsx
+*.xls
+*.csv
+excel_analysis.json
+excel_summary.txt
+analyze_excels.py
+补退模板/
+
+# 数据库文件
+backend/data/siapp.db
+backend/data/*.db
+
+# 上传文件目录
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# 环境配置文件
+frontend/.env.local
+.env
+.env.local
+.env.production
+
+# 依赖和构建目录
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/out/
+
+# 日志文件
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Go 编译文件
+backend/siapp
+backend/*.exe
+backend/debug
+
+# Docker 相关
+.dockerignore
+
+# 其他
+.cache/

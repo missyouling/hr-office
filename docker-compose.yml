@@ -1,0 +1,56 @@
+services:
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: siapp-backend
+    ports:
+      - "8081:8080"  # 主机端口8081映射到容器端口8080
+    environment:
+      - SIAPP_ADDR=:8080
+      - SIAPP_DATABASE_PATH=./data/siapp.db
+    volumes:
+      - backend_data:/root/data  # 持久化数据库数据
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/api/periods"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - siapp-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: siapp-frontend
+    ports:
+      - "10086:8080"  # 主机端口10086映射到容器端口8080
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      # 前端通过nginx代理访问后端API (浏览器环境)
+      - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - siapp-network
+
+volumes:
+  # 持久化后端数据
+  backend_data:
+    driver: local
+
+networks:
+  # 应用网络
+  siapp-network:
+    driver: bridge
