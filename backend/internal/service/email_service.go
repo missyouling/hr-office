@@ -1,9 +1,13 @@
 package service
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
+	"net/smtp"
 	"os"
+	"strconv"
 
 	"siapp/internal/models"
 )
@@ -34,17 +38,16 @@ func (s *EmailService) SendPasswordResetEmail(user *models.User, resetToken *mod
 
 	template := s.getPasswordResetTemplate(user.Username, resetURL)
 
-	// In a real implementation, you would use an email service like SendGrid, AWS SES, etc.
-	// For now, we'll log the email content
-	log.Printf("=== 密码重置邮件 ===")
+	log.Printf("=== 发送密码重置邮件 ===")
 	log.Printf("收件人: %s <%s>", user.Username, user.Email)
 	log.Printf("主题: %s", template.Subject)
-	log.Printf("内容:\n%s", template.Body)
-	log.Printf("==================")
 
-	// TODO: Implement actual email sending
-	// This is where you would integrate with your email service provider
+	if err := s.sendEmail(user.Email, template.Subject, template.Body); err != nil {
+		log.Printf("密码重置邮件发送失败: %v", err)
+		return fmt.Errorf("邮件发送失败: %v", err)
+	}
 
+	log.Printf("密码重置邮件发送成功")
 	return nil
 }
 
@@ -54,12 +57,16 @@ func (s *EmailService) SendEmailVerificationEmail(user *models.User, verificatio
 
 	template := s.getEmailVerificationTemplate(user.Username, verificationURL)
 
-	log.Printf("=== 邮箱验证邮件 ===")
+	log.Printf("=== 发送邮箱验证邮件 ===")
 	log.Printf("收件人: %s <%s>", user.Username, user.Email)
 	log.Printf("主题: %s", template.Subject)
-	log.Printf("内容:\n%s", template.Body)
-	log.Printf("==================")
 
+	if err := s.sendEmail(user.Email, template.Subject, template.Body); err != nil {
+		log.Printf("邮箱验证邮件发送失败: %v", err)
+		return fmt.Errorf("邮件发送失败: %v", err)
+	}
+
+	log.Printf("邮箱验证邮件发送成功")
 	return nil
 }
 
@@ -67,12 +74,16 @@ func (s *EmailService) SendEmailVerificationEmail(user *models.User, verificatio
 func (s *EmailService) SendWelcomeEmail(user *models.User) error {
 	template := s.getWelcomeTemplate(user.Username)
 
-	log.Printf("=== 欢迎邮件 ===")
+	log.Printf("=== 发送欢迎邮件 ===")
 	log.Printf("收件人: %s <%s>", user.Username, user.Email)
 	log.Printf("主题: %s", template.Subject)
-	log.Printf("内容:\n%s", template.Body)
-	log.Printf("==============")
 
+	if err := s.sendEmail(user.Email, template.Subject, template.Body); err != nil {
+		log.Printf("欢迎邮件发送失败: %v", err)
+		return fmt.Errorf("邮件发送失败: %v", err)
+	}
+
+	log.Printf("欢迎邮件发送成功")
 	return nil
 }
 
@@ -80,12 +91,16 @@ func (s *EmailService) SendWelcomeEmail(user *models.User) error {
 func (s *EmailService) SendPasswordChangedEmail(user *models.User) error {
 	template := s.getPasswordChangedTemplate(user.Username)
 
-	log.Printf("=== 密码更改通知 ===")
+	log.Printf("=== 发送密码更改通知 ===")
 	log.Printf("收件人: %s <%s>", user.Username, user.Email)
 	log.Printf("主题: %s", template.Subject)
-	log.Printf("内容:\n%s", template.Body)
-	log.Printf("================")
 
+	if err := s.sendEmail(user.Email, template.Subject, template.Body); err != nil {
+		log.Printf("密码更改通知邮件发送失败: %v", err)
+		return fmt.Errorf("邮件发送失败: %v", err)
+	}
+
+	log.Printf("密码更改通知邮件发送成功")
 	return nil
 }
 
@@ -170,8 +185,104 @@ func (s *EmailService) TestEmailConfiguration() error {
 	log.Printf("邮件服务配置测试")
 	log.Printf("基础URL: %s", s.baseURL)
 
-	// In a real implementation, you would test SMTP connection or API credentials
-	log.Printf("邮件服务配置正常（模拟模式）")
+	// Test SMTP connection
+	host := os.Getenv("SMTP_HOST")
+	port := os.Getenv("SMTP_PORT")
+	username := os.Getenv("SMTP_USERNAME")
+
+	if host == "" || port == "" || username == "" {
+		return fmt.Errorf("SMTP配置不完整")
+	}
+
+	log.Printf("邮件服务配置正常: %s:%s", host, port)
+	return nil
+}
+
+// sendEmail implements actual SMTP email sending with TLS support
+func (s *EmailService) sendEmail(to, subject, body string) error {
+	host := os.Getenv("SMTP_HOST")
+	port := os.Getenv("SMTP_PORT")
+	username := os.Getenv("SMTP_USERNAME")
+	password := os.Getenv("SMTP_PASSWORD")
+	from := os.Getenv("SMTP_FROM")
+
+	if host == "" || port == "" || username == "" || password == "" || from == "" {
+		return fmt.Errorf("SMTP配置不完整")
+	}
+
+	// 构建邮件内容
+	message := fmt.Sprintf("From: %s\r\n", from) +
+		fmt.Sprintf("To: %s\r\n", to) +
+		fmt.Sprintf("Subject: %s\r\n", subject) +
+		"Content-Type: text/plain; charset=UTF-8\r\n" +
+		"\r\n" +
+		body
+
+	// SMTP服务器地址
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("无效的端口号: %v", err)
+	}
+	serverName := fmt.Sprintf("%s:%d", host, portInt)
+
+	// SMTP认证
+	auth := smtp.PlainAuth("", username, password, host)
+
+	// TLS配置
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: false,
+		ServerName:         host,
+	}
+
+	// 建立连接
+	conn, err := net.Dial("tcp", serverName)
+	if err != nil {
+		return fmt.Errorf("连接SMTP服务器失败: %v", err)
+	}
+	defer conn.Close()
+
+	// 创建SMTP客户端
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return fmt.Errorf("创建SMTP客户端失败: %v", err)
+	}
+	defer client.Quit()
+
+	// 启动TLS
+	if err = client.StartTLS(tlsConfig); err != nil {
+		return fmt.Errorf("启动TLS失败: %v", err)
+	}
+
+	// 身份验证
+	if err = client.Auth(auth); err != nil {
+		return fmt.Errorf("SMTP身份验证失败: %v", err)
+	}
+
+	// 设置发送者
+	if err = client.Mail(from); err != nil {
+		return fmt.Errorf("设置发送者失败: %v", err)
+	}
+
+	// 设置接收者
+	if err = client.Rcpt(to); err != nil {
+		return fmt.Errorf("设置接收者失败: %v", err)
+	}
+
+	// 发送邮件内容
+	writer, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("准备邮件数据失败: %v", err)
+	}
+
+	_, err = writer.Write([]byte(message))
+	if err != nil {
+		return fmt.Errorf("写入邮件数据失败: %v", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return fmt.Errorf("关闭邮件数据失败: %v", err)
+	}
 
 	return nil
 }

@@ -43,7 +43,8 @@ services:
 
       # Security configuration
       JWT_SECRET: ${JWT_SECRET}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:10086,https://shebao.mozui.cn}
+      BASE_URL: ${BASE_URL:-http://localhost:10086}
 
       # Email configuration (optional)
       SMTP_HOST: ${SMTP_HOST:-}
@@ -60,6 +61,34 @@ services:
       - siapp-network
     volumes:
       - ./data:/app/data
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+    container_name: siapp-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      # 前端通过生产域名访问后端API（浏览器环境）
+      - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+    ports:
+      - "10086:8080"  # 主机端口10086映射到容器端口8080
+    depends_on:
+      siapp:
+        condition: service_healthy
+    networks:
+      - siapp-network
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "next-server"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:

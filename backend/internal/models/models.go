@@ -85,8 +85,8 @@ type AuthResponse struct {
 // PasswordResetToken represents a password reset token
 type PasswordResetToken struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    uint      `json:"user_id" gorm:"index;not null"`
-	User      User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID    *uint     `json:"user_id,omitempty" gorm:"index"`
+	User      *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	Token     string    `json:"token" gorm:"uniqueIndex;not null;size:128"`
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
 	Used      bool      `json:"used" gorm:"default:false;index"`
@@ -135,8 +135,8 @@ type ChangePasswordRequest struct {
 // EmailVerificationToken represents an email verification token
 type EmailVerificationToken struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    uint      `json:"user_id" gorm:"index;not null"`
-	User      User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID    *uint     `json:"user_id,omitempty" gorm:"index"`
+	User      *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	Token     string    `json:"token" gorm:"uniqueIndex;not null;size:128"`
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
 	Used      bool      `json:"used" gorm:"default:false;index"`
@@ -177,8 +177,8 @@ type EmailVerificationConfirmRequest struct {
 
 type Period struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    uint      `json:"user_id" gorm:"index;not null"`
-	User      User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID    *uint     `json:"user_id,omitempty" gorm:"index"`
+	User      *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	YearMonth string    `json:"year_month" gorm:"index"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
@@ -187,8 +187,8 @@ type Period struct {
 
 type SourceFile struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
-	UserID       uint      `json:"user_id" gorm:"index;not null"`
-	User         User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID       *uint     `json:"user_id,omitempty" gorm:"index"`
+	User         *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	PeriodID     uint      `json:"period_id" gorm:"index"`
 	Period       Period    `json:"-"`
 	FileName     string    `json:"file_name"`
@@ -207,8 +207,8 @@ type SourceFile struct {
 
 type RawRecord struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
-	UserID       uint      `json:"user_id" gorm:"index;not null"`
-	User         User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID       *uint     `json:"user_id,omitempty" gorm:"index"`
+	User         *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	PeriodID     uint      `json:"period_id" gorm:"index"`
 	SourceFileID uint      `json:"source_file_id" gorm:"index"`
 	Sequence     int       `json:"sequence"`
@@ -231,8 +231,8 @@ type RawRecord struct {
 
 type PeriodSummary struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
-	UserID       uint      `json:"user_id" gorm:"index;not null"`
-	User         User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID       *uint     `json:"user_id,omitempty" gorm:"index"`
+	User         *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	PeriodID     uint      `json:"period_id" gorm:"index"`
 	Scheme       Scheme    `json:"scheme"`
 	Part         Part      `json:"part"`
@@ -246,8 +246,8 @@ type PeriodSummary struct {
 
 type PersonalCharge struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
-	UserID           uint      `json:"user_id" gorm:"index;not null"`
-	User             User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID           *uint     `json:"user_id,omitempty" gorm:"index"`
+	User             *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	PeriodID         uint      `json:"period_id" gorm:"index"`
 	Name             string    `json:"name"`
 	IDNumber         string    `json:"id_number" gorm:"index"`
@@ -265,8 +265,8 @@ type PersonalCharge struct {
 
 type UnitCharge struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
-	UserID           uint      `json:"user_id" gorm:"index;not null"`
-	User             User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID           *uint     `json:"user_id,omitempty" gorm:"index"`
+	User             *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	PeriodID         uint      `json:"period_id" gorm:"index"`
 	Name             string    `json:"name"`
 	IDNumber         string    `json:"id_number" gorm:"index"`
@@ -285,8 +285,8 @@ type UnitCharge struct {
 
 type RosterEntry struct {
 	ID         uint      `json:"id" gorm:"primaryKey"`
-	UserID     uint      `json:"user_id" gorm:"index;not null"`
-	User       User      `json:"-" gorm:"foreignKey:UserID"`
+	UserID     *uint     `json:"user_id,omitempty" gorm:"index"`
+	User       *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
 	PeriodID   uint      `json:"period_id" gorm:"index"`
 	Name       string    `json:"name"`
 	IDNumber   string    `json:"id_number" gorm:"index"`

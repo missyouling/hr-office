@@ -57,3 +57,8 @@ backend/debug
 
 # 其他
 .cache/
+
+# Go 安装包和敏感文件
+go*.tar.gz
+go*.zip
+mail.md

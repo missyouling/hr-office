@@ -1,8 +1,8 @@
 # Multi-stage build for 社保整合系统 (Social Insurance Integration System)
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev
 
 # Set working directory
 WORKDIR /app
@@ -17,7 +17,7 @@ RUN go mod download
 COPY backend/ ./
 
 # Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o siapp .
+RUN CGO_ENABLED=1 GOOS=linux go build -o siapp .
 
 # Final stage
 FROM alpine:latest

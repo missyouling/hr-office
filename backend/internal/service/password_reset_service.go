@@ -44,7 +44,7 @@ func (s *PasswordResetService) CreateResetToken(email string) (*models.PasswordR
 
 	// Create new token
 	resetToken := &models.PasswordResetToken{
-		UserID:    user.ID,
+		UserID:    &user.ID,
 		ExpiresAt: time.Now().Add(24 * time.Hour), // 24 hours validity
 		Used:      false,
 	}

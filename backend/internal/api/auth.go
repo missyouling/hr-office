@@ -36,7 +36,7 @@ func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetServi
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req models.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -49,13 +49,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Check if username already exists
 	var existingUser models.User
 	if err := h.db.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
-		http.Error(w, `{"error":"Username already exists"}`, http.StatusConflict)
+		http.Error(w, `{"error":"用户名已存在"}`, http.StatusConflict)
 		return
 	}
 
 	// Check if email already exists
 	if err := h.db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
-		http.Error(w, `{"error":"Email already exists"}`, http.StatusConflict)
+		http.Error(w, `{"error":"邮箱地址已存在"}`, http.StatusConflict)
 		return
 	}
 
@@ -68,19 +68,19 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
-		http.Error(w, `{"error":"Failed to process password"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"密码处理失败"}`, http.StatusInternalServerError)
 		return
 	}
 
 	if err := h.db.Create(&user).Error; err != nil {
-		http.Error(w, `{"error":"Failed to create user"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"创建用户失败"}`, http.StatusInternalServerError)
 		return
 	}
 
 	// Create email verification token
 	verificationToken, err := h.emailVerificationService.CreateVerificationToken(user.ID)
 	if err != nil {
-		http.Error(w, `{"error":"Failed to create verification token"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"创建验证令牌失败"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Return success message (no token until email is verified)
 	response := map[string]interface{}{
-		"message": "Registration successful! Please check your email to verify your account.",
+		"message": "注册成功！请检查邮箱以验证您的账户。",
 		"email":   user.Email,
 		"user_id": user.ID,
 	}
@@ -107,33 +107,33 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req models.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
 		return
 	}
 
 	// Find user by username
 	var user models.User
 	if err := h.db.Where("username = ? AND active = ?", req.Username, true).First(&user).Error; err != nil {
-		http.Error(w, `{"error":"Invalid credentials"}`, http.StatusUnauthorized)
+		http.Error(w, `{"error":"用户名或密码错误"}`, http.StatusUnauthorized)
 		return
 	}
 
 	// Check password
 	if !user.CheckPassword(req.Password) {
-		http.Error(w, `{"error":"Invalid credentials"}`, http.StatusUnauthorized)
+		http.Error(w, `{"error":"用户名或密码错误"}`, http.StatusUnauthorized)
 		return
 	}
 
 	// Check if email is verified
 	if !user.EmailVerified {
-		http.Error(w, `{"error":"Please verify your email address before logging in"}`, http.StatusForbidden)
+		http.Error(w, `{"error":"请先验证邮箱地址后再登录"}`, http.StatusForbidden)
 		return
 	}
 
 	// Generate JWT token
 	token, err := h.jwtManager.GenerateToken(&user)
 	if err != nil {
-		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"生成登录令牌失败"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -186,7 +186,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	var req models.ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -223,19 +223,19 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) validateRegistration(req *models.RegisterRequest) error {
 	// Validate username
 	if len(req.Username) < 3 || len(req.Username) > 50 {
-		return &ValidationError{"Username must be between 3 and 50 characters"}
+		return &ValidationError{"用户名长度必须在3-50个字符之间"}
 	}
 
 	// Username should only contain alphanumeric characters and underscores
 	usernameRegex := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 	if !usernameRegex.MatchString(req.Username) {
-		return &ValidationError{"Username can only contain letters, numbers, and underscores"}
+		return &ValidationError{"用户名只能包含字母、数字和下划线"}
 	}
 
 	// Validate email
 	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 	if !emailRegex.MatchString(req.Email) {
-		return &ValidationError{"Invalid email format"}
+		return &ValidationError{"邮箱格式无效"}
 	}
 
 	// Validate password
@@ -245,7 +245,7 @@ func (h *AuthHandler) validateRegistration(req *models.RegisterRequest) error {
 
 	// Validate full name length
 	if len(req.FullName) > 100 {
-		return &ValidationError{"Full name must be less than 100 characters"}
+		return &ValidationError{"姓名长度不能超过100个字符"}
 	}
 
 	return nil
@@ -254,11 +254,11 @@ func (h *AuthHandler) validateRegistration(req *models.RegisterRequest) error {
 // validatePassword validates password requirements
 func (h *AuthHandler) validatePassword(password string) error {
 	if len(password) < 6 {
-		return &ValidationError{"Password must be at least 6 characters long"}
+		return &ValidationError{"密码长度至少需要6个字符"}
 	}
 
 	if len(password) > 128 {
-		return &ValidationError{"Password must be less than 128 characters long"}
+		return &ValidationError{"密码长度不能超过128个字符"}
 	}
 
 	// Check for at least one letter and one number
@@ -275,7 +275,7 @@ func (h *AuthHandler) validatePassword(password string) error {
 	}
 
 	if !hasLetter || !hasNumber {
-		return &ValidationError{"Password must contain at least one letter and one number"}
+		return &ValidationError{"密码必须包含至少一个字母和一个数字"}
 	}
 
 	return nil
@@ -285,7 +285,7 @@ func (h *AuthHandler) validatePassword(password string) error {
 func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req models.PasswordResetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -313,7 +313,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 
 	// Send password reset email (non-blocking)
 	go func() {
-		if err := h.emailService.SendPasswordResetEmail(&resetToken.User, resetToken); err != nil {
+		if err := h.emailService.SendPasswordResetEmail(resetToken.User, resetToken); err != nil {
 			// Log error but don't expose to user
 			// log.Printf("Failed to send password reset email: %v", err)
 		}
@@ -329,7 +329,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req models.PasswordResetConfirmRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -429,7 +429,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	// Send welcome email (non-blocking)
 	go func() {
-		h.emailService.SendWelcomeEmail(&verificationToken.User)
+		h.emailService.SendWelcomeEmail(verificationToken.User)
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -442,7 +442,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) {
 	var req models.EmailVerificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -478,7 +478,7 @@ func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Req
 
 	// Send verification email (non-blocking)
 	go func() {
-		if err := h.emailService.SendEmailVerificationEmail(&verificationToken.User, verificationToken); err != nil {
+		if err := h.emailService.SendEmailVerificationEmail(verificationToken.User, verificationToken); err != nil {
 			// Log error but don't expose to user
 			// log.Printf("Failed to send verification email: %v", err)
 		}

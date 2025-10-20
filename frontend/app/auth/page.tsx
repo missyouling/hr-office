@@ -123,11 +123,27 @@ export default function AuthPage() {
         throw new Error(data.error || "注册失败");
       }
 
-      // Use AuthProvider's login method to properly set state
-      login(data.token, data.user);
+      // 注册成功，显示邮箱验证提醒
+      toast.success(
+        `注册成功！我们已向 ${data.email} 发送了验证邮件，请点击邮件中的链接验证您的邮箱，然后返回登录。`,
+        {
+          duration: 8000,
+        }
+      );
 
-      toast.success("注册成功");
-      router.push("/");
+      // 清空注册表单
+      setRegisterData({
+        username: "",
+        email: "",
+        password: "",
+        fullName: "",
+      });
+
+      // 切换到登录选项卡
+      const loginTab = document.querySelector('[value="login"]') as HTMLElement;
+      if (loginTab) {
+        loginTab.click();
+      }
     } catch (error) {
       console.error("Register error:", error);
       toast.error(error instanceof Error ? error.message : "注册失败");

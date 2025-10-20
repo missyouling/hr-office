@@ -59,15 +59,15 @@ var rosterHeaderMap = map[string]string{
 	"备注":    "remarks",
 }
 
-func (p *Processor) ParseSourceFile(periodID uint, storedPath, originalName string, scheme models.Scheme, part models.Part) (*ParseResult, error) {
-	return p.parseSourceFileWithType(periodID, storedPath, originalName, scheme, part, models.FileTypeNormal)
+func (p *Processor) ParseSourceFile(periodID uint, userID *uint, storedPath, originalName string, scheme models.Scheme, part models.Part) (*ParseResult, error) {
+	return p.parseSourceFileWithType(periodID, userID, storedPath, originalName, scheme, part, models.FileTypeNormal)
 }
 
-func (p *Processor) ParseAdjustmentFile(periodID uint, storedPath, originalName string, scheme models.Scheme, part models.Part) (*ParseResult, error) {
-	return p.parseSourceFileWithType(periodID, storedPath, originalName, scheme, part, models.FileTypeAdjustment)
+func (p *Processor) ParseAdjustmentFile(periodID uint, userID *uint, storedPath, originalName string, scheme models.Scheme, part models.Part) (*ParseResult, error) {
+	return p.parseSourceFileWithType(periodID, userID, storedPath, originalName, scheme, part, models.FileTypeAdjustment)
 }
 
-func (p *Processor) parseSourceFileWithType(periodID uint, storedPath, originalName string, scheme models.Scheme, part models.Part, fileType models.FileType) (*ParseResult, error) {
+func (p *Processor) parseSourceFileWithType(periodID uint, userID *uint, storedPath, originalName string, scheme models.Scheme, part models.Part, fileType models.FileType) (*ParseResult, error) {
 	f, err := excelize.OpenFile(storedPath)
 	if err != nil {
 		return nil, fmt.Errorf("open excel: %w", err)
@@ -118,6 +118,7 @@ func (p *Processor) parseSourceFileWithType(periodID uint, storedPath, originalN
 		}
 
 		record := models.RawRecord{
+			UserID:     userID,
 			PeriodID:   periodID,
 			Sequence:   toInt(seq),
 			Name:       name,
@@ -165,6 +166,7 @@ func (p *Processor) parseSourceFileWithType(periodID uint, storedPath, originalN
 		}
 
 		source := models.SourceFile{
+			UserID:       userID,
 			PeriodID:     periodID,
 			FileName:     filepath.Base(storedPath),
 			StoredPath:   storedPath,
@@ -199,7 +201,7 @@ func (p *Processor) parseSourceFileWithType(periodID uint, storedPath, originalN
 	}, nil
 }
 
-func (p *Processor) ParseRosterFile(periodID uint, storedPath, originalName string) (*RosterParseResult, error) {
+func (p *Processor) ParseRosterFile(periodID uint, userID *uint, storedPath, originalName string) (*RosterParseResult, error) {
 	fmt.Printf("ParseRosterFile: starting to parse file %s (original: %s)\n", storedPath, originalName)
 
 	f, err := excelize.OpenFile(storedPath)
@@ -274,6 +276,7 @@ func (p *Processor) ParseRosterFile(periodID uint, storedPath, originalName stri
 			continue
 		}
 		entry := models.RosterEntry{
+			UserID:     userID,
 			PeriodID:   periodID,
 			IDNumber:   idNumber,
 			Department: strings.TrimSpace(getCell(row, indexMap["department"])),
@@ -467,6 +470,7 @@ func buildAggregates(records []models.RawRecord, roster map[string]models.Roster
 		sumKey := fmt.Sprintf("%s_%s", rec.Scheme, rec.Part)
 		if _, ok := summaryMap[sumKey]; !ok {
 			summaryMap[sumKey] = &models.PeriodSummary{
+				UserID:    rec.UserID,
 				PeriodID:  rec.PeriodID,
 				Scheme:    rec.Scheme,
 				Part:      rec.Part,
@@ -554,6 +558,7 @@ func buildAggregates(records []models.RawRecord, roster map[string]models.Roster
 	for _, person := range personMap {
 		personalSubtotal := round2(person.Personal.Pension + person.Personal.Medical + person.Personal.SeriousIllness + person.Personal.Unemployment)
 		personalCharges = append(personalCharges, models.PersonalCharge{
+			UserID:           records[0].UserID,
 			PeriodID:         records[0].PeriodID,
 			Name:             person.Name,
 			IDNumber:         person.IDNumber,
@@ -571,6 +576,7 @@ func buildAggregates(records []models.RawRecord, roster map[string]models.Roster
 		unitMedicalTotal := person.Unit.Medical + person.Unit.SeriousIllness
 		unitSubtotal := round2(person.Unit.Pension + unitMedicalTotal + person.Unit.Injury + person.Unit.Unemployment)
 		unitCharges = append(unitCharges, models.UnitCharge{
+			UserID:           records[0].UserID,
 			PeriodID:         records[0].PeriodID,
 			Name:             person.Name,
 			IDNumber:         person.IDNumber,
@@ -851,6 +857,7 @@ func buildAdjustments(records []models.RawRecord, roster map[string]models.Roste
 	for _, person := range personMap {
 		personalSubtotal := round2(person.Personal.Pension + person.Personal.Medical + person.Personal.SeriousIllness + person.Personal.Unemployment)
 		personalCharges = append(personalCharges, models.PersonalCharge{
+			UserID:           records[0].UserID,
 			PeriodID:         records[0].PeriodID,
 			Name:             person.Name,
 			IDNumber:         person.IDNumber,
@@ -986,6 +993,7 @@ func buildSummaryFromRecords(records []models.RawRecord) []models.PeriodSummary 
 		sumKey := fmt.Sprintf("%s_%s", rec.Scheme, rec.Part)
 		if _, ok := summaryMap[sumKey]; !ok {
 			summaryMap[sumKey] = &models.PeriodSummary{
+				UserID:    rec.UserID,
 				PeriodID:  rec.PeriodID,
 				Scheme:    rec.Scheme,
 				Part:      rec.Part,

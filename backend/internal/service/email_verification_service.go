@@ -53,7 +53,7 @@ func (s *EmailVerificationService) CreateVerificationToken(userID uint) (*models
 
 	// Create new verification token
 	verificationToken := &models.EmailVerificationToken{
-		UserID:    userID,
+		UserID:    &userID,
 		ExpiresAt: time.Now().Add(48 * time.Hour), // 48 hours validity
 		Used:      false,
 	}

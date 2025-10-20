@@ -12,9 +12,26 @@ import type {
   UnitCharge,
 } from "./types";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ||
-  "http://localhost:8080/api";
+// 动态检测API地址：根据访问域名自动选择后端地址
+function getApiBase(): string {
+  // 构建时的环境变量优先
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
+  }
+
+  // 运行时动态检测
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "shebao.mozui.cn") {
+      return "https://shebao.mozui.cn/api";
+    }
+  }
+
+  // 默认本地开发环境
+  return "http://localhost:8080/api";
+}
+
+const API_BASE = getApiBase();
 
 async function request<T>(
   path: string,

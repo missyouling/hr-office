@@ -167,12 +167,12 @@ func (h *Handler) createPeriod(w http.ResponseWriter, r *http.Request) {
 	}
 
 	period := models.Period{
-		UserID:    userID,
+		UserID:    &userID,
 		YearMonth: req.YearMonth,
 		Status:    "draft",
 	}
 	// Check for existing period for this user
-	if err := h.db.FirstOrCreate(&period, models.Period{UserID: userID, YearMonth: req.YearMonth}).Error; err != nil {
+	if err := h.db.FirstOrCreate(&period, models.Period{UserID: &userID, YearMonth: req.YearMonth}).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create period", err)
 		return
 	}
@@ -294,7 +294,7 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.process.ParseSourceFile(period.ID, storedPath, header.Filename, scheme, part)
+	result, err := h.process.ParseSourceFile(period.ID, period.UserID, storedPath, header.Filename, scheme, part)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "failed to parse file", err)
 		return
@@ -395,7 +395,7 @@ func (h *Handler) uploadFilesBatch(w http.ResponseWriter, r *http.Request) {
 		_ = src.Close()
 		_ = out.Close()
 
-		result, err := h.process.ParseSourceFile(period.ID, storedPath, header.Filename, scheme, part)
+		result, err := h.process.ParseSourceFile(period.ID, period.UserID, storedPath, header.Filename, scheme, part)
 		if err != nil {
 			item.Error = err.Error()
 			items = append(items, item)
@@ -472,7 +472,7 @@ func (h *Handler) uploadRoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.process.ParseRosterFile(period.ID, storedPath, header.Filename)
+	result, err := h.process.ParseRosterFile(period.ID, period.UserID, storedPath, header.Filename)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "failed to import roster", err)
 		return
@@ -1474,7 +1474,7 @@ func (h *Handler) uploadAdjustmentsBatch(w http.ResponseWriter, r *http.Request)
 		_ = src.Close()
 		_ = out.Close()
 
-		result, err := h.process.ParseAdjustmentFile(period.ID, storedPath, header.Filename, scheme, part)
+		result, err := h.process.ParseAdjustmentFile(period.ID, period.UserID, storedPath, header.Filename, scheme, part)
 		if err != nil {
 			item.Error = err.Error()
 			items = append(items, item)
