@@ -7,17 +7,27 @@ services:
     container_name: siapp-backend
     ports:
       - "8081:8080"  # 主机端口8081映射到容器端口8080
+    env_file:
+      - .env  # 从.env文件加载环境变量
     environment:
+      # 覆盖默认配置
       - SIAPP_ADDR=:8080
       - SIAPP_DATABASE_PATH=./data/siapp.db
+      # 生产环境安全配置
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-this-in-production}
+      - JWT_TOKEN_DURATION=${JWT_TOKEN_DURATION:-12h}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - APP_ENV=${APP_ENV:-development}
     volumes:
       - backend_data:/root/data  # 持久化数据库数据
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/api/periods"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/api/auth/profile || true"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
     networks:
       - siapp-network
 

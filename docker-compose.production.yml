@@ -1,0 +1,114 @@
+services:
+  # 生产环境后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: siapp-backend-prod
+    ports:
+      - "8081:8080"
+    env_file:
+      - .env.production  # 加载生产环境配置
+    environment:
+      - SIAPP_ADDR=:8080
+      - SIAPP_DATABASE_PATH=/app/data/siapp.db
+    volumes:
+      - backend_data_prod:/app/data  # 生产环境数据持久化
+      - ./logs:/app/logs  # 日志文件挂载
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/health || true"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - siapp-network-prod
+    # 生产环境资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+    user: "1001:1001"  # 非root用户运行
+
+  # 生产环境前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: siapp-frontend-prod
+    ports:
+      - "10086:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - siapp-network-prod
+    # 生产环境资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+    user: "1001:1001"  # 非root用户运行
+
+  # Nginx反向代理 (生产环境推荐)
+  nginx:
+    image: nginx:alpine
+    container_name: siapp-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro  # SSL证书
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    networks:
+      - siapp-network-prod
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  # 生产环境数据持久化
+  backend_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/siapp/data
+
+networks:
+  # 生产环境网络
+  siapp-network-prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
