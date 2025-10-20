@@ -38,6 +38,9 @@ const (
 	ActionRequestPasswordReset ActionType = "REQUEST_PASSWORD_RESET"
 	ActionResetPassword       ActionType = "RESET_PASSWORD"
 	ActionValidateResetToken  ActionType = "VALIDATE_RESET_TOKEN"
+	ActionSendVerificationEmail ActionType = "SEND_VERIFICATION_EMAIL"
+	ActionVerifyEmail         ActionType = "VERIFY_EMAIL"
+	ActionResendVerification  ActionType = "RESEND_VERIFICATION"
 
 	// Period management actions
 	ActionCreatePeriod ActionType = "CREATE_PERIOD"

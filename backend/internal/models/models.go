@@ -34,14 +34,16 @@ const (
 
 // User represents a system user
 type User struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	Username  string    `json:"username" gorm:"uniqueIndex;not null"`
-	Email     string    `json:"email" gorm:"uniqueIndex;not null"`
-	Password  string    `json:"-" gorm:"not null"` // Password hash, never returned in JSON
-	FullName  string    `json:"full_name"`
-	Active    bool      `json:"active" gorm:"default:true"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            uint      `json:"id" gorm:"primaryKey"`
+	Username      string    `json:"username" gorm:"uniqueIndex;not null"`
+	Email         string    `json:"email" gorm:"uniqueIndex;not null"`
+	Password      string    `json:"-" gorm:"not null"` // Password hash, never returned in JSON
+	FullName      string    `json:"full_name"`
+	Active        bool      `json:"active" gorm:"default:true"`
+	EmailVerified bool      `json:"email_verified" gorm:"default:false;index"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // SetPassword hashes and sets the user password
@@ -128,6 +130,49 @@ type PasswordResetConfirmRequest struct {
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"required,min=6"`
+}
+
+// EmailVerificationToken represents an email verification token
+type EmailVerificationToken struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	UserID    uint      `json:"user_id" gorm:"index;not null"`
+	User      User      `json:"-" gorm:"foreignKey:UserID"`
+	Token     string    `json:"token" gorm:"uniqueIndex;not null;size:128"`
+	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
+	Used      bool      `json:"used" gorm:"default:false;index"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GenerateToken creates a new secure random token for email verification
+func (evt *EmailVerificationToken) GenerateToken() error {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return err
+	}
+	evt.Token = hex.EncodeToString(bytes)
+	return nil
+}
+
+// IsExpired checks if the email verification token has expired
+func (evt *EmailVerificationToken) IsExpired() bool {
+	return time.Now().After(evt.ExpiresAt)
+}
+
+// IsValid checks if the token is valid (not used and not expired)
+func (evt *EmailVerificationToken) IsValid() bool {
+	return !evt.Used && !evt.IsExpired()
+}
+
+// EmailVerificationRequest represents the email verification request payload
+type EmailVerificationRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// EmailVerificationConfirmRequest represents the email verification confirmation payload
+type EmailVerificationConfirmRequest struct {
+	Token string `json:"token" binding:"required"`
 }
 
 type Period struct {

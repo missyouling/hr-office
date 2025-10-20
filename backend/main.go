@@ -36,6 +36,7 @@ func main() {
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.PasswordResetToken{},
+		&models.EmailVerificationToken{},
 		&models.Period{},
 		&models.SourceFile{},
 		&models.RawRecord{},
@@ -54,11 +55,12 @@ func main() {
 	// Create services
 	auditService := service.NewAuditService(db)
 	passwordResetService := service.NewPasswordResetService(db)
+	emailVerificationService := service.NewEmailVerificationService(db)
 	emailService := service.NewEmailService()
 
 	// Create handlers
 	handler := api.NewHandler(db)
-	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailService)
+	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailVerificationService, emailService)
 	auditHandler := api.NewAuditHandler(db, auditService)
 
 	// Log system startup
@@ -108,6 +110,8 @@ func main() {
 			publicRouter.Post("/auth/request-password-reset", authHandler.RequestPasswordReset)
 			publicRouter.Post("/auth/reset-password", authHandler.ResetPassword)
 			publicRouter.Get("/auth/validate-reset-token", authHandler.ValidatePasswordResetToken)
+			publicRouter.Get("/auth/verify-email", authHandler.VerifyEmail)
+			publicRouter.Post("/auth/resend-verification", authHandler.ResendVerificationEmail)
 		})
 
 		// Protected routes with JWT auth first, then audit logging
@@ -119,6 +123,7 @@ func main() {
 			protectedRouter.Get("/auth/profile", authHandler.GetProfile)
 			protectedRouter.Post("/auth/logout", authHandler.Logout)
 			protectedRouter.Post("/auth/change-password", authHandler.ChangePassword)
+			protectedRouter.Get("/auth/check-email-verification", authHandler.CheckEmailVerificationStatus)
 
 			// Audit log routes
 			auditHandler.RegisterAuditRoutes(protectedRouter)

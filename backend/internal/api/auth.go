@@ -14,19 +14,21 @@ import (
 
 // AuthHandler handles authentication related requests
 type AuthHandler struct {
-	db                   *gorm.DB
-	jwtManager           *auth.JWTManager
-	passwordResetService *service.PasswordResetService
-	emailService         *service.EmailService
+	db                        *gorm.DB
+	jwtManager                *auth.JWTManager
+	passwordResetService      *service.PasswordResetService
+	emailVerificationService  *service.EmailVerificationService
+	emailService              *service.EmailService
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetService *service.PasswordResetService, emailService *service.EmailService) *AuthHandler {
+func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetService *service.PasswordResetService, emailVerificationService *service.EmailVerificationService, emailService *service.EmailService) *AuthHandler {
 	return &AuthHandler{
-		db:                   db,
-		jwtManager:           jwtManager,
-		passwordResetService: passwordResetService,
-		emailService:         emailService,
+		db:                        db,
+		jwtManager:                jwtManager,
+		passwordResetService:      passwordResetService,
+		emailVerificationService:  emailVerificationService,
+		emailService:              emailService,
 	}
 }
 
@@ -75,25 +77,26 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate JWT token
-	token, err := h.jwtManager.GenerateToken(&user)
+	// Create email verification token
+	verificationToken, err := h.emailVerificationService.CreateVerificationToken(user.ID)
 	if err != nil {
-		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"Failed to create verification token"}`, http.StatusInternalServerError)
 		return
 	}
 
-	// Send welcome email (non-blocking)
+	// Send email verification email (non-blocking)
 	go func() {
-		if err := h.emailService.SendWelcomeEmail(&user); err != nil {
+		if err := h.emailService.SendEmailVerificationEmail(&user, verificationToken); err != nil {
 			// Log error but don't fail registration
-			// log.Printf("Failed to send welcome email to %s: %v", user.Email, err)
+			// log.Printf("Failed to send verification email to %s: %v", user.Email, err)
 		}
 	}()
 
-	// Return user and token
-	response := models.AuthResponse{
-		Token: token,
-		User:  user,
+	// Return success message (no token until email is verified)
+	response := map[string]interface{}{
+		"message": "Registration successful! Please check your email to verify your account.",
+		"email":   user.Email,
+		"user_id": user.ID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -118,6 +121,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Check password
 	if !user.CheckPassword(req.Password) {
 		http.Error(w, `{"error":"Invalid credentials"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// Check if email is verified
+	if !user.EmailVerified {
+		http.Error(w, `{"error":"Please verify your email address before logging in"}`, http.StatusForbidden)
 		return
 	}
 
@@ -380,6 +389,124 @@ func (h *AuthHandler) ValidatePasswordResetToken(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"valid": true,
 		"email": resetToken.User.Email,
+	})
+}
+
+// VerifyEmail handles email verification
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, `{"error":"Token is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Get verification token before verifying (to get user info)
+	verificationToken, err := h.emailVerificationService.ValidateVerificationToken(token)
+	if err != nil {
+		switch err {
+		case service.ErrVerificationTokenNotFound:
+			http.Error(w, `{"error":"Invalid verification link"}`, http.StatusBadRequest)
+		case service.ErrVerificationTokenExpired:
+			http.Error(w, `{"error":"Verification link has expired"}`, http.StatusBadRequest)
+		case service.ErrVerificationTokenUsed:
+			http.Error(w, `{"error":"Verification link has already been used"}`, http.StatusBadRequest)
+		default:
+			http.Error(w, `{"error":"Failed to validate token"}`, http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Verify email using token
+	err = h.emailVerificationService.VerifyEmail(token)
+	if err != nil {
+		if err == service.ErrEmailAlreadyVerified {
+			http.Error(w, `{"error":"Email is already verified"}`, http.StatusBadRequest)
+		} else {
+			http.Error(w, `{"error":"Failed to verify email"}`, http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Send welcome email (non-blocking)
+	go func() {
+		h.emailService.SendWelcomeEmail(&verificationToken.User)
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Email verified successfully! You can now log in.",
+	})
+}
+
+// ResendVerificationEmail resends the email verification email
+func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) {
+	var req models.EmailVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Validate email format
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	if !emailRegex.MatchString(req.Email) {
+		http.Error(w, `{"error":"Invalid email format"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Create new verification token
+	verificationToken, err := h.emailVerificationService.CreateVerificationTokenByEmail(req.Email)
+	if err != nil {
+		switch err {
+		case service.ErrUserNotFound:
+			// Don't reveal if email exists or not for security
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"message": "If the email exists and is not verified, a verification link has been sent",
+			})
+			return
+		case service.ErrEmailAlreadyVerified:
+			http.Error(w, `{"error":"Email is already verified"}`, http.StatusBadRequest)
+			return
+		case service.ErrUserNotActive:
+			http.Error(w, `{"error":"User account is not active"}`, http.StatusBadRequest)
+			return
+		default:
+			http.Error(w, `{"error":"Failed to process request"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Send verification email (non-blocking)
+	go func() {
+		if err := h.emailService.SendEmailVerificationEmail(&verificationToken.User, verificationToken); err != nil {
+			// Log error but don't expose to user
+			// log.Printf("Failed to send verification email: %v", err)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "If the email exists and is not verified, a verification link has been sent",
+	})
+}
+
+// CheckEmailVerificationStatus checks if a user's email is verified
+func (h *AuthHandler) CheckEmailVerificationStatus(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	verified, err := h.emailVerificationService.IsEmailVerified(userID)
+	if err != nil {
+		http.Error(w, `{"error":"Failed to check verification status"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"email_verified": verified,
 	})
 }
 

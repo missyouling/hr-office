@@ -48,7 +48,22 @@ func (s *EmailService) SendPasswordResetEmail(user *models.User, resetToken *mod
 	return nil
 }
 
-// SendWelcomeEmail sends a welcome email to new users
+// SendEmailVerificationEmail sends an email verification email
+func (s *EmailService) SendEmailVerificationEmail(user *models.User, verificationToken *models.EmailVerificationToken) error {
+	verificationURL := fmt.Sprintf("%s/verify-email?token=%s", s.baseURL, verificationToken.Token)
+
+	template := s.getEmailVerificationTemplate(user.Username, verificationURL)
+
+	log.Printf("=== 邮箱验证邮件 ===")
+	log.Printf("收件人: %s <%s>", user.Username, user.Email)
+	log.Printf("主题: %s", template.Subject)
+	log.Printf("内容:\n%s", template.Body)
+	log.Printf("==================")
+
+	return nil
+}
+
+// SendWelcomeEmail sends a welcome email to new users (now sent after email verification)
 func (s *EmailService) SendWelcomeEmail(user *models.User) error {
 	template := s.getWelcomeTemplate(user.Username)
 
@@ -93,14 +108,38 @@ func (s *EmailService) getPasswordResetTemplate(username, resetURL string) Email
 	}
 }
 
-func (s *EmailService) getWelcomeTemplate(username string) EmailTemplate {
+func (s *EmailService) getEmailVerificationTemplate(username, verificationURL string) EmailTemplate {
 	return EmailTemplate{
-		Subject: "欢迎使用社保整合系统",
+		Subject: "社保整合系统 - 邮箱验证",
 		Body: fmt.Sprintf(`尊敬的 %s，
 
-欢迎使用社保整合系统！
+感谢您注册社保整合系统！
 
-您的账户已成功创建。您现在可以登录系统开始使用各项功能：
+为了确保您的账户安全，请点击以下链接验证您的邮箱地址：
+%s
+
+此链接将在48小时后过期。
+
+验证邮箱后，您就可以开始使用系统的所有功能了：
+- 社保账期管理
+- 多险种文件上传
+- 数据处理和报表生成
+
+如果您没有注册此账户，请忽略此邮件。
+
+---
+社保整合系统`, username, verificationURL),
+	}
+}
+
+func (s *EmailService) getWelcomeTemplate(username string) EmailTemplate {
+	return EmailTemplate{
+		Subject: "邮箱验证成功 - 欢迎使用社保整合系统",
+		Body: fmt.Sprintf(`尊敬的 %s，
+
+恭喜！您的邮箱验证成功！
+
+您现在可以完全使用社保整合系统的所有功能：
 - 社保账期管理
 - 多险种文件上传
 - 数据处理和报表生成

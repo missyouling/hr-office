@@ -113,6 +113,12 @@ func determineActionFromPath(method, path string) (models.ActionType, string, *s
 				action = models.ActionResetPassword
 			case "validate-reset-token":
 				action = models.ActionValidateResetToken
+			case "verify-email":
+				action = models.ActionVerifyEmail
+			case "resend-verification":
+				action = models.ActionResendVerification
+			case "check-email-verification":
+				action = models.ActionSendVerificationEmail
 			case "profile":
 				if method == "GET" {
 					action = models.ActionTokenRefresh
