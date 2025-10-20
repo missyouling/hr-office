@@ -375,6 +375,12 @@ export default function Home() {
 
   // All useEffect hooks must also come before conditional returns
   useEffect(() => {
+    // Only load periods if user is authenticated and not loading
+    if (!isAuthenticated || isLoading) {
+      setPeriodsLoading(false);
+      return;
+    }
+
     const load = async () => {
       try {
         setPeriodsLoading(true);
@@ -393,7 +399,7 @@ export default function Home() {
       }
     };
     load();
-  }, []);
+  }, [isAuthenticated, isLoading]);
 
   useEffect(() => {
     if (!selectedPeriodId) {
