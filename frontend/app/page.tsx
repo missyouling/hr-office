@@ -25,6 +25,14 @@ import {
   uploadRoster,
   uploadSourceFile,
   uploadSourceFilesBatch,
+  // New API functions
+  changePassword,
+  getAuditLogs,
+  getAuditStats,
+  getSystemMetrics,
+  getDatabaseStatus,
+  getSystemInfo,
+  runMaintenance,
 } from "@/lib/api";
 import type {
   Part,
@@ -36,6 +44,11 @@ import type {
   SchemeChargeDetail,
   SourceFile,
   UnitCharge,
+  AuditLog,
+  AuditStats,
+  SystemMetrics,
+  DatabaseStatus,
+  SystemInfo,
 } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -237,6 +250,24 @@ export default function Home() {
   const [resetting, setResetting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // New feature states
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const [auditDialogOpen, setAuditDialogOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditStats, setAuditStats] = useState<AuditStats | null>(null);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const [monitoringDialogOpen, setMonitoringDialogOpen] = useState(false);
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+  const [databaseStatus, setDatabaseStatus] = useState<DatabaseStatus | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [loadingMonitoring, setLoadingMonitoring] = useState(false);
   const [personalSearchText, setPersonalSearchText] = useState("");
   const [personalSearchDept, setPersonalSearchDept] = useState("__all__");
   const [unitSearchText, setUnitSearchText] = useState("");
@@ -932,6 +963,75 @@ export default function Home() {
     }
   };
 
+  // Password change handler
+  const handlePasswordChange = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      toast.error("请填写所有密码字段");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("新密码与确认密码不匹配");
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("新密码长度至少为6位");
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      await changePassword(oldPassword, newPassword);
+      toast.success("密码修改成功");
+      setPasswordDialogOpen(false);
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      console.error(error);
+      toast.error(`密码修改失败: ${error}`);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  // Load audit logs
+  const handleLoadAuditLogs = async () => {
+    try {
+      setLoadingAudit(true);
+      const [logsResult, statsResult] = await Promise.all([
+        getAuditLogs({ limit: 50 }),
+        getAuditStats(),
+      ]);
+      setAuditLogs(logsResult.logs);
+      setAuditStats(statsResult);
+    } catch (error) {
+      console.error(error);
+      toast.error("加载审计日志失败");
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
+  // Load monitoring data
+  const handleLoadMonitoringData = async () => {
+    try {
+      setLoadingMonitoring(true);
+      const [metrics, dbStatus, sysInfo] = await Promise.all([
+        getSystemMetrics(),
+        getDatabaseStatus(),
+        getSystemInfo(),
+      ]);
+      setSystemMetrics(metrics);
+      setDatabaseStatus(dbStatus);
+      setSystemInfo(sysInfo);
+    } catch (error) {
+      console.error(error);
+      toast.error("加载监控数据失败");
+    } finally {
+      setLoadingMonitoring(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-muted/30">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 pb-16">
@@ -952,9 +1052,40 @@ export default function Home() {
             </div>
             <div className="flex flex-wrap items-center gap-4">
               {user && (
-                <Button variant="outline" size="sm" onClick={logout}>
-                  退出登录
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setPasswordDialogOpen(true);
+                    }}
+                  >
+                    修改密码
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAuditDialogOpen(true);
+                      handleLoadAuditLogs();
+                    }}
+                  >
+                    审计日志
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setMonitoringDialogOpen(true);
+                      handleLoadMonitoringData();
+                    }}
+                  >
+                    系统监控
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={logout}>
+                    退出登录
+                  </Button>
+                </>
               )}
               {periods.length > 0 && (
                 <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-4 py-2 border">
@@ -2281,6 +2412,273 @@ export default function Home() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setSchemeModalOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Password Change Dialog */}
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改密码</DialogTitle>
+            <DialogDescription>
+              请输入您的当前密码和新密码
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="old-password">当前密码</Label>
+              <Input
+                id="old-password"
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="请输入当前密码"
+              />
+            </div>
+            <div>
+              <Label htmlFor="new-password">新密码</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="请输入新密码（至少6位）"
+              />
+            </div>
+            <div>
+              <Label htmlFor="confirm-password">确认新密码</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="请再次输入新密码"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPasswordDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handlePasswordChange} disabled={changingPassword}>
+              {changingPassword ? "修改中..." : "确认修改"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Audit Logs Dialog */}
+      <Dialog open={auditDialogOpen} onOpenChange={setAuditDialogOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>审计日志</DialogTitle>
+            <DialogDescription>
+              查看系统操作记录和统计信息
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {auditStats && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card className="p-3">
+                  <div className="text-sm text-muted-foreground">总日志数</div>
+                  <div className="text-lg font-semibold">{auditStats.total_logs}</div>
+                </Card>
+                <Card className="p-3">
+                  <div className="text-sm text-muted-foreground">成功操作</div>
+                  <div className="text-lg font-semibold text-green-600">{auditStats.success_count}</div>
+                </Card>
+                <Card className="p-3">
+                  <div className="text-sm text-muted-foreground">失败操作</div>
+                  <div className="text-lg font-semibold text-red-600">{auditStats.failure_count}</div>
+                </Card>
+                <Card className="p-3">
+                  <div className="text-sm text-muted-foreground">活跃用户</div>
+                  <div className="text-lg font-semibold">{auditStats.unique_users}</div>
+                </Card>
+              </div>
+            )}
+            <ScrollArea className="h-[400px]">
+              {loadingAudit ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>时间</TableHead>
+                      <TableHead>用户</TableHead>
+                      <TableHead>操作</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead>IP地址</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditLogs.map((log) => (
+                      <TableRow key={log.id}>
+                        <TableCell className="text-sm">
+                          {new Date(log.timestamp).toLocaleString('zh-CN')}
+                        </TableCell>
+                        <TableCell>{log.username || '系统'}</TableCell>
+                        <TableCell>{log.action}</TableCell>
+                        <TableCell>
+                          <Badge variant={log.status === 'SUCCESS' ? 'default' : 'destructive'}>
+                            {log.status === 'SUCCESS' ? '成功' : '失败'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">{log.ip_address}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAuditDialogOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* System Monitoring Dialog */}
+      <Dialog open={monitoringDialogOpen} onOpenChange={setMonitoringDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>系统监控</DialogTitle>
+            <DialogDescription>
+              查看系统运行状态和性能指标
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="h-[500px]">
+            {loadingMonitoring ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* System Metrics */}
+                {systemMetrics && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3">系统指标</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <Card className="p-3">
+                        <div className="text-sm text-muted-foreground">CPU使用率</div>
+                        <div className="text-lg font-semibold">{systemMetrics.cpu_usage.toFixed(1)}%</div>
+                      </Card>
+                      <Card className="p-3">
+                        <div className="text-sm text-muted-foreground">内存使用率</div>
+                        <div className="text-lg font-semibold">{systemMetrics.memory_usage.toFixed(1)}%</div>
+                      </Card>
+                      <Card className="p-3">
+                        <div className="text-sm text-muted-foreground">磁盘使用率</div>
+                        <div className="text-lg font-semibold">{systemMetrics.disk_usage.toFixed(1)}%</div>
+                      </Card>
+                      <Card className="p-3">
+                        <div className="text-sm text-muted-foreground">活跃连接</div>
+                        <div className="text-lg font-semibold">{systemMetrics.active_connections}</div>
+                      </Card>
+                      <Card className="p-3">
+                        <div className="text-sm text-muted-foreground">运行时间</div>
+                        <div className="text-lg font-semibold">
+                          {Math.floor(systemMetrics.uptime_seconds / 3600)}小时
+                        </div>
+                      </Card>
+                      <Card className="p-3">
+                        <div className="text-sm text-muted-foreground">数据库连接</div>
+                        <div className="text-lg font-semibold">{systemMetrics.database_connections}</div>
+                      </Card>
+                    </div>
+                  </div>
+                )}
+
+                {/* Database Status */}
+                {databaseStatus && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3">数据库状态</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">状态:</span>
+                        <Badge variant={databaseStatus.status === 'healthy' ? 'default' : 'destructive'}>
+                          {databaseStatus.status === 'healthy' ? '健康' : '异常'}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Card className="p-3">
+                          <div className="text-sm text-muted-foreground">连接数</div>
+                          <div className="text-lg font-semibold">
+                            {databaseStatus.connection_count} / {databaseStatus.max_connections}
+                          </div>
+                        </Card>
+                        {databaseStatus.database_size && (
+                          <Card className="p-3">
+                            <div className="text-sm text-muted-foreground">数据库大小</div>
+                            <div className="text-lg font-semibold">{databaseStatus.database_size}</div>
+                          </Card>
+                        )}
+                      </div>
+                      {databaseStatus.tables.length > 0 && (
+                        <div>
+                          <h4 className="font-medium mb-2">数据表统计</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {databaseStatus.tables.map((table) => (
+                              <div key={table.name} className="flex justify-between text-sm bg-muted/50 p-2 rounded">
+                                <span>{table.name}</span>
+                                <span>{table.rows} 行</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* System Info */}
+                {systemInfo && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-3">系统信息</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">主机名:</span>
+                          <span className="text-sm">{systemInfo.hostname}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">平台:</span>
+                          <span className="text-sm">{systemInfo.platform}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">CPU核心:</span>
+                          <span className="text-sm">{systemInfo.cpu_cores}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">总内存:</span>
+                          <span className="text-sm">{(systemInfo.total_memory / 1024 / 1024 / 1024).toFixed(1)} GB</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">Go版本:</span>
+                          <span className="text-sm">{systemInfo.go_version}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">应用版本:</span>
+                          <span className="text-sm">{systemInfo.version}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMonitoringDialogOpen(false)}>
               关闭
             </Button>
           </DialogFooter>

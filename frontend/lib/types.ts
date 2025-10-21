@@ -124,3 +124,67 @@ export interface SchemeChargeDetail {
   base: number;
   amount: number;
 }
+
+// =============================================================================
+// Audit and Monitoring Types
+// =============================================================================
+
+export interface AuditLog {
+  id: number;
+  user_id?: number;
+  username?: string;
+  action: string;
+  resource_type?: string;
+  resource_id?: string;
+  status: "SUCCESS" | "FAILURE";
+  ip_address?: string;
+  user_agent?: string;
+  timestamp: string;
+  duration_ms?: number;
+  details?: Record<string, unknown>;
+}
+
+export interface AuditStats {
+  total_logs: number;
+  success_count: number;
+  failure_count: number;
+  unique_users: number;
+  most_active_user?: string;
+  most_common_action?: string;
+  recent_activity: Array<{
+    date: string;
+    count: number;
+  }>;
+}
+
+export interface SystemMetrics {
+  cpu_usage: number;
+  memory_usage: number;
+  disk_usage: number;
+  active_connections: number;
+  uptime_seconds: number;
+  go_version: string;
+  database_connections: number;
+}
+
+export interface DatabaseStatus {
+  status: "healthy" | "degraded" | "unhealthy";
+  connection_count: number;
+  max_connections: number;
+  database_size?: string;
+  last_backup?: string;
+  tables: Array<{
+    name: string;
+    rows: number;
+  }>;
+}
+
+export interface SystemInfo {
+  hostname: string;
+  platform: string;
+  cpu_cores: number;
+  total_memory: number;
+  go_version: string;
+  build_time?: string;
+  version: string;
+}

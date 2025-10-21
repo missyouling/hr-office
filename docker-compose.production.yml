@@ -1,4 +1,23 @@
 services:
+  # PostgreSQL 数据库服务
+  postgres:
+    image: postgres:15-alpine
+    container_name: siapp-postgres-prod
+    environment:
+      POSTGRES_DB: ${SIAPP_DB_NAME:-siapp}
+      POSTGRES_USER: ${SIAPP_DB_USER:-siapp}
+      POSTGRES_PASSWORD: ${SIAPP_DB_PASSWORD}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - siapp-network-prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SIAPP_DB_USER:-siapp} -d ${SIAPP_DB_NAME:-siapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # 生产环境后端服务
   backend:
     build:
@@ -6,12 +25,12 @@ services:
       dockerfile: Dockerfile
     container_name: siapp-backend-prod
     ports:
-      - "8081:8080"
+      - "${BACKEND_PORT:-8080}:8080"
     env_file:
       - .env.production  # 加载生产环境配置
-    environment:
-      - SIAPP_ADDR=:8080
-      - SIAPP_DATABASE_PATH=/app/data/siapp.db
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - backend_data_prod:/app/data  # 生产环境数据持久化
       - ./logs:/app/logs  # 日志文件挂载
@@ -43,13 +62,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080/api}
     container_name: siapp-frontend-prod
     ports:
-      - "10086:8080"
+      - "${FRONTEND_PORT:-3000}:8080"
     environment:
       - NODE_ENV=production
       - PORT=8080
-      - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080/api}
     depends_on:
       backend:
         condition: service_healthy
@@ -95,9 +116,17 @@ services:
     # 安全配置
     security_opt:
       - no-new-privileges:true
-
+      
 volumes:
-  # 生产环境数据持久化
+  # PostgreSQL 数据持久化
+  postgres_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/siapp/postgres
+
+  # 生产环境数据持久化 (可选用于文件存储)
   backend_data_prod:
     driver: local
     driver_opts:

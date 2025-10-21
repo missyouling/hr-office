@@ -10,6 +10,11 @@ import type {
   Scheme,
   SourceFile,
   UnitCharge,
+  AuditLog,
+  AuditStats,
+  SystemMetrics,
+  DatabaseStatus,
+  SystemInfo,
 } from "./types";
 
 // 动态检测API地址：根据访问域名自动选择后端地址
@@ -422,5 +427,80 @@ export async function clearFiles(periodId: number): Promise<{ message: string; c
 export async function clearAdjustments(periodId: number): Promise<{ message: string; cleared: string }> {
   return request<{ message: string; cleared: string }>(`/periods/${periodId}/adjustments/clear`, {
     method: "POST",
+  });
+}
+
+// =============================================================================
+// Authentication APIs
+// =============================================================================
+
+export async function changePassword(oldPassword: string, newPassword: string): Promise<{ message: string }> {
+  return request(`/auth/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  });
+}
+
+// =============================================================================
+// Audit APIs
+// =============================================================================
+
+export async function getAuditLogs(params?: {
+  page?: number;
+  limit?: number;
+  user_id?: number;
+  action?: string;
+  status?: "SUCCESS" | "FAILURE";
+  start_date?: string;
+  end_date?: string;
+}): Promise<{
+  logs: AuditLog[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}> {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        searchParams.append(key, value.toString());
+      }
+    });
+  }
+  const query = searchParams.toString();
+  return request(`/audit/logs${query ? `?${query}` : ""}`);
+}
+
+export async function getAuditStats(): Promise<AuditStats> {
+  return request(`/audit/stats`);
+}
+
+export async function getSystemAuditStats(): Promise<AuditStats> {
+  return request(`/audit/system-stats`);
+}
+
+// =============================================================================
+// Monitoring APIs
+// =============================================================================
+
+export async function getSystemMetrics(): Promise<SystemMetrics> {
+  return request(`/monitoring/metrics`);
+}
+
+export async function getDatabaseStatus(): Promise<DatabaseStatus> {
+  return request(`/monitoring/database`);
+}
+
+export async function getSystemInfo(): Promise<SystemInfo> {
+  return request(`/monitoring/info`);
+}
+
+export async function runMaintenance(task: "cleanup_logs" | "optimize_db" | "clear_cache"): Promise<{ message: string; details?: Record<string, unknown> }> {
+  return request(`/monitoring/maintenance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task }),
   });
 }

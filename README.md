@@ -4,6 +4,13 @@
 
 ## 📅 最新更新
 
+### v1.3.0 (2025-10-21) 🚀
+- ✅ **Docker Hub发布**: 构建并发布生产就绪的Docker镜像到Docker Hub
+- ✅ **生产环境优化**: 默认使用PostgreSQL，完整的生产环境配置
+- ✅ **容器化部署**: 完善的Docker Compose生产环境配置
+- ✅ **镜像优化**: 多阶段构建，后端镜像仅69.9MB，大幅优化镜像大小
+- ✅ **部署测试**: 完整的生产环境模拟部署测试，所有服务运行正常
+
 ### v1.2.0 (2025-01-20)
 - ✅ **修复邮箱验证**: 解决了邮箱验证页面 404 错误，新增 `/verify-email` 路由
 - ✅ **数据库约束优化**: 修复了文件上传和花名册导入的外键约束问题
@@ -13,6 +20,7 @@
 
 ### 当前状态
 - 🟢 **生产就绪**: 系统已完成生产环境测试，所有核心功能正常运行
+- 🟢 **Docker Hub**: 官方镜像已发布，支持一键部署
 - 🟢 **数据库支持**: PostgreSQL 生产环境配置完成
 - 🟢 **邮件服务**: SMTP 邮件发送服务配置完成
 - 🟢 **容器化**: Docker 容器化部署完成
@@ -102,6 +110,49 @@ npm run dev
 ```
 
 ### Docker 部署
+
+#### 🐳 使用 Docker Hub 镜像 (推荐)
+
+我们已将生产就绪的镜像发布到 Docker Hub：
+
+- **后端镜像**: `koujiang2025/shebao-backend:latest` (69.9MB)
+- **前端镜像**: `koujiang2025/shebao-frontend:latest` (290MB)
+
+**一键部署生产环境**:
+```bash
+# 1. 创建部署目录
+mkdir -p ~/siapp-prod && cd ~/siapp-prod
+
+# 2. 下载生产环境配置
+curl -O https://raw.githubusercontent.com/missyouling/shebao-fentan/master/docker-compose.production.yml
+curl -O https://raw.githubusercontent.com/missyouling/shebao-fentan/master/.env.production.example
+
+# 3. 配置环境变量
+cp .env.production.example .env.production
+# 编辑 .env.production 文件，设置数据库密码、域名、SMTP等参数
+
+# 4. 创建数据持久化目录
+sudo mkdir -p /var/lib/siapp/{postgres,data}
+sudo chown -R 999:999 /var/lib/siapp/postgres
+sudo chown -R 1000:1000 /var/lib/siapp/data
+
+# 5. 启动服务
+docker compose -f docker-compose.production.yml up -d
+```
+
+**验证部署**:
+```bash
+# 检查服务状态
+docker compose -f docker-compose.production.yml ps
+
+# 后端健康检查
+curl http://localhost:8080/health
+
+# 前端页面 (端口可在.env.production中配置)
+curl http://localhost:3000
+```
+
+#### 本地开发部署
 
 ```bash
 # 构建并启动所有服务
@@ -216,6 +267,25 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 - `GET /api/periods/{id}/charges/export?part=personal` - 导出个人扣款明细
 - `GET /api/periods/{id}/charges/export?part=unit` - 导出单位扣款明细
 
+## 🐳 Docker 镜像信息
+
+### 镜像仓库
+- **Docker Hub**: [koujiang2025/shebao-backend](https://hub.docker.com/r/koujiang2025/shebao-backend)
+- **Docker Hub**: [koujiang2025/shebao-frontend](https://hub.docker.com/r/koujiang2025/shebao-frontend)
+
+### 镜像特性
+| 镜像 | 大小 | 基础镜像 | 特性 |
+|------|------|----------|------|
+| 后端 | 69.9MB | golang:1.25-alpine | 多阶段构建、PostgreSQL优化、健康检查 |
+| 前端 | 290MB | node:20-alpine | Next.js 15生产构建、环境变量支持 |
+
+### 生产环境配置
+- **默认数据库**: PostgreSQL 15
+- **网络模式**: 专用Docker网络 (172.25.0.0/16)
+- **安全配置**: 非root用户运行、容器隔离
+- **数据持久化**: 绑定挂载 `/var/lib/siapp`
+- **健康检查**: 自动服务状态监控
+
 ## 📁 项目结构
 
 ```
@@ -230,9 +300,12 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 │   ├── app/               # App Router 页面
 │   ├── components/        # 组件库
 │   └── lib/               # 工具函数
-├── docs/                  # 文档
-├── docker-compose.yml     # Docker 编排
-└── deploy.sh             # 部署脚本
+├── docs/                          # 文档
+├── docker-compose.yml             # 开发环境 Docker 编排
+├── docker-compose.production.yml  # 生产环境 Docker 编排
+├── .env.production.example        # 生产环境配置模板
+├── DEPLOYMENT_SUMMARY.md          # 部署操作总结
+└── deploy.sh                     # 部署脚本
 ```
 
 ## 🔒 安全说明
@@ -252,6 +325,14 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 📖 部署文档
+
+详细的部署配置和操作指南请参考：
+
+- [部署操作总结](DEPLOYMENT_SUMMARY.md) - 最新的生产环境部署详细指南
+- [Docker Hub 镜像](https://hub.docker.com/u/koujiang2025) - 官方发布的容器镜像
+- [生产环境配置](.env.production.example) - 完整的环境变量配置模板
 
 ## 📞 联系方式
 
