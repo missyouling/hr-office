@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { verifyEmail as apiVerifyEmail } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,8 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api";
 
 function VerifyEmailContent() {
   const router = useRouter();
@@ -37,18 +36,7 @@ function VerifyEmailContent() {
 
   const verifyEmail = async (token: string) => {
     try {
-      const response = await fetch(`${API_BASE}/auth/verify-email?token=${encodeURIComponent(token)}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "邮箱验证失败");
-      }
+      const data = await apiVerifyEmail(token);
 
       setIsSuccess(true);
       toast.success("邮箱验证成功！");

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { getUserProfile } from "./api";
 
 export interface User {
   id: number;
@@ -25,8 +26,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api";
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -43,17 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const validateToken = useCallback(async (authToken: string) => {
     try {
-      const response = await fetch(`${API_BASE}/auth/profile`, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Token validation failed");
-      }
-
-      const userData = await response.json();
+      const userData = await getUserProfile(authToken);
       setUser(userData);
     } catch (error) {
       console.error("Token validation error:", error);
@@ -78,9 +67,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error("Auth initialization error:", error);
-        // Clear invalid data
+        // Clear invalid data from localStorage AND component state
         localStorage.removeItem("token");
         localStorage.removeItem("user");
+        setToken(null);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -100,17 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-      const response = await fetch(`${API_BASE}/auth/profile`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to refresh user data");
-      }
-
-      const userData = await response.json();
+      const userData = await getUserProfile(token);
       setUser(userData);
       localStorage.setItem("user", JSON.stringify(userData));
     } catch (error) {

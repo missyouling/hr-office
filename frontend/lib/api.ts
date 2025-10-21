@@ -1,7 +1,10 @@
 "use client";
 
 import type {
+  AuditLog,
+  AuditStats,
   BatchUploadItem,
+  DatabaseStatus,
   Part,
   Period,
   PeriodSummary,
@@ -9,30 +12,33 @@ import type {
   RosterEntry,
   Scheme,
   SourceFile,
-  UnitCharge,
-  AuditLog,
-  AuditStats,
-  SystemMetrics,
-  DatabaseStatus,
   SystemInfo,
+  SystemMetrics,
+  UnitCharge,
+  User,
 } from "./types";
 
 // 动态检测API地址：根据访问域名自动选择后端地址
 function getApiBase(): string {
-  // 构建时的环境变量优先
-  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
-  }
-
   // 运行时动态检测
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (hostname === "shebao.mozui.cn") {
-      return "https://shebao.mozui.cn/api";
+    console.log(`[API检测] 当前hostname: ${hostname}`);
+
+    // 支持任何域名访问，自动使用HTTPS + 相同域名
+    if (hostname !== "localhost" && hostname !== "127.0.0.1" && !hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+      const apiUrl = `https://${hostname}/api`;
+      console.log(`[API检测] 域名访问，使用: ${apiUrl}`);
+      return apiUrl;
     }
+
+    // 本地访问，使用localhost:8080
+    const localUrl = "http://localhost:8080/api";
+    console.log(`[API检测] 本地访问，使用: ${localUrl}`);
+    return localUrl;
   }
 
-  // 默认本地开发环境
+  // SSR时的默认值（仅用于服务端渲染，不影响客户端）
   return "http://localhost:8080/api";
 }
 
@@ -430,37 +436,28 @@ export async function clearAdjustments(periodId: number): Promise<{ message: str
   });
 }
 
-// =============================================================================
-// Authentication APIs
-// =============================================================================
-
-export async function changePassword(oldPassword: string, newPassword: string): Promise<{ message: string }> {
-  return request(`/auth/change-password`, {
+// 认证相关API函数
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/auth/change-password", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword
+    }),
   });
 }
 
-// =============================================================================
-// Audit APIs
-// =============================================================================
-
+// 审计相关API函数
 export async function getAuditLogs(params?: {
-  page?: number;
-  limit?: number;
   user_id?: number;
+  limit?: number;
+  offset?: number;
   action?: string;
-  status?: "SUCCESS" | "FAILURE";
+  status?: string;
   start_date?: string;
   end_date?: string;
-}): Promise<{
-  logs: AuditLog[];
-  total: number;
-  page: number;
-  limit: number;
-  total_pages: number;
-}> {
+}): Promise<{ logs: AuditLog[]; total: number; limit: number; offset: number }> {
   const searchParams = new URLSearchParams();
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -469,38 +466,63 @@ export async function getAuditLogs(params?: {
       }
     });
   }
-  const query = searchParams.toString();
-  return request(`/audit/logs${query ? `?${query}` : ""}`);
+  const queryString = searchParams.toString();
+  const url = queryString ? `/audit/logs?${queryString}` : '/audit/logs';
+  return request(url);
 }
 
-export async function getAuditStats(): Promise<AuditStats> {
-  return request(`/audit/stats`);
+export async function getAuditStats(days?: number): Promise<AuditStats> {
+  const url = days ? `/audit/stats/system?days=${days}` : '/audit/stats/system';
+  return request(url);
 }
 
-export async function getSystemAuditStats(): Promise<AuditStats> {
-  return request(`/audit/system-stats`);
-}
-
-// =============================================================================
-// Monitoring APIs
-// =============================================================================
-
+// 监控相关API函数
 export async function getSystemMetrics(): Promise<SystemMetrics> {
-  return request(`/monitoring/metrics`);
+  return request('/monitoring/metrics');
 }
 
 export async function getDatabaseStatus(): Promise<DatabaseStatus> {
-  return request(`/monitoring/database`);
+  return request('/monitoring/database');
 }
 
 export async function getSystemInfo(): Promise<SystemInfo> {
-  return request(`/monitoring/info`);
+  return request('/monitoring/info');
 }
 
-export async function runMaintenance(task: "cleanup_logs" | "optimize_db" | "clear_cache"): Promise<{ message: string; details?: Record<string, unknown> }> {
-  return request(`/monitoring/maintenance`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task }),
+export async function runMaintenance(): Promise<{ message: string; tasks_completed: string[] }> {
+  return request<{ message: string; tasks_completed: string[] }>('/monitoring/maintenance', {
+    method: 'POST',
   });
+}
+
+// 认证相关API函数（供其他组件使用）
+export async function getUserProfile(token: string): Promise<User> {
+  return request('/auth/profile', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function login(credentials: { username: string; password: string }): Promise<{ token: string; user: unknown }> {
+  return request('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+}
+
+export async function register(userData: { username: string; email: string; password: string; fullName?: string }): Promise<{ email: string; message: string }> {
+  return request('/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: userData.username,
+      email: userData.email,
+      password: userData.password,
+      full_name: userData.fullName,
+    }),
+  });
+}
+
+export async function verifyEmail(token: string): Promise<{ message: string }> {
+  return request(`/auth/verify-email?token=${token}`);
 }

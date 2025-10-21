@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useAuth } from "@/lib/auth";
+import { useAuth, User } from "@/lib/auth";
+import { login as apiLogin, register as apiRegister } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,8 +29,6 @@ interface RegisterData {
   password: string;
   fullName: string;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -77,22 +76,10 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(loginData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "登录失败");
-      }
+      const data = await apiLogin(loginData);
 
       // Use AuthProvider's login method to properly set state
-      login(data.token, data.user);
+      login(data.token, data.user as User);
 
       toast.success("登录成功");
       router.push("/");
@@ -109,19 +96,7 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/auth/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(registerData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "注册失败");
-      }
+      const data = await apiRegister(registerData);
 
       // 注册成功，显示邮箱验证提醒
       toast.success(
