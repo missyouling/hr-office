@@ -10,6 +10,7 @@ import (
 	"siapp/internal/auth"
 	"siapp/internal/models"
 	"siapp/internal/service"
+	"siapp/internal/supabase"
 )
 
 // AuditMiddleware creates middleware for audit logging
@@ -25,9 +26,23 @@ func AuditMiddleware(auditService *service.AuditService) func(http.Handler) http
 			}
 
 			// Extract user ID from context if available
+			// Try Supabase context first, then fall back to legacy auth
 			var userID *uint
-			if id, err := auth.GetUserIDFromContext(r.Context()); err == nil {
+			var username string
+
+			// Try Supabase JWT context
+			if supabaseUserID, err := supabase.GetUserIDFromContext(r.Context()); err == nil {
+				// Supabase uses UUID strings, we'll log it in details
+				username = supabaseUserID
+				// For audit compatibility, we'll use 0 as placeholder for Supabase users
+				zeroID := uint(0)
+				userID = &zeroID
+			} else if id, err := auth.GetUserIDFromContext(r.Context()); err == nil {
+				// Legacy JWT
 				userID = &id
+				if user, err := auth.GetUsernameFromContext(r.Context()); err == nil {
+					username = user
+				}
 			}
 
 			// Process the request
@@ -46,6 +61,17 @@ func AuditMiddleware(auditService *service.AuditService) func(http.Handler) http
 
 			// Extract additional details
 			details := extractRequestDetails(r)
+
+			// Add Supabase user info to details if available
+			if username != "" {
+				if details.Custom == nil {
+					details.Custom = make(map[string]interface{})
+				}
+				details.Custom["supabase_user_id"] = username
+				if email, err := supabase.GetUserEmailFromContext(r.Context()); err == nil {
+					details.Custom["supabase_email"] = email
+				}
+			}
 
 			// Log the request
 			auditService.LogHTTPRequest(

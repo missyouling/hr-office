@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/smtp"
 	"os"
-	"strconv"
 
 	"siapp/internal/models"
 )
@@ -218,12 +217,8 @@ func (s *EmailService) sendEmail(to, subject, body string) error {
 		"\r\n" +
 		body
 
-	// SMTP服务器地址
-	portInt, err := strconv.Atoi(port)
-	if err != nil {
-		return fmt.Errorf("无效的端口号: %v", err)
-	}
-	serverName := fmt.Sprintf("%s:%d", host, portInt)
+	// SMTP服务器地址（支持IPv4和IPv6）
+	serverName := net.JoinHostPort(host, port)
 
 	// SMTP认证
 	auth := smtp.PlainAuth("", username, password, host)

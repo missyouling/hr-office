@@ -16,9 +16,10 @@ import (
 
 	"siapp/internal/api"
 	"siapp/internal/auth"
+	auditmw "siapp/internal/middleware"
 	"siapp/internal/models"
 	"siapp/internal/service"
-	auditmw "siapp/internal/middleware"
+	"siapp/internal/supabase"
 )
 
 // connectDatabase connects to database based on environment configuration
@@ -100,11 +101,11 @@ func initializeDefaultAdmin(db *gorm.DB) error {
 	if result.Error != nil && result.Error.Error() == "record not found" {
 		// Admin user doesn't exist, create it
 		admin := models.User{
-			Username:        "admin",
-			Email:          "admin@system.local",
-			FullName:       "系统管理员",
-			Active:         true,
-			EmailVerified:  true, // Admin account is pre-verified
+			Username:      "admin",
+			Email:         "admin@system.local",
+			FullName:      "系统管理员",
+			Active:        true,
+			EmailVerified: true, // Admin account is pre-verified
 		}
 
 		// Set password to "admin123"
@@ -212,8 +213,8 @@ func main() {
 
 	// Improved CORS settings - more secure
 	corsOptions := cors.Options{
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		AllowCredentials: true,
 	}
 
@@ -243,9 +244,9 @@ func main() {
 			publicRouter.Post("/auth/resend-verification", authHandler.ResendVerificationEmail)
 		})
 
-		// Protected routes with JWT auth first, then audit logging
+		// Protected routes with Supabase JWT auth first, then audit logging
 		apiRouter.Group(func(protectedRouter chi.Router) {
-			protectedRouter.Use(auth.JWTMiddleware(jwtManager))
+			protectedRouter.Use(supabase.SupabaseJWTMiddleware())
 			protectedRouter.Use(auditmw.AuditMiddleware(auditService))
 
 			// Auth profile routes
