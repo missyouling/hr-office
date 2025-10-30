@@ -1,0 +1,26 @@
+框架 nextjs 使用App 路由 supabase-js
+.env.local
+NEXT_PUBLIC_SUPABASE_URL=https://vjpvrzphtnxawkqwuogn.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcHZyenBodG54YXdrcXd1b2duIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3ODQyMTAsImV4cCI6MjA3NzM2MDIxMH0.lyrwgC2eisDLmkAqIE6-YfFHgUgt2f4eLUT04U7Sphc
+---
+page.tsx
+import { createClient } from '@/utils/supabase/server'
+import { cookies } from 'next/headers'
+
+export default async function Page() {
+  const cookieStore = await cookies()
+  const supabase = createClient(cookieStore)
+
+  const { data: todos } = await supabase.from('todos').select()
+
+  return (
+    <ul>
+      {todos?.map((todo) => (
+        <li>{todo}</li>
+      ))}
+    </ul>
+  )
+}
+
+---
+数据库密码：KOUjiang888*

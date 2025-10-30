@@ -62,3 +62,8 @@ backend/debug
 go*.tar.gz
 go*.zip
 mail.md
+
+# 数据迁移配置和报告（包含敏感数据）
+migration-config.json
+user_migration_report.json
+*_migration_report.json
