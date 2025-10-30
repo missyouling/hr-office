@@ -162,31 +162,45 @@ export interface AuditStats {
 export interface SystemMetrics {
   cpu_usage: number;
   memory_usage: number;
+  memory_heap_inuse: number;
+  memory_heap_sys: number;
+  memory_sys: number;
+  memory_gc_count: number;
   disk_usage: number;
   active_connections: number;
   uptime_seconds: number;
+  goroutines: number;
   go_version: string;
   database_connections: number;
 }
 
 export interface DatabaseStatus {
-  status: "healthy" | "degraded" | "unhealthy";
-  connection_count: number;
-  max_connections: number;
+  status: string;
+  database_type: string;
+  database_version?: string;
+  connection_count?: number;
+  active_connections?: number;
+  max_connections?: number;
   database_size?: string;
+  total_tables?: number;
+  total_size?: string;
   last_backup?: string;
-  tables: Array<{
+  tables?: Array<{
     name: string;
     rows: number;
   }>;
 }
 
 export interface SystemInfo {
-  hostname: string;
-  platform: string;
-  cpu_cores: number;
-  total_memory: number;
-  go_version: string;
+  hostname?: string;
+  platform?: string;
+  cpu_cores?: number;
+  total_memory?: number;
+  go_version?: string;
   build_time?: string;
-  version: string;
+  version?: string;
+  environment?: string;
+  start_time?: string;
+  uptime?: string;
+  health_status?: string;
 }

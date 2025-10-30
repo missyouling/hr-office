@@ -86,10 +86,7 @@ export function SystemMonitoring({ className }: SystemMonitoringProps) {
   const handleMaintenance = async () => {
     setIsMaintenanceRunning(true);
     try {
-      await runMaintenance({
-        action: "cleanup_tokens",
-        params: {}
-      });
+      await runMaintenance();
       toast.success("维护任务执行成功");
       setShowMaintenanceDialog(false);
       // 重新加载数据

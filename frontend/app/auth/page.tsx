@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useAuth, User } from "@/lib/auth";
-import { login as apiLogin, register as apiRegister, getCompanyOptions, type CompanyOption } from "@/lib/api";
+import { useAuth } from "@/lib/supabase/auth-context";
+import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, Building2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 
 interface LoginData {
-  username: string;
+  email: string;
   password: string;
 }
 
@@ -40,21 +40,27 @@ interface RegisterData {
   companyId: string;
 }
 
-// CompanyOption 接口现在从 API 模块导入
+interface CompanyOption {
+  id: string;
+  name: string;
+  type: "group" | "subsidiary";
+}
 
 export default function AuthPage() {
   const router = useRouter();
-  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, loading } = useAuth();
+  const supabase = createClient();
 
-  // All useState hooks must come before any conditional returns
   const [isLoading, setIsLoading] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  
   const [loginData, setLoginData] = useState<LoginData>({
-    username: "",
+    email: "",
     password: "",
   });
+  
   const [registerData, setRegisterData] = useState<RegisterData>({
     username: "",
     email: "",
@@ -63,37 +69,22 @@ export default function AuthPage() {
     fullName: "",
     companyId: "",
   });
-  const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
+  
+  const [companyOptions] = useState<CompanyOption[]>([
+    { id: "1", name: "某某集团有限公司", type: "group" },
+    { id: "2", name: "生产子公司", type: "subsidiary" },
+    { id: "11", name: "营销子公司", type: "subsidiary" },
+  ]);
 
-  // All useEffect hooks must also come before any conditional returns
-  // Redirect to home if already authenticated
+  // 如果已登录则重定向到首页
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (!loading && user) {
       router.push("/");
     }
-  }, [isAuthenticated, authLoading, router]);
+  }, [user, loading, router]);
 
-  // 获取公司选项
-  useEffect(() => {
-    const fetchCompanyOptions = async () => {
-      try {
-        const options = await getCompanyOptions();
-        setCompanyOptions(options);
-      } catch (error) {
-        console.error('Failed to fetch company options:', error);
-        // 使用默认选项作为回退
-        setCompanyOptions([
-          { id: "1", name: "某某集团有限公司", type: "group" },
-          { id: "2", name: "生产子公司", type: "subsidiary" },
-          { id: "11", name: "营销子公司", type: "subsidiary" },
-        ]);
-      }
-    };
-    fetchCompanyOptions();
-  }, []);
-
-  // Show loading screen while checking authentication
-  if (authLoading) {
+  // 加载中显示loading状态
+  if (loading) {
     return (
       <div className="min-h-screen bg-muted/30 flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -104,67 +95,40 @@ export default function AuthPage() {
     );
   }
 
-  // Don't render if already authenticated (redirect in progress)
-  if (isAuthenticated) {
+  // 已登录则不渲染
+  if (user) {
     return null;
   }
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    try {
-      const data = await apiLogin(loginData);
-
-      // Use AuthProvider's login method to properly set state
-      login(data.token, data.user as User);
-
-      toast.success("登录成功");
-      router.push("/");
-    } catch (error) {
-      console.error("Login error:", error);
-      toast.error(error instanceof Error ? error.message : "登录失败");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 验证邮箱格式
+  // 验证函数
   const validateEmail = (email: string) => {
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     return emailRegex.test(email);
   };
 
-  // 验证用户名格式
   const validateUsername = (username: string) => {
-    // 支持小写字母、数字、下划线，6-20个字符
     const usernameRegex = /^[a-z0-9_]{6,20}$/;
     return usernameRegex.test(username);
   };
 
-  // 验证密码格式
   const validatePassword = (password: string) => {
-    // 必须包含字母和数字，可以包含大小写字母、符号
     const hasLetter = /[a-zA-Z]/.test(password);
     const hasNumber = /[0-9]/.test(password);
     return password.length >= 6 && hasLetter && hasNumber;
   };
 
-  // 验证姓名格式（中文）
   const validateChineseName = (name: string) => {
     const chineseRegex = /^[\u4e00-\u9fa5]{2,10}$/;
     return chineseRegex.test(name);
   };
 
-  // 计算密码匹配状态
   const getPasswordMatchStatus = () => {
     if (!registerData.password || !registerData.confirmPassword) {
-      return null; // 没有输入时不显示状态
+      return null;
     }
     return registerData.password === registerData.confirmPassword;
   };
 
-  // 获取字段验证状态
   const getFieldValidationStatus = (field: string, value: string) => {
     if (!value) return null;
 
@@ -182,7 +146,6 @@ export default function AuthPage() {
     }
   };
 
-  // 获取字段错误消息
   const getFieldErrorMessage = (field: string) => {
     const value = registerData[field as keyof RegisterData] as string;
     if (!value) return null;
@@ -201,10 +164,33 @@ export default function AuthPage() {
     }
   };
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginData.email,
+        password: loginData.password,
+      });
+
+      if (error) throw error;
+
+      toast.success("登录成功");
+      router.push("/");
+    } catch (error) {
+      console.error("Login error:", error);
+      const errorMessage = error instanceof Error ? error.message : "登录失败";
+      toast.error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 验证所有必填字段
+    // 验证所有字段
     if (!registerData.username.trim()) {
       toast.error("请输入用户名");
       return;
@@ -251,7 +237,6 @@ export default function AuthPage() {
       return;
     }
 
-    // 验证密码一致性
     if (registerData.password !== registerData.confirmPassword) {
       toast.error("两次输入的密码不一致");
       return;
@@ -260,19 +245,31 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      // 提取不包含confirmPassword的数据发送到后端
-      const { confirmPassword, ...apiData } = registerData;
-      const data = await apiRegister(apiData);
+      // 使用Supabase Auth注册
+      // 注意：profile会通过数据库触发器自动创建，不需要手动插入
+      const { data, error } = await supabase.auth.signUp({
+        email: registerData.email,
+        password: registerData.password,
+        options: {
+          data: {
+            username: registerData.username,
+            full_name: registerData.fullName,
+            company_id: registerData.companyId,
+          },
+        },
+      });
 
-      // 注册成功，显示邮箱验证提醒
+      if (error) throw error;
+
+      // Profile会通过数据库触发器自动创建（见 001_initial_schema.sql 第396-416行）
+      // 触发器会从 raw_user_meta_data 中提取 username, full_name, company_id
+
       toast.success(
-        `注册成功！我们已向 ${data.email} 发送了验证邮件，请点击邮件中的链接验证您的邮箱，然后返回登录。`,
-        {
-          duration: 8000,
-        }
+        `注册成功！我们已向 ${registerData.email} 发送了验证邮件，请点击邮件中的链接验证您的邮箱，然后返回登录。`,
+        { duration: 8000 }
       );
 
-      // 清空注册表单
+      // 清空表单
       setRegisterData({
         username: "",
         email: "",
@@ -282,14 +279,15 @@ export default function AuthPage() {
         companyId: "",
       });
 
-      // 切换到登录选项卡
+      // 切换到登录标签
       const loginTab = document.querySelector('[value="login"]') as HTMLElement;
       if (loginTab) {
         loginTab.click();
       }
     } catch (error) {
       console.error("Register error:", error);
-      toast.error(error instanceof Error ? error.message : "注册失败");
+      const errorMessage = error instanceof Error ? error.message : "注册失败";
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -316,20 +314,20 @@ export default function AuthPage() {
               <CardHeader>
                 <CardTitle>登录</CardTitle>
                 <CardDescription>
-                  使用您的账户信息登录系统
+                  使用您的邮箱和密码登录系统
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="login-username">用户名</Label>
+                    <Label htmlFor="login-email">邮箱</Label>
                     <Input
-                      id="login-username"
-                      type="text"
-                      placeholder="请输入用户名"
-                      value={loginData.username}
+                      id="login-email"
+                      type="email"
+                      placeholder="请输入邮箱"
+                      value={loginData.email}
                       onChange={(e) =>
-                        setLoginData({ ...loginData, username: e.target.value })
+                        setLoginData({ ...loginData, email: e.target.value })
                       }
                       required
                     />
@@ -582,7 +580,6 @@ export default function AuthPage() {
                         )}
                       </Button>
                     </div>
-                    {/* 密码匹配状态提示 */}
                     {getPasswordMatchStatus() !== null && (
                       <div className={`text-sm flex items-center gap-1 ${
                         getPasswordMatchStatus()

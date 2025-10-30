@@ -601,7 +601,7 @@ export function OrganizationManagement() {
     setOrganizationData(updateNodeInTree(organizationData));
 
     // 更新选中节点的显示
-    if (selectedNode?.id === editNode.id) {
+    if (selectedNode && selectedNode.id === editNode.id) {
       setSelectedNode({
         ...selectedNode,
         name: editNode.name!,

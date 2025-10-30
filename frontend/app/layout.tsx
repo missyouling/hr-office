@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AppProviders } from "./providers";
 
+// Force dynamic rendering for all pages to avoid SSR issues with client-side auth
+export const dynamic = 'force-dynamic';
+export const dynamicParams = true;
+
 // Use system fonts to avoid Google Fonts network issues during Docker build
 const fontVariables = {
   "--font-geist-sans": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",

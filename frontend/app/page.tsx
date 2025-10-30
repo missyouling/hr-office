@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/supabase/auth-context";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+// Disable static generation for this page
+export const dynamic = 'force-dynamic';
 
 import { Sidebar } from "@/components/sidebar";
 import { EmployeeManagement } from "@/components/employee-management";
@@ -12,7 +17,17 @@ import { OrganizationManagement } from "@/components/organization-management";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function HomePage() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const isAuthenticated = !!user;
+  const isLoading = loading;
+
+  // Redirect to auth page if not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/auth');
+    }
+  }, [loading, user, router]);
   const [currentView, setCurrentView] = useState("employee");
 
   // Show loading spinner while authentication is being checked

@@ -607,7 +607,7 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     // 查找该部门最大的工号
     const departmentEmployees = [...employees, ...resignedEmployees]
       .filter(emp => emp.employeeId && emp.employeeId.startsWith(departmentCode))
-      .map(emp => emp.employeeId)
+      .map(emp => emp.employeeId!)
       .sort();
 
     if (departmentEmployees.length === 0) {
@@ -615,6 +615,10 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     }
 
     const lastId = departmentEmployees[departmentEmployees.length - 1];
+    if (!lastId) {
+      return `${departmentCode}001`;
+    }
+    
     const lastNumber = parseInt(lastId.substring(departmentCode.length));
     const nextNumber = lastNumber + 1;
 

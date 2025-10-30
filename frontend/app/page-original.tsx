@@ -2488,15 +2488,15 @@ export default function Home() {
                 </Card>
                 <Card className="p-3">
                   <div className="text-sm text-muted-foreground">成功操作</div>
-                  <div className="text-lg font-semibold text-green-600">{auditStats.success_count}</div>
+                  <div className="text-lg font-semibold text-green-600">{auditStats.stats.by_status['SUCCESS'] || 0}</div>
                 </Card>
                 <Card className="p-3">
                   <div className="text-sm text-muted-foreground">失败操作</div>
-                  <div className="text-lg font-semibold text-red-600">{auditStats.failure_count}</div>
+                  <div className="text-lg font-semibold text-red-600">{auditStats.stats.by_status['FAILURE'] || 0}</div>
                 </Card>
                 <Card className="p-3">
                   <div className="text-sm text-muted-foreground">活跃用户</div>
-                  <div className="text-lg font-semibold">{auditStats.unique_users}</div>
+                  <div className="text-lg font-semibold">{auditStats.stats.active_users}</div>
                 </Card>
               </div>
             )}
@@ -2621,11 +2621,11 @@ export default function Home() {
                           </Card>
                         )}
                       </div>
-                      {databaseStatus.tables.length > 0 && (
+                      {(databaseStatus.tables?.length ?? 0) > 0 && (
                         <div>
                           <h4 className="font-medium mb-2">数据表统计</h4>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {databaseStatus.tables.map((table) => (
+                            {databaseStatus.tables?.map((table) => (
                               <div key={table.name} className="flex justify-between text-sm bg-muted/50 p-2 rounded">
                                 <span>{table.name}</span>
                                 <span>{table.rows} 行</span>
@@ -2660,7 +2660,7 @@ export default function Home() {
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <span className="text-sm text-muted-foreground">总内存:</span>
-                          <span className="text-sm">{(systemInfo.total_memory / 1024 / 1024 / 1024).toFixed(1)} GB</span>
+                          <span className="text-sm">{((systemInfo.total_memory ?? 0) / 1024 / 1024 / 1024).toFixed(1)} GB</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-sm text-muted-foreground">Go版本:</span>

@@ -3,10 +3,19 @@ const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
 
-  // Allow cross-origin access for development
+  // Disable static page generation to avoid SSR errors with client-side auth
+  // This is necessary because our auth system uses localStorage which is not available during SSR
   experimental: {
     allowedDevOrigins: ['8.211.154.165']
-  }
+  },
+
+  // Skip build-time static generation for all pages
+  // This prevents "useAuth must be used within an AuthProvider" errors during build
+  distDir: '.next',
+  
+  // Disable static optimization
+  skipTrailingSlashRedirect: true,
+  skipMiddlewareUrlNormalize: true,
 }
 
 module.exports = nextConfig

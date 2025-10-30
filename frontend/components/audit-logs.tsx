@@ -124,8 +124,8 @@ export function AuditLogs({ className }: AuditLogsProps) {
     return (
       log.user_id?.toString().includes(searchLower) ||
       log.action.toLowerCase().includes(searchLower) ||
-      log.resource?.toLowerCase().includes(searchLower) ||
-      log.description?.toLowerCase().includes(searchLower)
+      log.resource_type?.toLowerCase().includes(searchLower) ||
+      log.resource_id?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -401,10 +401,10 @@ export function AuditLogs({ className }: AuditLogsProps) {
                   filteredLogs.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell className="font-mono text-xs">
-                        {formatDateTime(log.created_at)}
+                        {formatDateTime(log.timestamp)}
                       </TableCell>
                       <TableCell>
-                        {log.user_id ? `用户 ${log.user_id}` : "系统"}
+                        {log.username || (log.user_id ? `用户 ${log.user_id}` : "系统")}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
@@ -412,7 +412,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
                         </Badge>
                       </TableCell>
                       <TableCell className="max-w-32 truncate">
-                        {log.resource || "-"}
+                        {log.resource_type ? `${log.resource_type}${log.resource_id ? `:${log.resource_id}` : ''}` : "-"}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -422,7 +422,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
                         </Badge>
                       </TableCell>
                       <TableCell className="max-w-48 truncate">
-                        {log.description || "-"}
+                        {log.details ? JSON.stringify(log.details) : "-"}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {log.ip_address || "-"}
