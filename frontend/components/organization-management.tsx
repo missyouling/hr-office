@@ -232,7 +232,7 @@ export function OrganizationManagement() {
   const [newNode, setNewNode] = useState<Partial<OrganizationNode>>({
     name: "",
     code: "",
-    type: "",
+    type: undefined,
     parentId: "",
     description: "",
     employeeIdPrefix: "",
@@ -504,7 +504,7 @@ export function OrganizationManagement() {
       id: newId,
       name: newNode.name!,
       code: newNode.code!,
-      type: newNode.type as any,
+      type: newNode.type as "group" | "subsidiary" | "department",
       parentId: newNode.parentId === "root" ? undefined : newNode.parentId || undefined,
       level,
       sort,
@@ -552,7 +552,7 @@ export function OrganizationManagement() {
     setNewNode({
       name: "",
       code: "",
-      type: "",
+      type: undefined,
       parentId: "",
       description: "",
       employeeIdPrefix: "",
@@ -733,7 +733,7 @@ export function OrganizationManagement() {
                                   setNewNode(prev => {
                                     const updated = {
                                       ...prev,
-                                      type: value as any,
+                                      type: value as "group" | "subsidiary" | "department",
                                     };
 
                                     if (value === "department") {
@@ -773,7 +773,7 @@ export function OrganizationManagement() {
                                     ...prev,
                                     parentId: value,
                                     // 重置类型选择
-                                    type: "",
+                                    type: undefined,
                                     employeeIdPrefix: "",
                                     employeeIdRule: "",
                                   }));

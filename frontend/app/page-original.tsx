@@ -2484,7 +2484,7 @@ export default function Home() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card className="p-3">
                   <div className="text-sm text-muted-foreground">总日志数</div>
-                  <div className="text-lg font-semibold">{auditStats.total_logs}</div>
+                  <div className="text-lg font-semibold">{auditStats.stats.total_events}</div>
                 </Card>
                 <Card className="p-3">
                   <div className="text-sm text-muted-foreground">成功操作</div>

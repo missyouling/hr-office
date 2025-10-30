@@ -1036,8 +1036,8 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                       </div>
                       {batchDrafts.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                          尚未选择文件，请点击"选择文件"进行批量导入。
-                        </p>
+                         尚未选择文件，请点击&quot;选择文件&quot;进行批量导入。
+                       </p>
                       ) : (
                         <ScrollArea className="h-72 rounded-md border">
                           <Table>
@@ -1254,9 +1254,9 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
 
                     <div className="text-sm text-muted-foreground border rounded-lg p-3">
                       <ul className="list-disc list-inside space-y-1 text-xs">
-                        <li>点击"选择文件"按钮批量选择社保文件</li>
+                        <li>点击&quot;选择文件&quot;按钮批量选择社保文件</li>
                         <li>为每个文件选择对应的险种和缴费部分</li>
-                        <li>确认文件信息无误后点击"批量上传"</li>
+                        <li>确认文件信息无误后点击&quot;批量上传&quot;</li>
                         <li>支持Excel(.xlsx/.xls)和CSV格式文件</li>
                       </ul>
                     </div>
@@ -1343,8 +1343,8 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                       </div>
                       {selectedAdjustmentFiles.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                          尚未选择文件，请点击"选择文件"进行批量导入。
-                        </p>
+                         尚未选择文件，请点击&quot;选择文件&quot;进行批量导入。
+                       </p>
                       ) : (
                         <ScrollArea className="h-72 rounded-md border">
                           <Table>
@@ -1510,7 +1510,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                             colSpan={5}
                             className="h-24 text-center text-muted-foreground"
                           >
-                            暂无处理数据，请先执行"处理社保数据"。
+                            暂无处理数据，请先执行&quot;处理社保数据&quot;。
                           </TableCell>
                         </TableRow>
                       ) : (
