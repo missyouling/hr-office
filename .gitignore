@@ -62,6 +62,7 @@ backend/debug
 go*.tar.gz
 go*.zip
 mail.md
+supabase.txt
 
 # 数据迁移配置和报告（包含敏感数据）
 migration-config.json
