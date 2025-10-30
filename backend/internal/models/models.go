@@ -39,6 +39,7 @@ type User struct {
 	Email         string    `json:"email" gorm:"uniqueIndex;not null"`
 	Password      string    `json:"-" gorm:"not null"` // Password hash, never returned in JSON
 	FullName      string    `json:"full_name"`
+	CompanyID     string    `json:"company_id" gorm:"index"`
 	Active        bool      `json:"active" gorm:"default:true"`
 	EmailVerified bool      `json:"email_verified" gorm:"default:false;index"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
@@ -70,10 +71,11 @@ type LoginRequest struct {
 
 // RegisterRequest represents the registration request payload
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
-	FullName string `json:"full_name" binding:"max=100"`
+	Username  string `json:"username" binding:"required,min=3,max=50"`
+	Email     string `json:"email" binding:"required,email"`
+	Password  string `json:"password" binding:"required,min=6"`
+	FullName  string `json:"full_name" binding:"max=100"`
+	CompanyID string `json:"companyId" binding:"required"`
 }
 
 // AuthResponse represents the authentication response

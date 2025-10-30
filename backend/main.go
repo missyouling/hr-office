@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -90,6 +91,47 @@ func connectDatabase() (*gorm.DB, error) {
 	return db, err
 }
 
+// initializeDefaultAdmin creates a default admin user if it doesn't exist
+func initializeDefaultAdmin(db *gorm.DB) error {
+	// Check if admin user already exists
+	var existingAdmin models.User
+	result := db.Where("username = ?", "admin").First(&existingAdmin)
+
+	if result.Error != nil && result.Error.Error() == "record not found" {
+		// Admin user doesn't exist, create it
+		admin := models.User{
+			Username:        "admin",
+			Email:          "admin@system.local",
+			FullName:       "系统管理员",
+			Active:         true,
+			EmailVerified:  true, // Admin account is pre-verified
+		}
+
+		// Set password to "admin123"
+		if err := admin.SetPassword("admin123"); err != nil {
+			return fmt.Errorf("set admin password: %v", err)
+		}
+
+		// Set email verification timestamp
+		now := time.Now()
+		admin.EmailVerifiedAt = &now
+
+		// Create the admin user
+		if err := db.Create(&admin).Error; err != nil {
+			return fmt.Errorf("create admin user: %v", err)
+		}
+
+		log.Printf("Default admin user created: username=admin, password=admin123")
+		return nil
+	} else if result.Error != nil {
+		return fmt.Errorf("check for existing admin user: %v", result.Error)
+	}
+
+	// Admin user already exists
+	log.Printf("Default admin user already exists")
+	return nil
+}
+
 func main() {
 	db, err := connectDatabase()
 	if err != nil {
@@ -110,6 +152,11 @@ func main() {
 		&models.AuditLog{}, // Add audit log table
 	); err != nil {
 		log.Fatalf("auto migrate: %v", err)
+	}
+
+	// Initialize default admin user
+	if err := initializeDefaultAdmin(db); err != nil {
+		log.Fatalf("initialize default admin: %v", err)
 	}
 
 	// Create JWT manager

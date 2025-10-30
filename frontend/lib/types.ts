@@ -145,16 +145,18 @@ export interface AuditLog {
 }
 
 export interface AuditStats {
-  total_logs: number;
-  success_count: number;
-  failure_count: number;
-  unique_users: number;
-  most_active_user?: string;
-  most_common_action?: string;
-  recent_activity: Array<{
-    date: string;
-    count: number;
-  }>;
+  days: number;
+  stats: {
+    total_events: number;
+    by_status: {
+      [key: string]: number;
+    };
+    active_users: number;
+    top_actions: Array<{
+      action: string;
+      count: number;
+    }>;
+  };
 }
 
 export interface SystemMetrics {

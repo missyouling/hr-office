@@ -18,8 +18,14 @@ import type {
   User,
 } from "./types";
 
-// 动态检测API地址：根据访问域名自动选择后端地址
+// 动态检测API地址：优先使用环境变量，再根据访问域名自动选择后端地址
 function getApiBase(): string {
+  // 优先使用环境变量
+  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
+    console.log(`[API检测] 使用环境变量: ${process.env.NEXT_PUBLIC_API_BASE_URL}`);
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+
   // 运行时动态检测
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
@@ -32,14 +38,19 @@ function getApiBase(): string {
       return apiUrl;
     }
 
-    // 本地访问，使用localhost:8080
-    const localUrl = "http://localhost:8080/api";
+    // 本地访问，使用localhost:8081
+    const localUrl = "http://localhost:8081/api";
     console.log(`[API检测] 本地访问，使用: ${localUrl}`);
     return localUrl;
   }
 
+  // SSR时优先使用环境变量
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+
   // SSR时的默认值（仅用于服务端渲染，不影响客户端）
-  return "http://localhost:8080/api";
+  return "http://localhost:8081/api";
 }
 
 const API_BASE = getApiBase();
@@ -510,7 +521,7 @@ export async function login(credentials: { username: string; password: string })
   });
 }
 
-export async function register(userData: { username: string; email: string; password: string; fullName?: string }): Promise<{ email: string; message: string }> {
+export async function register(userData: { username: string; email: string; password: string; fullName?: string; companyId: string }): Promise<{ email: string; message: string }> {
   return request('/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -519,10 +530,40 @@ export async function register(userData: { username: string; email: string; pass
       email: userData.email,
       password: userData.password,
       full_name: userData.fullName,
+      companyId: userData.companyId,
     }),
   });
 }
 
 export async function verifyEmail(token: string): Promise<{ message: string }> {
   return request(`/auth/verify-email?token=${token}`);
+}
+
+// 获取组织机构选项（用于注册时选择所属公司）
+export interface CompanyOption {
+  id: string;
+  name: string;
+  type: "group" | "subsidiary";
+}
+
+export async function getCompanyOptions(): Promise<CompanyOption[]> {
+  // 暂时返回硬编码数据，后续可连接到组织机构API
+  // TODO: 连接到真实的组织机构API
+  return [
+    {
+      id: "1",
+      name: "某某集团有限公司",
+      type: "group",
+    },
+    {
+      id: "2",
+      name: "生产子公司",
+      type: "subsidiary",
+    },
+    {
+      id: "11",
+      name: "营销子公司",
+      type: "subsidiary",
+    },
+  ];
 }

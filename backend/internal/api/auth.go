@@ -61,10 +61,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Create new user
 	user := models.User{
-		Username: req.Username,
-		Email:    req.Email,
-		FullName: req.FullName,
-		Active:   true,
+		Username:  req.Username,
+		Email:     req.Email,
+		FullName:  req.FullName,
+		CompanyID: req.CompanyID,
+		Active:    true,
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -246,6 +247,11 @@ func (h *AuthHandler) validateRegistration(req *models.RegisterRequest) error {
 	// Validate full name length
 	if len(req.FullName) > 100 {
 		return &ValidationError{"姓名长度不能超过100个字符"}
+	}
+
+	// Validate company ID
+	if req.CompanyID == "" {
+		return &ValidationError{"请选择所属公司"}
 	}
 
 	return nil

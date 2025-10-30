@@ -64,6 +64,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Validate token by fetching user profile
           await validateToken(storedToken);
+        } else {
+          // No stored credentials, redirect to auth immediately
+          if (typeof window !== 'undefined' && window.location.pathname !== '/auth') {
+            router.push('/auth');
+          }
         }
       } catch (error) {
         console.error("Auth initialization error:", error);
@@ -72,13 +77,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem("user");
         setToken(null);
         setUser(null);
+        // Redirect to auth page on token validation failure
+        if (typeof window !== 'undefined') {
+          router.push('/auth');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     initAuth();
-  }, [validateToken]);
+  }, [validateToken, router]);
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem("token", newToken);
