@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { createClient } from "@/lib/supabase/client";
+import { checkAccountAvailability, resendVerificationEmail } from "@/lib/api";
 import { Eye, EyeOff, Building2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface LoginData {
   email: string;
@@ -49,7 +58,7 @@ interface CompanyOption {
 export default function AuthPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [isLoading, setIsLoading] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -75,6 +84,14 @@ export default function AuthPage() {
     { id: "2", name: "生产子公司", type: "subsidiary" },
     { id: "11", name: "营销子公司", type: "subsidiary" },
   ]);
+  const [availabilityHints, setAvailabilityHints] = useState<{ username: string; email: string }>({
+    username: "",
+    email: "",
+  });
+  const [showResendDialog, setShowResendDialog] = useState(false);
+  const [resendEmailInput, setResendEmailInput] = useState("");
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [resendFeedback, setResendFeedback] = useState<string | null>(null);
 
   // 如果已登录则重定向到首页
   useEffect(() => {
@@ -243,16 +260,47 @@ export default function AuthPage() {
     }
 
     setIsLoading(true);
+    setAvailabilityHints({ username: "", email: "" });
+
+    const usernameToCheck = registerData.username.trim();
+    const emailToCheck = registerData.email.trim();
+
+    try {
+      const availability = await checkAccountAvailability({
+        username: usernameToCheck,
+        email: emailToCheck,
+      });
+
+      const hints: { username: string; email: string } = { username: "", email: "" };
+      if (!availability.username_available) {
+        hints.username = "用户名已存在，请更换";
+      }
+      if (!availability.email_available) {
+        hints.email = "该邮箱已注册，请直接登录或找回密码";
+      }
+
+      if (hints.username || hints.email) {
+        setAvailabilityHints(hints);
+        toast.error(hints.username || hints.email);
+        setIsLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.error("checkAccountAvailability error:", err);
+      toast.error("检查账号可用性失败，请稍后再试");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       // 使用Supabase Auth注册
       // 注意：profile会通过数据库触发器自动创建，不需要手动插入
-      const { data, error } = await supabase.auth.signUp({
-        email: registerData.email,
+      const { error } = await supabase.auth.signUp({
+        email: emailToCheck,
         password: registerData.password,
         options: {
           data: {
-            username: registerData.username,
+            username: usernameToCheck,
             full_name: registerData.fullName,
             company_id: registerData.companyId,
           },
@@ -278,6 +326,7 @@ export default function AuthPage() {
         fullName: "",
         companyId: "",
       });
+      setAvailabilityHints({ username: "", email: "" });
 
       // 切换到登录标签
       const loginTab = document.querySelector('[value="login"]') as HTMLElement;
@@ -286,10 +335,55 @@ export default function AuthPage() {
       }
     } catch (error) {
       console.error("Register error:", error);
-      const errorMessage = error instanceof Error ? error.message : "注册失败";
+      let errorMessage = error instanceof Error ? error.message : "注册失败";
+
+      try {
+        const availability = await checkAccountAvailability({
+          username: usernameToCheck,
+          email: emailToCheck,
+        });
+        const hints: { username: string; email: string } = { username: "", email: "" };
+        if (!availability.username_available) {
+          hints.username = "用户名已存在，请更换";
+        }
+        if (!availability.email_available) {
+          hints.email = "该邮箱已注册，请直接登录或找回密码";
+        }
+        if (hints.username || hints.email) {
+          setAvailabilityHints(hints);
+          errorMessage = hints.username || hints.email || errorMessage;
+        }
+      } catch (checkErr) {
+        console.error("re-check availability failed:", checkErr);
+      }
+
       toast.error(errorMessage);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const targetEmail = resendEmailInput.trim();
+    if (!targetEmail) {
+      toast.error("请输入邮箱地址");
+      return;
+    }
+
+    setIsResendingEmail(true);
+    setResendFeedback(null);
+
+    try {
+      const result = await resendVerificationEmail(targetEmail);
+      setResendFeedback(result.message);
+      toast.success("如果邮箱未验证，新的验证邮件已发送");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "发送失败";
+      setResendFeedback(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsResendingEmail(false);
     }
   };
 
@@ -365,6 +459,21 @@ export default function AuthPage() {
                     {isLoading ? "登录中..." : "登录"}
                   </Button>
                 </form>
+                <div className="mt-2 text-right">
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="px-0"
+                    onClick={() => {
+                      setResendEmailInput(loginData.email || registerData.email || "");
+                      setResendFeedback(null);
+                      setShowResendDialog(true);
+                    }}
+                  >
+                    未收到验证邮件？重新发送
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -386,9 +495,12 @@ export default function AuthPage() {
                       type="text"
                       placeholder="6-20个字符，支持小写字母数字下划线"
                       value={registerData.username}
-                      onChange={(e) =>
-                        setRegisterData({ ...registerData, username: e.target.value })
-                      }
+                      onChange={(e) => {
+                        setRegisterData({ ...registerData, username: e.target.value });
+                        if (availabilityHints.username) {
+                          setAvailabilityHints((prev) => ({ ...prev, username: "" }));
+                        }
+                      }}
                       className={`${registerData.username && getFieldValidationStatus('username', registerData.username) === false ? 'border-red-500' : ''} ${registerData.username && getFieldValidationStatus('username', registerData.username) === true ? 'border-green-500' : ''}`}
                       required
                     />
@@ -411,6 +523,12 @@ export default function AuthPage() {
                         )}
                       </div>
                     )}
+                    {availabilityHints.username && (
+                      <div className="text-sm text-red-600 flex items-center gap-1">
+                        <span className="text-red-500">✗</span>
+                        {availabilityHints.username}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="register-email">邮箱 *</Label>
@@ -419,9 +537,12 @@ export default function AuthPage() {
                       type="email"
                       placeholder="请输入邮箱地址"
                       value={registerData.email}
-                      onChange={(e) =>
-                        setRegisterData({ ...registerData, email: e.target.value })
-                      }
+                      onChange={(e) => {
+                        setRegisterData({ ...registerData, email: e.target.value });
+                        if (availabilityHints.email) {
+                          setAvailabilityHints((prev) => ({ ...prev, email: "" }));
+                        }
+                      }}
                       className={`${registerData.email && getFieldValidationStatus('email', registerData.email) === false ? 'border-red-500' : ''} ${registerData.email && getFieldValidationStatus('email', registerData.email) === true ? 'border-green-500' : ''}`}
                       required
                     />
@@ -442,6 +563,12 @@ export default function AuthPage() {
                             {getFieldErrorMessage('email')}
                           </>
                         )}
+                      </div>
+                    )}
+                    {availabilityHints.email && (
+                      <div className="text-sm text-red-600 flex items-center gap-1">
+                        <span className="text-red-500">✗</span>
+                        {availabilityHints.email}
                       </div>
                     )}
                   </div>
@@ -608,6 +735,51 @@ export default function AuthPage() {
             </Card>
           </TabsContent>
         </Tabs>
+        <Dialog
+          open={showResendDialog}
+          onOpenChange={(open) => {
+            setShowResendDialog(open);
+            if (!open) {
+              setResendEmailInput("");
+              setResendFeedback(null);
+              setIsResendingEmail(false);
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>重新发送验证邮件</DialogTitle>
+              <DialogDescription>
+                输入注册时使用的邮箱，如果该邮箱尚未验证，我们会重新发送验证链接。
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleResendVerification} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="resend-email">邮箱</Label>
+                <Input
+                  id="resend-email"
+                  type="email"
+                  value={resendEmailInput}
+                  onChange={(event) => setResendEmailInput(event.target.value)}
+                  placeholder="请输入注册邮箱"
+                  required
+                />
+              </div>
+              {resendFeedback && (
+                <div className="text-sm text-muted-foreground">{resendFeedback}</div>
+              )}
+              <DialogFooter>
+                <Button
+                  type="submit"
+                  disabled={isResendingEmail}
+                  className="w-full"
+                >
+                  {isResendingEmail ? "发送中..." : "发送验证邮件"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

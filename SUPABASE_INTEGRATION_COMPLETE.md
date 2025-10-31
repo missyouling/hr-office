@@ -3,7 +3,7 @@
 
 ## 项目概述
 
-成功完成社保整合系统（HR Office）从传统JWT认证到Supabase认证系统的完整迁移。
+成功完成人事行政管理系统 (hr-office) 从传统 JWT 认证到 Supabase 认证系统的完整迁移。
 
 **项目仓库**: https://github.com/missyouling/hr-office
 

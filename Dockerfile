@@ -1,4 +1,4 @@
-# Multi-stage build for 社保整合系统 (Social Insurance Integration System)
+# Multi-stage build for 人事行政管理系统 (hr-office)
 FROM golang:1.25-alpine AS builder
 
 # Install build dependencies

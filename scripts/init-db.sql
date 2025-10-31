@@ -1,4 +1,4 @@
--- PostgreSQL initialization script for 社保整合系统 (Social Insurance Integration System)
+-- PostgreSQL initialization script for 人事行政管理系统 (hr-office)
 -- This script is automatically executed when the PostgreSQL container starts for the first time
 
 -- Create extensions if needed

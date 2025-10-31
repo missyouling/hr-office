@@ -1,4 +1,4 @@
-# 社保分摊系统 - 生产环境部署总结
+# 人事行政管理系统 (hr-office) - 生产环境部署总结
 
 ## 📅 部署日期
 **2025年10月21日** - 完成生产环境Docker化部署和Docker Hub镜像发布
@@ -15,13 +15,13 @@
 ### 🐳 Docker Hub 镜像
 
 #### 发布的镜像
-- **后端镜像**: `koujiang2025/shebao-backend:latest` (69.9MB)
+- **后端镜像**: `koujiang2025/hr-office-backend:latest` (69.9MB)
   - 基于Go 1.25-alpine
   - 默认PostgreSQL配置
   - 完整健康检查
   - 生产级安全配置
 
-- **前端镜像**: `koujiang2025/shebao-frontend:latest` (290MB)
+- **前端镜像**: `koujiang2025/hr-office-frontend:latest` (290MB)
   - 基于Node.js 20-alpine
   - Next.js 15生产构建
   - 支持环境变量配置
@@ -58,8 +58,8 @@ BACKEND_PORT=8080
 FRONTEND_PORT=10086
 
 # 域名配置
-NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
-BASE_URL=https://shebao.mozui.cn
+NEXT_PUBLIC_API_BASE_URL=https://hr-office.mozui.cn/api
+BASE_URL=https://hr-office.mozui.cn
 
 # SMTP邮件配置
 SMTP_HOST=smtp.qq.com
@@ -89,7 +89,7 @@ SMTP_FROM=mimigoo@qq.com
 ```
 
 #### ✅ 前端服务验证
-- **页面加载**: 正常显示"社保数据整合平台"
+- **页面加载**: 正常显示"人事行政管理平台"
 - **API连接**: 成功连接后端服务
 - **认证系统**: 身份验证机制工作正常
 
@@ -119,8 +119,8 @@ mkdir -p /home/siapp
 cd /home/siapp
 
 # 2. 下载配置文件
-wget https://raw.githubusercontent.com/missyouling/shebao-fentan/master/docker-compose.production.yml
-wget https://raw.githubusercontent.com/missyouling/shebao-fentan/master/.env.production.example
+wget https://raw.githubusercontent.com/missyouling/hr-office/master/docker-compose.production.yml
+wget https://raw.githubusercontent.com/missyouling/hr-office/master/.env.production.example
 
 # 3. 配置环境变量
 cp .env.production.example .env.production
@@ -188,5 +188,5 @@ curl http://localhost:10086
 
 **部署团队**: Claude Code Assistant
 **测试环境**: `/home/siapp/`
-**生产镜像**: Docker Hub - koujiang2025/shebao-*
+**生产镜像**: Docker Hub - koujiang2025/hr-office-*
 **部署状态**: ✅ 成功 - 所有服务运行正常

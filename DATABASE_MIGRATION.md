@@ -1,6 +1,6 @@
 # 数据库迁移指南：从 SQLite 升级到 PostgreSQL
 
-本文档提供了将社保整合系统从 SQLite 数据库迁移到 PostgreSQL 的详细步骤。
+本文档提供了将人事行政管理系统 (hr-office) 从 SQLite 数据库迁移到 PostgreSQL 的详细步骤。
 
 ## 概述
 

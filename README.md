@@ -1,6 +1,6 @@
-# 社保分摊系统
+# 人事行政管理系统 (hr-office)
 
-一个现代化的社保账期管理和费用分摊系统，采用 Go 后端 + Next.js 前端架构，支持多险种文件上传、数据处理和 Excel 报表生成。
+一个现代化的人事与社保账期管理平台，代号 `hr-office`，采用 Go 后端 + Next.js 前端架构，支持多险种文件上传、数据处理和 Excel 报表生成。
 
 ## 📅 最新更新
 
@@ -89,8 +89,8 @@
 
 1. **克隆项目**
 ```bash
-git clone git@github.com:missyouling/shebao-fentan.git
-cd shebao-fentan
+git clone git@github.com:missyouling/hr-office.git
+cd hr-office
 ```
 
 2. **启动后端服务**
@@ -115,8 +115,8 @@ npm run dev
 
 我们已将生产就绪的镜像发布到 Docker Hub：
 
-- **后端镜像**: `koujiang2025/shebao-backend:latest` (69.9MB)
-- **前端镜像**: `koujiang2025/shebao-frontend:latest` (290MB)
+- **后端镜像**: `koujiang2025/hr-office-backend:latest` (69.9MB)
+- **前端镜像**: `koujiang2025/hr-office-frontend:latest` (290MB)
 
 **一键部署生产环境**:
 ```bash
@@ -124,8 +124,8 @@ npm run dev
 mkdir -p ~/siapp-prod && cd ~/siapp-prod
 
 # 2. 下载生产环境配置
-curl -O https://raw.githubusercontent.com/missyouling/shebao-fentan/master/docker-compose.production.yml
-curl -O https://raw.githubusercontent.com/missyouling/shebao-fentan/master/.env.production.example
+curl -O https://raw.githubusercontent.com/missyouling/hr-office/master/docker-compose.production.yml
+curl -O https://raw.githubusercontent.com/missyouling/hr-office/master/.env.production.example
 
 # 3. 配置环境变量
 cp .env.production.example .env.production
@@ -270,8 +270,8 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ## 🐳 Docker 镜像信息
 
 ### 镜像仓库
-- **Docker Hub**: [koujiang2025/shebao-backend](https://hub.docker.com/r/koujiang2025/shebao-backend)
-- **Docker Hub**: [koujiang2025/shebao-frontend](https://hub.docker.com/r/koujiang2025/shebao-frontend)
+- **Docker Hub**: [koujiang2025/hr-office-backend](https://hub.docker.com/r/koujiang2025/hr-office-backend)
+- **Docker Hub**: [koujiang2025/hr-office-frontend](https://hub.docker.com/r/koujiang2025/hr-office-frontend)
 
 ### 镜像特性
 | 镜像 | 大小 | 基础镜像 | 特性 |
@@ -338,7 +338,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 
 如有问题或建议，请通过以下方式联系：
 
-- 创建 [Issue](https://github.com/missyouling/shebao-fentan/issues)
+- 创建 [Issue](https://github.com/missyouling/hr-office/issues)
 - 发送 Pull Request
 
 ---

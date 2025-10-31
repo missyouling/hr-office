@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Server,
@@ -9,7 +9,6 @@ import {
   Cpu,
   Activity,
   RefreshCw,
-  Clock,
   CheckCircle,
   AlertTriangle,
   XCircle
@@ -27,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -56,7 +54,7 @@ export function SystemMonitoring({ className }: SystemMonitoringProps) {
   const [isMaintenanceRunning, setIsMaintenanceRunning] = useState(false);
   const [showMaintenanceDialog, setShowMaintenanceDialog] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [metricsData, dbData, infoData] = await Promise.all([
@@ -74,14 +72,14 @@ export function SystemMonitoring({ className }: SystemMonitoringProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
     // 每30秒自动刷新一次
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadData]);
 
   const handleMaintenance = async () => {
     setIsMaintenanceRunning(true);

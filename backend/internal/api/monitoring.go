@@ -188,7 +188,7 @@ func (h *MonitoringHandler) GetLiveness(w http.ResponseWriter, r *http.Request) 
 // GetVersion returns version information
 func (h *MonitoringHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	version := map[string]interface{}{
-		"name":        "社保整合系统",
+		"name":        "人事行政管理系统 (hr-office)",
 		"version":     "1.0.0",
 		"build_time":  time.Now().Format(time.RFC3339), // Should be set at build time
 		"git_commit":  "latest",                         // Should be set at build time

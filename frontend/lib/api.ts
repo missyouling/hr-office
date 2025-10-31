@@ -18,39 +18,116 @@ import type {
   User,
 } from "./types";
 
-// 动态检测API地址：优先使用环境变量，再根据访问域名自动选择后端地址
-function getApiBase(): string {
-  // 优先使用环境变量
-  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
-    console.log(`[API检测] 使用环境变量: ${process.env.NEXT_PUBLIC_API_BASE_URL}`);
-    return process.env.NEXT_PUBLIC_API_BASE_URL;
+const PUBLIC_API_BASE = sanitizeBase(process.env.NEXT_PUBLIC_API_BASE_URL);
+const PUBLIC_API_BASE_DOMAIN = sanitizeBase(process.env.NEXT_PUBLIC_API_BASE_URL_DOMAIN);
+const PUBLIC_API_BASE_IP = sanitizeBase(process.env.NEXT_PUBLIC_API_BASE_URL_IP);
+const INTERNAL_API_BASE = sanitizeBase(process.env.INTERNAL_API_BASE_URL);
+const IPV4_REG = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+const DEFAULT_LOCAL_API = "http://localhost:8081/api";
+
+function sanitizeBase(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.replace(/\/+$/, "");
+}
+
+function extractHostname(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return new URL(value).hostname;
+  } catch (error) {
+    console.warn("[API检测] 环境变量解析失败:", value, error);
+    return undefined;
+  }
+}
+
+function composeApiBase(protocol: string, hostname: string, port?: string | null): string {
+  const safeProtocol = protocol || (isLocalhost(hostname) ? "http:" : "https:");
+  const fallbackPort = port || (IPV4_REG.test(hostname) ? "8081" : "");
+  const portSegment = fallbackPort ? `:${fallbackPort}` : "";
+  return sanitizeBase(`${safeProtocol}//${hostname}${portSegment}/api`) ?? DEFAULT_LOCAL_API;
+}
+
+function isLocalhost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+// 根据当前执行环境解析 API Base，客户端与服务端分开处理
+function resolveApiBase(): string {
+  if (typeof window !== "undefined") {
+    const { hostname, protocol, port } = window.location;
+    console.log(`[API检测] 客户端检测 hostname=${hostname}, protocol=${protocol}, port=${port}`);
+
+    const resolved = resolvePublicBase(hostname, protocol, port);
+    console.log(`[API检测] 客户端解析基础地址: ${resolved}`);
+    return resolved;
   }
 
-  // 运行时动态检测
-  if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    console.log(`[API检测] 当前hostname: ${hostname}`);
+  if (INTERNAL_API_BASE) {
+    console.log(`[API检测] 服务端命中内部地址: ${INTERNAL_API_BASE}`);
+    return INTERNAL_API_BASE;
+  }
 
-    // 支持任何域名访问，自动使用HTTPS + 相同域名
-    if (hostname !== "localhost" && hostname !== "127.0.0.1" && !hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-      const apiUrl = `https://${hostname}/api`;
-      console.log(`[API检测] 域名访问，使用: ${apiUrl}`);
-      return apiUrl;
+  if (PUBLIC_API_BASE) {
+    console.log(`[API检测] 服务端回退至公开地址: ${PUBLIC_API_BASE}`);
+    return PUBLIC_API_BASE;
+  }
+
+  console.log(`[API检测] 环境变量缺失，回退默认地址: ${DEFAULT_LOCAL_API}`);
+  return DEFAULT_LOCAL_API;
+}
+
+function resolvePublicBase(hostname: string, protocol: string, port?: string | null): string {
+  if (isLocalhost(hostname)) {
+    const localBase = PUBLIC_API_BASE ?? PUBLIC_API_BASE_IP ?? PUBLIC_API_BASE_DOMAIN ?? DEFAULT_LOCAL_API;
+    console.log(`[API检测] 本地环境命中: ${localBase}`);
+    return localBase;
+  }
+
+  if (IPV4_REG.test(hostname)) {
+    if (PUBLIC_API_BASE_IP) {
+      console.log(`[API检测] 使用公网 IP 地址变量: ${PUBLIC_API_BASE_IP}`);
+      return PUBLIC_API_BASE_IP;
     }
 
-    // 本地访问，使用localhost:8081
-    const localUrl = "http://localhost:8081/api";
-    console.log(`[API检测] 本地访问，使用: ${localUrl}`);
-    return localUrl;
+    const publicHost = extractHostname(PUBLIC_API_BASE);
+    if (PUBLIC_API_BASE && publicHost && IPV4_REG.test(publicHost)) {
+      console.log(`[API检测] 使用旧配置中的 IP 地址: ${PUBLIC_API_BASE}`);
+      return PUBLIC_API_BASE;
+    }
+
+    const fallback = composeApiBase(protocol, hostname, port);
+    console.log(`[API检测] 未配置公网 IP，回退拼接地址: ${fallback}`);
+    return fallback;
   }
 
-  // SSR时优先使用环境变量
-  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (PUBLIC_API_BASE_DOMAIN) {
+    console.log(`[API检测] 使用域名地址变量: ${PUBLIC_API_BASE_DOMAIN}`);
+    return PUBLIC_API_BASE_DOMAIN;
   }
 
-  // SSR时的默认值（仅用于服务端渲染，不影响客户端）
-  return "http://localhost:8081/api";
+  if (PUBLIC_API_BASE) {
+    console.log(`[API检测] 使用旧配置中的公开地址: ${PUBLIC_API_BASE}`);
+    return PUBLIC_API_BASE;
+  }
+
+  const fallback = composeApiBase(protocol, hostname, port);
+  console.log(`[API检测] 未命中任何配置，使用组合域名: ${fallback}`);
+  return fallback;
+}
+
+let cachedApiBase: string | null = null;
+
+function getApiBase(): string {
+  if (cachedApiBase) {
+    return cachedApiBase;
+  }
+
+  cachedApiBase = resolveApiBase();
+  return cachedApiBase;
 }
 
 const API_BASE = getApiBase();
@@ -97,6 +174,31 @@ async function request<T>(
 
 export async function listPeriods(): Promise<Period[]> {
   return request<Period[]>("/periods");
+}
+
+export async function checkAccountAvailability(payload: {
+  email?: string;
+  username?: string;
+}): Promise<{ email_available: boolean; username_available: boolean }> {
+  return request<{ email_available: boolean; username_available: boolean }>(
+    "/auth/check-availability",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function resendVerificationEmail(email: string): Promise<{ message: string }> {
+  return request<{ message: string }>(
+    "/auth/resend-verification",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    },
+  );
 }
 
 export async function createPeriod(yearMonth: string): Promise<Period> {

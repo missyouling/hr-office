@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,7 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     // 检查是否有有效的重置令牌
@@ -24,7 +24,7 @@ export default function ResetPasswordPage() {
         router.push('/auth?error=invalid_token')
       }
     })
-  }, [router])
+  }, [router, supabase])
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()

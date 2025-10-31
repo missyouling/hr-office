@@ -275,6 +275,7 @@ func main() {
 		apiRouter.Group(func(publicRouter chi.Router) {
 			publicRouter.Use(auditmw.AuditMiddleware(auditService))
 			publicRouter.Post("/auth/register", authHandler.Register)
+			publicRouter.Post("/auth/check-availability", authHandler.CheckAccountAvailability)
 			publicRouter.Post("/auth/login", authHandler.Login)
 			publicRouter.Post("/auth/request-password-reset", authHandler.RequestPasswordReset)
 			publicRouter.Post("/auth/reset-password", authHandler.ResetPassword)

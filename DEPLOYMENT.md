@@ -18,8 +18,8 @@ newgrp docker
 
 ```bash
 # 克隆代码仓库
-git clone https://github.com/missyouling/shebao-fentan.git
-cd shebao-fentan
+git clone https://github.com/missyouling/hr-office.git
+cd hr-office
 
 # 创建生产环境配置
 cp .env.production.example .env.production
@@ -62,6 +62,43 @@ docker compose -f docker-compose.production.yml ps
 ## 🔧 高级配置
 
 ### SSL/HTTPS配置
+
+## ✅ 本地构建与测试记录
+
+| 日期(UTC+8) | 命令 | 输出摘要 | 状态 | 备注 |
+|-------------|------|----------|------|------|
+| 2025-10-31  | `GOROOT=/path/to/go1.24.5 PATH=$GOROOT/bin:$PATH CGO_ENABLED=1 go test ./...` | 所有包成功编译，无测试文件 (`? ... [no test files]`) | ✅ 成功 | 运行前需提供 Go ≥1.24.5 工具链 |
+| 2025-10-31  | `npm ci && npm run build` | Turbopack 构建完成，伴随 ESLint 警告（未使用变量、缺失依赖） | ✅ 成功 | `next.config.js` 中 `allowedDevOrigins` 被标记为无效实验配置 |
+| 2025-10-31  | `npm run lint` | 通过，存在 26 条 warning（@typescript-eslint/no-unused-vars、react-hooks/exhaustive-deps 等） | ⚠️ 警告 | 需逐步清理无用变量和缺失依赖 |
+
+> 命令已在具备外网访问权限的环境中验证；复现时请准备相同的 Go 与 Node.js 版本，并关注输出中的 ESLint 提示。
+
+## 🛠️ CI/CD 环境准备
+
+- **Go 工具链**：在流水线启动阶段安装 Go 1.24.5，示例（Linux）：
+  ```bash
+  curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz -o /tmp/go.tar.gz
+  sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+  export GOROOT=/usr/local/go
+  export PATH="$GOROOT/bin:$PATH"
+  go version  # should output go1.24.5
+  ```
+- **CI 示例（GitHub Actions）**：
+  ```yaml
+  - name: Setup Go 1.24.5
+    uses: actions/setup-go@v5
+    with:
+      go-version: '1.24.5'
+  - name: Backend Tests
+    run: CGO_ENABLED=1 go test ./...
+  - name: Frontend Lint & Build
+    run: |
+      npm ci
+      npm run lint
+      npm run build
+    working-directory: frontend
+  ```
+- **Docker 构建**：使用流水线命令 `docker build -f backend/Dockerfile -t hr-office-backend:latest backend` 与 `docker build -f frontend/Dockerfile -t hr-office-frontend:latest frontend`，确保环境变量与生产配置一致。
 
 1. **获取SSL证书**：
 ```bash

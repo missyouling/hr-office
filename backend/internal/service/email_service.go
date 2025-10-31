@@ -105,7 +105,7 @@ func (s *EmailService) SendPasswordChangedEmail(user *models.User) error {
 
 func (s *EmailService) getPasswordResetTemplate(username, resetURL string) EmailTemplate {
 	return EmailTemplate{
-		Subject: "社保整合系统 - 密码重置",
+		Subject: "人事行政管理系统 (hr-office) - 密码重置",
 		Body: fmt.Sprintf(`尊敬的 %s，
 
 您好！我们收到了您的密码重置请求。
@@ -118,23 +118,23 @@ func (s *EmailService) getPasswordResetTemplate(username, resetURL string) Email
 如果您没有请求重置密码，请忽略此邮件。
 
 ---
-社保整合系统`, username, resetURL),
+人事行政管理系统 (hr-office)`, username, resetURL),
 	}
 }
 
 func (s *EmailService) getEmailVerificationTemplate(username, verificationURL string) EmailTemplate {
 	return EmailTemplate{
-		Subject: "社保整合系统 - 邮箱验证",
+		Subject: "人事行政管理系统 (hr-office) - 邮箱验证",
 		Body: fmt.Sprintf(`尊敬的 %s，
 
-感谢您注册社保整合系统！
+感谢您注册人事行政管理系统 (hr-office)！
 
 为了确保您的账户安全，请点击以下链接验证您的邮箱地址：
 %s
 
 此链接将在48小时后过期。
 
-验证邮箱后，您就可以开始使用系统的所有功能了：
+验证邮箱后，您就可以开始使用系统的全部功能：
 - 社保账期管理
 - 多险种文件上传
 - 数据处理和报表生成
@@ -142,18 +142,18 @@ func (s *EmailService) getEmailVerificationTemplate(username, verificationURL st
 如果您没有注册此账户，请忽略此邮件。
 
 ---
-社保整合系统`, username, verificationURL),
+人事行政管理系统 (hr-office)`, username, verificationURL),
 	}
 }
 
 func (s *EmailService) getWelcomeTemplate(username string) EmailTemplate {
 	return EmailTemplate{
-		Subject: "邮箱验证成功 - 欢迎使用社保整合系统",
+		Subject: "邮箱验证成功 - 欢迎使用人事行政管理系统 (hr-office)",
 		Body: fmt.Sprintf(`尊敬的 %s，
 
 恭喜！您的邮箱验证成功！
 
-您现在可以完全使用社保整合系统的所有功能：
+您现在可以完全使用人事行政管理系统 (hr-office) 的全部功能：
 - 社保账期管理
 - 多险种文件上传
 - 数据处理和报表生成
@@ -161,21 +161,21 @@ func (s *EmailService) getWelcomeTemplate(username string) EmailTemplate {
 如有任何问题，请联系系统管理员。
 
 ---
-社保整合系统`, username),
+人事行政管理系统 (hr-office)`, username),
 	}
 }
 
 func (s *EmailService) getPasswordChangedTemplate(username string) EmailTemplate {
 	return EmailTemplate{
-		Subject: "社保整合系统 - 密码已更改",
+		Subject: "人事行政管理系统 (hr-office) - 密码已更改",
 		Body: fmt.Sprintf(`尊敬的 %s，
 
-您的账户���码已成功更改。
+您的账户密码已成功更改。
 
 如果这不是您本人的操作，请立即联系系统管理员。
 
 ---
-社保整合系统`, username),
+人事行政管理系统 (hr-office)`, username),
 	}
 }
 

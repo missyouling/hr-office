@@ -43,7 +43,7 @@ services:
 
       # Security configuration
       JWT_SECRET: ${JWT_SECRET}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:10086,https://shebao.mozui.cn}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:10086,https://hr-office.mozui.cn}
       BASE_URL: ${BASE_URL:-http://localhost:10086}
 
       # Email configuration (optional)
@@ -68,14 +68,18 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+        - NEXT_PUBLIC_API_BASE_URL_DOMAIN=https://hr-office.mozui.cn/api
+        - NEXT_PUBLIC_API_BASE_URL_IP=http://8.211.154.165:8081/api
+        - NEXT_PUBLIC_API_BASE_URL=https://hr-office.mozui.cn/api
     container_name: siapp-frontend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - PORT=8080
       # 前端通过生产域名访问后端API（浏览器环境）
-      - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+      - NEXT_PUBLIC_API_BASE_URL_DOMAIN=https://hr-office.mozui.cn/api
+      - NEXT_PUBLIC_API_BASE_URL_IP=http://8.211.154.165:8081/api
+      - NEXT_PUBLIC_API_BASE_URL=https://hr-office.mozui.cn/api
     ports:
       - "10086:8080"  # 主机端口10086映射到容器端口8080
     depends_on:

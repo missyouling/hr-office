@@ -57,10 +57,14 @@ backend/debug
 
 # 其他
 .cache/
+.serena/
+.uv/
+.roo/
 
 # Go 安装包和敏感文件
 go*.tar.gz
 go*.zip
+go/
 mail.md
 supabase.txt
 docker-compose.supabase.yml

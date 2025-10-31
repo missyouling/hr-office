@@ -34,17 +34,17 @@ const (
 
 // User represents a system user
 type User struct {
-	ID            uint      `json:"id" gorm:"primaryKey"`
-	Username      string    `json:"username" gorm:"uniqueIndex;not null"`
-	Email         string    `json:"email" gorm:"uniqueIndex;not null"`
-	Password      string    `json:"-" gorm:"not null"` // Password hash, never returned in JSON
-	FullName      string    `json:"full_name"`
-	CompanyID     string    `json:"company_id" gorm:"index"`
-	Active        bool      `json:"active" gorm:"default:true"`
-	EmailVerified bool      `json:"email_verified" gorm:"default:false;index"`
+	ID              uint       `json:"id" gorm:"primaryKey"`
+	Username        string     `json:"username" gorm:"uniqueIndex;not null"`
+	Email           string     `json:"email" gorm:"uniqueIndex;not null"`
+	Password        string     `json:"-" gorm:"not null"` // Password hash, never returned in JSON
+	FullName        string     `json:"full_name"`
+	CompanyID       string     `json:"company_id" gorm:"index"`
+	Active          bool       `json:"active" gorm:"default:true"`
+	EmailVerified   bool       `json:"email_verified" gorm:"default:false;index"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // SetPassword hashes and sets the user password
@@ -86,15 +86,15 @@ type AuthResponse struct {
 
 // PasswordResetToken represents a password reset token
 type PasswordResetToken struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    *uint     `json:"user_id,omitempty" gorm:"index"`
-	User      *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
-	Token     string    `json:"token" gorm:"uniqueIndex;not null;size:128"`
-	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
-	Used      bool      `json:"used" gorm:"default:false;index"`
+	ID        uint       `json:"id" gorm:"primaryKey"`
+	UserID    *uint      `json:"user_id,omitempty" gorm:"index"`
+	User      *User      `json:"-,omitempty" gorm:"foreignKey:UserID"`
+	Token     string     `json:"token" gorm:"uniqueIndex;not null;size:128"`
+	ExpiresAt time.Time  `json:"expires_at" gorm:"not null;index"`
+	Used      bool       `json:"used" gorm:"default:false;index"`
 	UsedAt    *time.Time `json:"used_at,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // GenerateToken creates a new secure random token
@@ -136,15 +136,15 @@ type ChangePasswordRequest struct {
 
 // EmailVerificationToken represents an email verification token
 type EmailVerificationToken struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    *uint     `json:"user_id,omitempty" gorm:"index"`
-	User      *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
-	Token     string    `json:"token" gorm:"uniqueIndex;not null;size:128"`
-	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
-	Used      bool      `json:"used" gorm:"default:false;index"`
+	ID        uint       `json:"id" gorm:"primaryKey"`
+	UserID    *uint      `json:"user_id,omitempty" gorm:"index"`
+	User      *User      `json:"-,omitempty" gorm:"foreignKey:UserID"`
+	Token     string     `json:"token" gorm:"uniqueIndex;not null;size:128"`
+	ExpiresAt time.Time  `json:"expires_at" gorm:"not null;index"`
+	Used      bool       `json:"used" gorm:"default:false;index"`
 	UsedAt    *time.Time `json:"used_at,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // GenerateToken creates a new secure random token for email verification
@@ -175,6 +175,18 @@ type EmailVerificationRequest struct {
 // EmailVerificationConfirmRequest represents the email verification confirmation payload
 type EmailVerificationConfirmRequest struct {
 	Token string `json:"token" binding:"required"`
+}
+
+// AccountAvailabilityRequest represents the payload to check username/email availability
+type AccountAvailabilityRequest struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+}
+
+// AccountAvailabilityResponse represents availability results
+type AccountAvailabilityResponse struct {
+	EmailAvailable    bool `json:"email_available"`
+	UsernameAvailable bool `json:"username_available"`
 }
 
 type Period struct {

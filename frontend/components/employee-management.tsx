@@ -3,7 +3,6 @@
 import { useState, useRef } from "react";
 import { toast } from "sonner";
 import {
-  Users,
   Plus,
   Upload,
   Download,
@@ -56,7 +55,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -182,13 +180,6 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
   // 编辑员工表单数据
   const [editEmployee, setEditEmployee] = useState<Partial<Employee>>({});
-
-  // 部门列表（简化版，用于选择）
-  const departments = [
-    "总经办", "财务部", "销售部", "仓库", "生产部",
-    "机电部", "技术质量部", "人事行政部"
-  ];
-
 
   // 部门编码映射
   const DEPARTMENT_CODES: Record<string, string> = {

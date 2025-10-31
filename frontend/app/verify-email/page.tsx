@@ -36,7 +36,7 @@ function VerifyEmailContent() {
 
   const verifyEmail = async (token: string) => {
     try {
-      const data = await apiVerifyEmail(token);
+      await apiVerifyEmail(token);
 
       setIsSuccess(true);
       toast.success("邮箱验证成功！");
@@ -73,7 +73,7 @@ function VerifyEmailContent() {
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
-          <h1 className="text-3xl font-bold tracking-tight">社保数据整合工具</h1>
+          <h1 className="text-3xl font-bold tracking-tight">人事行政管理系统 (hr-office)</h1>
           <p className="text-muted-foreground mt-2">
             邮箱验证结果
           </p>

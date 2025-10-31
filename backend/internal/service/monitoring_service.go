@@ -281,7 +281,7 @@ func (s *MonitoringService) GetDatabaseStatus() (map[string]interface{}, error) 
 func (s *MonitoringService) GetSystemInfo() map[string]interface{} {
 	info := make(map[string]interface{})
 
-	info["service_name"] = "社保整合系统"
+	info["service_name"] = "人事行政管理系统 (hr-office)"
 	info["version"] = "1.0.0"
 	info["go_version"] = runtime.Version()
 	info["build_time"] = s.startTime.Format(time.RFC3339)

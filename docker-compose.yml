@@ -23,7 +23,7 @@ services:
       - backend_data:/root/data  # 持久化数据库数据
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/api/auth/profile || true"]
+      test: ["CMD-SHELL", "wget -q -O - http://0.0.0.0:8080/health > /dev/null 2>&1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -36,14 +36,26 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL_DOMAIN: ${NEXT_PUBLIC_API_BASE_URL_DOMAIN:-http://localhost:8081/api}
+        NEXT_PUBLIC_API_BASE_URL_IP: ${NEXT_PUBLIC_API_BASE_URL_IP:-http://localhost:8081/api}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8081/api}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL:-http://backend:8080/api}
     container_name: siapp-frontend
     ports:
-      - "10086:8080"  # 主机端口10086映射到容器端口8080
+      - "10100:8080"  # 主机端口10100映射到容器端口8080
     environment:
       - NODE_ENV=production
       - PORT=8080
       # 前端通过nginx代理访问后端API (浏览器环境)
-      - NEXT_PUBLIC_API_BASE_URL=https://shebao.mozui.cn/api
+      - NEXT_PUBLIC_API_BASE_URL_DOMAIN=${NEXT_PUBLIC_API_BASE_URL_DOMAIN:-http://localhost:8081/api}
+      - NEXT_PUBLIC_API_BASE_URL_IP=${NEXT_PUBLIC_API_BASE_URL_IP:-http://localhost:8081/api}
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8081/api}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://backend:8080/api}
     depends_on:
       - backend
     restart: unless-stopped

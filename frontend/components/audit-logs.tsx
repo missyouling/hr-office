@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Calendar, Search, Filter, Download, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { getAuditLogs, getAuditStats } from "@/lib/api";
 import type { AuditLog, AuditStats } from "@/lib/types";
@@ -77,7 +77,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const offset = (currentPage - 1) * pageSize;
@@ -104,18 +104,18 @@ export function AuditLogs({ className }: AuditLogsProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [actionFilter, statusFilter, userFilter, currentPage, pageSize]);
 
   useEffect(() => {
     loadData();
-  }, [actionFilter, statusFilter, userFilter, currentPage, pageSize]);
+  }, [loadData]);
 
   // 筛选条件变化时重置到第一页
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
     }
-  }, [actionFilter, statusFilter, userFilter]);
+  }, [actionFilter, statusFilter, userFilter, currentPage]);
 
   // 注意：现在在服务端进行分页，所以前端搜索只在当前页面内进行
   const filteredLogs = logs.filter((log) => {
@@ -176,7 +176,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
     });
   };
 
-  const getUniqueUsers = () => {
+  const uniqueUsers = useMemo(() => {
     const users = new Set<string>();
     logs.forEach((log) => {
       if (log.user_id) {
@@ -184,15 +184,15 @@ export function AuditLogs({ className }: AuditLogsProps) {
       }
     });
     return Array.from(users);
-  };
+  }, [logs]);
 
-  const getUniqueActions = () => {
+  const uniqueActions = useMemo(() => {
     const actions = new Set<string>();
     logs.forEach((log) => {
       actions.add(log.action);
     });
     return Array.from(actions);
-  };
+  }, [logs]);
 
   return (
     <div className={`space-y-6 ${className}`}>
@@ -268,7 +268,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">所有操作</SelectItem>
-                  {getUniqueActions().map((action) => (
+                  {uniqueActions.map((action) => (
                     <SelectItem key={action} value={action}>
                       {ACTION_LABELS[action] || action}
                     </SelectItem>
@@ -294,7 +294,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">所有用户</SelectItem>
-                  {getUniqueUsers().map((userId) => (
+                  {uniqueUsers.map((userId) => (
                     <SelectItem key={userId} value={userId}>
                       用户 {userId}
                     </SelectItem>

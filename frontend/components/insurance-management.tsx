@@ -264,12 +264,6 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
     [uploadKeySet],
   );
 
-  const uploadProgress = useMemo(() => {
-    return Math.round(
-      (uploadKeySet.size / REQUIRED_COMBINATIONS.length) * 100,
-    );
-  }, [uploadKeySet.size]);
-
   const filteredPersonalCharges = useMemo(() => {
     const filtered = personalCharges.filter((charge) => {
       const searchMatch = !personalSearchText ||
@@ -556,7 +550,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
 
     setAdjustmentProcessing(true);
     try {
-      const result = await processAdjustments(selectedPeriodId);
+      await processAdjustments(selectedPeriodId);
       toast.success("补退数据处理完成，已累加到现有扣款明细中");
 
       const [summaryData, personalCharges, unitCharges] = await Promise.all([

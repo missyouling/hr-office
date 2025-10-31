@@ -2,8 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"regexp"
+	"strings"
+	"time"
 	"unicode"
 
 	"gorm.io/gorm"
@@ -14,21 +19,21 @@ import (
 
 // AuthHandler handles authentication related requests
 type AuthHandler struct {
-	db                        *gorm.DB
-	jwtManager                *auth.JWTManager
-	passwordResetService      *service.PasswordResetService
-	emailVerificationService  *service.EmailVerificationService
-	emailService              *service.EmailService
+	db                       *gorm.DB
+	jwtManager               *auth.JWTManager
+	passwordResetService     *service.PasswordResetService
+	emailVerificationService *service.EmailVerificationService
+	emailService             *service.EmailService
 }
 
 // NewAuthHandler creates a new auth handler
 func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetService *service.PasswordResetService, emailVerificationService *service.EmailVerificationService, emailService *service.EmailService) *AuthHandler {
 	return &AuthHandler{
-		db:                        db,
-		jwtManager:                jwtManager,
-		passwordResetService:      passwordResetService,
-		emailVerificationService:  emailVerificationService,
-		emailService:              emailService,
+		db:                       db,
+		jwtManager:               jwtManager,
+		passwordResetService:     passwordResetService,
+		emailVerificationService: emailVerificationService,
+		emailService:             emailService,
 	}
 }
 
@@ -146,6 +151,133 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// CheckAccountAvailability verifies whether username/email is already registered in Supabase
+func (h *AuthHandler) CheckAccountAvailability(w http.ResponseWriter, r *http.Request) {
+	var req models.AccountAvailabilityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
+		return
+	}
+
+	email := strings.TrimSpace(req.Email)
+	username := strings.TrimSpace(req.Username)
+
+	if email == "" && username == "" {
+		http.Error(w, `{"error":"缺少邮箱或用户名"}`, http.StatusBadRequest)
+		return
+	}
+
+	supabaseURL := strings.TrimSuffix(os.Getenv("SUPABASE_URL"), "/")
+	serviceKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	if supabaseURL == "" || serviceKey == "" {
+		http.Error(w, `{"error":"Supabase 配置缺失"}`, http.StatusInternalServerError)
+		return
+	}
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	emailAvailable := true
+	if email != "" {
+		exists, err := supabaseEmailExists(client, supabaseURL, serviceKey, email)
+		if err != nil {
+			http.Error(w, `{"error":"检查邮箱可用性失败"}`, http.StatusInternalServerError)
+			return
+		}
+		emailAvailable = !exists
+	}
+
+	usernameAvailable := true
+	if username != "" {
+		exists, err := supabaseUsernameExists(client, supabaseURL, serviceKey, username)
+		if err != nil {
+			http.Error(w, `{"error":"检查用户名可用性失败"}`, http.StatusInternalServerError)
+			return
+		}
+		usernameAvailable = !exists
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.AccountAvailabilityResponse{
+		EmailAvailable:    emailAvailable,
+		UsernameAvailable: usernameAvailable,
+	})
+}
+
+func supabaseEmailExists(client *http.Client, baseURL, serviceKey, email string) (bool, error) {
+	checkURL := fmt.Sprintf("%s/auth/v1/admin/users?per_page=200&page=1", baseURL)
+	req, err := http.NewRequest(http.MethodGet, checkURL, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("apikey", serviceKey)
+	req.Header.Set("Authorization", "Bearer "+serviceKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("supabase admin users returned status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Users []struct {
+			Email string `json:"email"`
+		} `json:"users"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, fmt.Errorf("decode supabase admin users response: %w", err)
+	}
+
+	for _, user := range out.Users {
+		if strings.EqualFold(user.Email, email) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func supabaseUsernameExists(client *http.Client, baseURL, serviceKey, username string) (bool, error) {
+	escaped := url.QueryEscape(username)
+	checkURL := fmt.Sprintf("%s/rest/v1/profiles?select=username&username=eq.%s", baseURL, escaped)
+	req, err := http.NewRequest(http.MethodGet, checkURL, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("apikey", serviceKey)
+	req.Header.Set("Authorization", "Bearer "+serviceKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("supabase profiles returned status %d", resp.StatusCode)
+	}
+
+	var profiles []struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&profiles); err != nil {
+		return false, fmt.Errorf("decode supabase profiles response: %w", err)
+	}
+
+	for _, profile := range profiles {
+		if strings.EqualFold(profile.Username, username) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // GetProfile returns the current user's profile
