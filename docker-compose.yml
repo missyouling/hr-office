@@ -76,3 +76,8 @@ networks:
   # 应用网络
   siapp-network:
     driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: fd00:dead:cafe::/64

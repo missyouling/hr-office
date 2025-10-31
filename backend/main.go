@@ -69,38 +69,42 @@ func connectDatabase() (*gorm.DB, error) {
 			sslMode = "require"
 		}
 
-		// Create custom dialer that forces IPv4
+		// 创建自定义拨号器，优先尝试 IPv4，失败时回退到默认拨号逻辑
 		connConfig, err := pgx.ParseConfig(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 			dbHost, dbUser, dbPassword, dbName, dbPort, sslMode))
 		if err != nil {
 			return nil, fmt.Errorf("parse postgres config: %v", err)
 		}
 
-		// Force IPv4-only DNS resolution
+		// 优先尝试解析 IPv4 地址，若不可用则回退到原始地址（允许 IPv6）
 		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, err
 			}
 
-			// Resolve to IPv4 only
-			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
-			if err != nil {
-				return nil, err
-			}
-			if len(ips) == 0 {
-				return nil, fmt.Errorf("no IPv4 address found for host %s", host)
-			}
-
-			// Use first IPv4 address
-			ipv4Addr := net.JoinHostPort(ips[0].String(), port)
-			log.Printf("Resolved %s to IPv4: %s", host, ipv4Addr)
-
 			dialer := &net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}
-			return dialer.DialContext(ctx, "tcp", ipv4Addr)
+
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+			if err == nil && len(ips) > 0 {
+				ipv4Addr := net.JoinHostPort(ips[0].String(), port)
+				log.Printf("Resolved %s to IPv4: %s", host, ipv4Addr)
+
+				if conn, dialErr := dialer.DialContext(ctx, "tcp", ipv4Addr); dialErr == nil {
+					return conn, nil
+				} else {
+					log.Printf("Failed to dial IPv4 %s: %v, falling back to %s", ipv4Addr, dialErr, addr)
+				}
+			} else if err != nil {
+				log.Printf("IPv4 lookup failed for %s: %v, falling back to %s", host, err, addr)
+			} else {
+				log.Printf("No IPv4 address found for %s, falling back to %s", host, addr)
+			}
+
+			return dialer.DialContext(ctx, network, addr)
 		}
 
 		connStr := stdlib.RegisterConnConfig(connConfig)
