@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -10,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -65,11 +69,46 @@ func connectDatabase() (*gorm.DB, error) {
 			sslMode = "require"
 		}
 
-		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=Asia/Shanghai",
-			dbHost, dbUser, dbPassword, dbName, dbPort, sslMode)
+		// Create custom dialer that forces IPv4
+		connConfig, err := pgx.ParseConfig(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+			dbHost, dbUser, dbPassword, dbName, dbPort, sslMode))
+		if err != nil {
+			return nil, fmt.Errorf("parse postgres config: %v", err)
+		}
 
+		// Force IPv4-only DNS resolution
+		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// Resolve to IPv4 only
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+			if err != nil {
+				return nil, err
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("no IPv4 address found for host %s", host)
+			}
+
+			// Use first IPv4 address
+			ipv4Addr := net.JoinHostPort(ips[0].String(), port)
+			log.Printf("Resolved %s to IPv4: %s", host, ipv4Addr)
+
+			dialer := &net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}
+			return dialer.DialContext(ctx, "tcp", ipv4Addr)
+		}
+
+		connStr := stdlib.RegisterConnConfig(connConfig)
 		log.Printf("Connecting to PostgreSQL database: host=%s dbname=%s", dbHost, dbName)
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err = gorm.Open(postgres.New(postgres.Config{
+			DriverName: "pgx",
+			DSN:        connStr,
+		}), &gorm.Config{})
 
 	case "sqlite":
 		// SQLite connection (default)
