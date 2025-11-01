@@ -6,6 +6,7 @@ import { Search, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { getAuditLogs, getAuditStats } from "@/lib/api";
 import type { AuditLog, AuditStats } from "@/lib/types";
+import { formatDisplayDate } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -165,16 +166,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
     return pages;
   };
 
-  const formatDateTime = (dateTime: string) => {
-    return new Date(dateTime).toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  };
+  const formatDateTime = (dateTime: string) => formatDisplayDate(dateTime, { includeTime: true });
 
   const uniqueUsers = useMemo(() => {
     const users = new Set<string>();

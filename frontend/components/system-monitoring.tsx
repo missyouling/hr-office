@@ -21,6 +21,7 @@ import {
   runMaintenance
 } from "@/lib/api";
 import type { SystemMetrics, DatabaseStatus, SystemInfo } from "@/lib/types";
+import { formatDisplayDate } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -401,7 +402,7 @@ export function SystemMonitoring({ className }: SystemMonitoringProps) {
               <div>
                 <div className="text-sm text-muted-foreground">启动时间</div>
                 <div className="font-medium">
-                  {systemInfo?.start_time ? new Date(systemInfo.start_time).toLocaleString("zh-CN") : 'N/A'}
+                  {systemInfo?.start_time ? formatDisplayDate(systemInfo.start_time, { includeTime: true }) : 'N/A'}
                 </div>
               </div>
               <div>
