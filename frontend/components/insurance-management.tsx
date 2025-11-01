@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -13,6 +13,7 @@ import {
   getCharges,
   getSchemeCharges,
   getSummary,
+  fetchEmployees,
   listFiles,
   listPeriods,
   processAdjustments,
@@ -157,6 +158,13 @@ function formatDate(value: string) {
   });
 }
 
+function normalizeIdNumber(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
 function guessPartScheme(fileName: string): { part: Part | ""; scheme: Scheme | "" } {
   const name = fileName.toLowerCase();
   let part: Part | "" = "";
@@ -227,26 +235,67 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
   const [personalSearchDept, setPersonalSearchDept] = useState("__all__");
   const [unitSearchText, setUnitSearchText] = useState("");
   const [unitSearchDept, setUnitSearchDept] = useState("__all__");
+  const [employeeDepartmentMap, setEmployeeDepartmentMap] = useState<Record<string, string>>({});
+  const [newPeriodAllowAdjustments, setNewPeriodAllowAdjustments] = useState("yes");
+
+  const applyEmployeeDepartment = useCallback(<T extends { id_number: string; department: string | null }>(items: T[]): T[] => {
+    if (!items || items.length === 0) {
+      return items;
+    }
+    let changed = false;
+    const mapped = items.map((item) => {
+      const normalized = normalizeIdNumber(item.id_number);
+      const mappedDept = normalized ? employeeDepartmentMap[normalized] : undefined;
+      if (mappedDept === undefined || mappedDept === (item.department ?? "")) {
+        return item;
+      }
+      changed = true;
+      return { ...item, department: mappedDept } as T;
+    });
+    return changed ? mapped : items;
+  }, [employeeDepartmentMap]);
 
   // Refs
   const adjustmentFileInputRef = useRef<HTMLInputElement>(null);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Memoized values
-  const normalFiles = useMemo(() =>
-    files.filter(file => file.file_type === 'normal' || !file.file_type),
-    [files]
+  const normalFiles = useMemo(
+    () => files.filter((file) => file.file_type === "normal" || !file.file_type),
+    [files],
   );
 
-  const adjustmentFiles = useMemo(() =>
-    files.filter(file => file.file_type === 'adjustment'),
-    [files]
+  const adjustmentFiles = useMemo(
+    () => files.filter((file) => file.file_type === "adjustment"),
+    [files],
   );
 
   const selectedPeriod = useMemo(
     () => periods.find((item) => item.id === selectedPeriodId) ?? null,
     [periods, selectedPeriodId],
   );
+
+  const adjustmentsEnabled = selectedPeriod?.allow_adjustments !== false;
+
+  const departmentOptions = useMemo(() => {
+    const unique = new Set<string>();
+    Object.values(employeeDepartmentMap).forEach((dept) => {
+      const normalized = dept?.trim();
+      if (normalized) {
+        unique.add(normalized);
+      }
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [employeeDepartmentMap]);
+
+  useEffect(() => {
+    if (personalSearchDept !== "__all__" && !departmentOptions.includes(personalSearchDept)) {
+      setPersonalSearchDept("__all__");
+    }
+    if (unitSearchDept !== "__all__" && !departmentOptions.includes(unitSearchDept)) {
+      setUnitSearchDept("__all__");
+    }
+  }, [departmentOptions, personalSearchDept, unitSearchDept]);
 
   const uploadKeySet = useMemo(() => {
     const set = new Set<string>();
@@ -334,16 +383,6 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
     return result;
   }, [unitCharges, unitSearchText, unitSearchDept]);
 
-  const personalDepartments = useMemo(() => {
-    const depts = new Set(personalCharges.map(charge => charge.department).filter(Boolean));
-    return Array.from(depts).sort();
-  }, [personalCharges]);
-
-  const unitDepartments = useMemo(() => {
-    const depts = new Set(unitCharges.map(charge => charge.department).filter(Boolean));
-    return Array.from(depts).sort();
-  }, [unitCharges]);
-
   // Effects
   useEffect(() => {
     const load = async () => {
@@ -364,6 +403,26 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
       }
     };
     load();
+  }, []);
+
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const list = await fetchEmployees();
+        const map: Record<string, string> = {};
+        list.forEach((employee) => {
+          const key = normalizeIdNumber(employee.id_number);
+          if (!key) {
+            return;
+          }
+          map[key] = employee.department?.trim() ?? "";
+        });
+        setEmployeeDepartmentMap(map);
+      } catch (error) {
+        console.error("加载员工信息失败", error);
+      }
+    };
+    loadEmployees();
   }, []);
 
   useEffect(() => {
@@ -388,8 +447,8 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
           );
         setFiles(fileList);
         setSummary(summaryList);
-        setPersonalCharges(personalList as PersonalCharge[]);
-        setUnitCharges(unitList as UnitCharge[]);
+        setPersonalCharges(applyEmployeeDepartment(personalList as PersonalCharge[]));
+        setUnitCharges(applyEmployeeDepartment(unitList as UnitCharge[]));
       } catch (error) {
         console.error(error);
         toast.error("加载账期数据失败");
@@ -398,7 +457,19 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
       }
     };
     loadPeriodData(selectedPeriodId);
-  }, [selectedPeriodId]);
+  }, [selectedPeriodId, applyEmployeeDepartment]);
+
+  useEffect(() => {
+    setPersonalCharges((prev) => applyEmployeeDepartment(prev));
+    setUnitCharges((prev) => applyEmployeeDepartment(prev));
+  }, [applyEmployeeDepartment]);
+
+  useEffect(() => {
+    if (!adjustmentsEnabled) {
+      setAdjustmentDialogOpen(false);
+      setSelectedAdjustmentFiles([]);
+    }
+  }, [adjustmentsEnabled]);
 
   // Event handlers
   const handleCreatePeriod = async () => {
@@ -407,12 +478,14 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
       return;
     }
     try {
-      const created = await createPeriod(newPeriod);
+      const allowAdjustments = newPeriodAllowAdjustments !== "no";
+      const created = await createPeriod(newPeriod, allowAdjustments);
       toast.success(`账期 ${created.year_month} 已创建`);
       const data = await listPeriods();
       setPeriods(data);
       setSelectedPeriodId(created.id);
       setNewPeriod("");
+      setNewPeriodAllowAdjustments("yes");
     } catch (error) {
       console.error(error);
       toast.error("创建账期失败");
@@ -514,6 +587,11 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
       return;
     }
 
+    if (!adjustmentsEnabled) {
+      toast.info("当前账期未启用补退数据");
+      return;
+    }
+
     setAdjustmentUploading(true);
     try {
       const response = await uploadAdjustmentsBatch(selectedPeriodId, selectedAdjustmentFiles);
@@ -548,19 +626,24 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
       return;
     }
 
+    if (!adjustmentsEnabled) {
+      toast.info("当前账期未启用补退数据");
+      return;
+    }
+
     setAdjustmentProcessing(true);
     try {
       await processAdjustments(selectedPeriodId);
       toast.success("补退数据处理完成，已累加到现有扣款明细中");
 
-      const [summaryData, personalCharges, unitCharges] = await Promise.all([
+      const [summaryData, personalList, unitList] = await Promise.all([
         getSummary(selectedPeriodId),
         getCharges(selectedPeriodId, "personal"),
         getCharges(selectedPeriodId, "unit"),
       ]);
       setSummary(summaryData);
-      setPersonalCharges(personalCharges as PersonalCharge[]);
-      setUnitCharges(unitCharges as UnitCharge[]);
+      setPersonalCharges(applyEmployeeDepartment(personalList as PersonalCharge[]));
+      setUnitCharges(applyEmployeeDepartment(unitList as UnitCharge[]));
     } catch (error) {
       console.error(error);
       toast.error(error instanceof Error ? error.message : "补退数据处理失败");
@@ -599,8 +682,8 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
       const result = await processPeriod(selectedPeriodId);
       toast.success("数据处理成功");
       setSummary(result.summary);
-      setPersonalCharges(result.personal);
-      setUnitCharges(result.unit);
+      setPersonalCharges(applyEmployeeDepartment(result.personal));
+      setUnitCharges(applyEmployeeDepartment(result.unit));
     } catch (error) {
       console.error(error);
       toast.error(error instanceof Error ? error.message : "处理失败");
@@ -618,7 +701,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
 
     try {
       const charges = await getSchemeCharges(selectedPeriodId, scheme, part, isAdjustment);
-      setSchemeCharges(charges);
+      setSchemeCharges(applyEmployeeDepartment(charges as SchemeChargeDetail[]));
     } catch (error) {
       console.error(error);
       toast.error(error instanceof Error ? error.message : "获取明细失败");
@@ -728,6 +811,10 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
 
   const handleClearAdjustments = async () => {
     if (!selectedPeriodId) return;
+    if (!adjustmentsEnabled) {
+      toast.info("当前账期未启用补退数据");
+      return;
+    }
     setClearingAdjustments(true);
     try {
       await clearAdjustments(selectedPeriodId);
@@ -830,6 +917,23 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                         className="w-full"
                       />
                       <Button onClick={handleCreatePeriod}>创建</Button>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="allow-adjustments" className="text-sm text-muted-foreground">
+                        是否需要录入补退数据
+                      </Label>
+                      <Select
+                        value={newPeriodAllowAdjustments}
+                        onValueChange={setNewPeriodAllowAdjustments}
+                      >
+                        <SelectTrigger id="allow-adjustments" className="h-9">
+                          <SelectValue placeholder="选择是否录入补退数据" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yes">需要</SelectItem>
+                          <SelectItem value="no">不需要</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1259,6 +1363,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
             </Card>
 
             {/* 补退文件上传卡片 */}
+            {adjustmentsEnabled && (
             <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1472,6 +1577,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                 </div>
               </CardContent>
             </Card>
+            )}
 
           </TabsContent>
 
@@ -1606,7 +1712,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="__all__">全部部门</SelectItem>
-                                {personalDepartments.map((dept) => (
+                                {departmentOptions.map((dept) => (
                                   <SelectItem key={dept} value={dept}>
                                     {dept}
                                   </SelectItem>
@@ -1754,7 +1860,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="__all__">全部部门</SelectItem>
-                                {unitDepartments.map((dept) => (
+                                {departmentOptions.map((dept) => (
                                   <SelectItem key={dept} value={dept}>
                                     {dept}
                                   </SelectItem>

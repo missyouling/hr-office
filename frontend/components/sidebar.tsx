@@ -38,7 +38,7 @@ interface ChangePasswordData {
 }
 
 export function Sidebar({ currentView, onViewChange }: SidebarProps) {
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const [showUserCenter, setShowUserCenter] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -113,7 +113,7 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
 
   const handleLogout = async () => {
     try {
-      await signOut();
+      logout();
       toast.success("已退出登录");
       router.push("/auth");
     } catch (error) {
@@ -161,7 +161,7 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
       <div className="p-6 border-b">
         <h1 className="text-lg font-bold">人事行政管理系统</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          欢迎，{user?.user_metadata?.full_name || user?.email}
+          欢迎，{user?.full_name || user?.email}
         </p>
       </div>
 
@@ -216,7 +216,7 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
                 <CardContent className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">用户名:</span>
-                    <span className="text-sm">{user?.user_metadata?.username || user?.email}</span>
+                    <span className="text-sm">{user?.username || user?.email}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">邮箱:</span>
@@ -224,7 +224,7 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">姓名:</span>
-                    <span className="text-sm">{user?.user_metadata?.full_name || "未设置"}</span>
+                    <span className="text-sm">{user?.full_name || "未设置"}</span>
                   </div>
                 </CardContent>
               </Card>

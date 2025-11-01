@@ -38,6 +38,7 @@ export interface Period {
   id: number;
   year_month: string;
   status: string;
+  allow_adjustments: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -103,6 +103,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/periods", h.listPeriods)
 	r.Post("/periods", h.createPeriod)
 	r.Get("/roster-template", h.downloadRosterTemplate)
+	r.Get("/employees", h.listEmployees)
+	r.Post("/employees/import", h.importEmployees)
 
 	r.Route("/periods/{periodID}", func(pr chi.Router) {
 		pr.Get("/", h.getPeriod)
@@ -144,8 +146,86 @@ func (h *Handler) listPeriods(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, periods)
 }
 
+func (h *Handler) listEmployees(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	var employees []models.Employee
+	if err := h.db.Where("user_id = ?", userID).Order("name ASC, id_number ASC").Find(&employees).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list employees", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, employees)
+}
+
+func (h *Handler) importEmployees(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		respondError(w, http.StatusBadRequest, "failed to parse multipart form", err)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "file is required", err)
+		return
+	}
+	defer file.Close()
+
+	if err := os.MkdirAll("./uploads", 0o755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to prepare upload directory", err)
+		return
+	}
+
+	targetDir := filepath.Join("./uploads", "employees", fmt.Sprintf("%d", userID))
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create employee directory", err)
+		return
+	}
+
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		ext = ".xlsx"
+	}
+	filename := fmt.Sprintf("employees-%d-%d%s", userID, time.Now().UnixNano(), ext)
+	storedPath := filepath.Join(targetDir, filename)
+
+	out, err := os.Create(storedPath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create file", err)
+		return
+	}
+	if _, err := io.Copy(out, file); err != nil {
+		_ = out.Close()
+		respondError(w, http.StatusInternalServerError, "failed to save file", err)
+		return
+	}
+	if err := out.Close(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to finalize file", err)
+		return
+	}
+
+	result, err := h.process.ParseEmployeeFile(userID, storedPath, header.Filename)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "failed to import employees", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, result)
+}
+
 type createPeriodRequest struct {
-	YearMonth string `json:"year_month"`
+	YearMonth        string `json:"year_month"`
+	AllowAdjustments *bool  `json:"allow_adjustments,omitempty"`
 }
 
 func (h *Handler) createPeriod(w http.ResponseWriter, r *http.Request) {
@@ -166,16 +246,42 @@ func (h *Handler) createPeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	period := models.Period{
-		UserID:    &userID,
-		YearMonth: req.YearMonth,
-		Status:    "draft",
+	allowAdjustments := true
+	if req.AllowAdjustments != nil {
+		allowAdjustments = *req.AllowAdjustments
 	}
-	// Check for existing period for this user
-	if err := h.db.FirstOrCreate(&period, models.Period{UserID: &userID, YearMonth: req.YearMonth}).Error; err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create period", err)
-		return
+
+	var period models.Period
+	if err := h.db.Where("user_id = ? AND year_month = ?", userID, req.YearMonth).First(&period).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			period = models.Period{
+				UserID:           &userID,
+				YearMonth:        req.YearMonth,
+				Status:           "draft",
+				AllowAdjustments: allowAdjustments,
+			}
+			if err := h.db.Create(&period).Error; err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to create period", err)
+				return
+			}
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to query period", err)
+			return
+		}
+	} else {
+		updates := map[string]any{}
+		if period.AllowAdjustments != allowAdjustments {
+			updates["allow_adjustments"] = allowAdjustments
+		}
+		if len(updates) > 0 {
+			if err := h.db.Model(&period).Updates(updates).Error; err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to update period", err)
+				return
+			}
+			period.AllowAdjustments = allowAdjustments
+		}
 	}
+
 	respondJSON(w, http.StatusCreated, period)
 }
 
@@ -995,7 +1101,6 @@ func (h *Handler) getSchemeCharges(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-
 		for _, charge := range charges {
 			var amount float64
 			switch scheme {
@@ -1029,7 +1134,6 @@ func (h *Handler) getSchemeCharges(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusInternalServerError, "failed to fetch unit charges", err)
 			return
 		}
-
 
 		for _, charge := range charges {
 			var amount float64
@@ -1308,7 +1412,7 @@ func (h *Handler) resetPeriod(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]interface{}{
-		"message": fmt.Sprintf("账期 %s 已重置，所有数据已清除", period.YearMonth),
+		"message":   fmt.Sprintf("账期 %s 已重置，所有数据已清除", period.YearMonth),
 		"period_id": period.ID,
 	}
 

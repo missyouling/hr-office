@@ -1,7 +1,7 @@
 "use client";
 
 import { Toaster } from "@/components/ui/sonner";
-import { AuthProvider } from "@/lib/supabase/auth-context";
+import { AuthProvider } from "@/lib/auth";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -11,4 +11,3 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     </AuthProvider>
   );
 }
-

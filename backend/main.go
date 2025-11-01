@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -193,6 +194,7 @@ func main() {
 		&models.PersonalCharge{},
 		&models.UnitCharge{},
 		&models.RosterEntry{},
+		&models.Employee{},
 		&models.AuditLog{}, // Add audit log table
 	); err != nil {
 		log.Fatalf("auto migrate: %v", err)
@@ -263,7 +265,11 @@ func main() {
 
 	// Check for allowed origins from environment variable
 	if allowedOrigins := os.Getenv("ALLOWED_ORIGINS"); allowedOrigins != "" {
-		corsOptions.AllowedOrigins = []string{allowedOrigins}
+		origins := strings.Split(allowedOrigins, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+		corsOptions.AllowedOrigins = origins
 	} else {
 		// Default for development - should be configured for production
 		corsOptions.AllowedOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}

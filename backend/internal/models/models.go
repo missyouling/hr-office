@@ -190,13 +190,14 @@ type AccountAvailabilityResponse struct {
 }
 
 type Period struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    *uint     `json:"user_id,omitempty" gorm:"index"`
-	User      *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
-	YearMonth string    `json:"year_month" gorm:"index"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID               uint      `json:"id" gorm:"primaryKey"`
+	UserID           *uint     `json:"user_id,omitempty" gorm:"index"`
+	User             *User     `json:"-,omitempty" gorm:"foreignKey:UserID"`
+	YearMonth        string    `json:"year_month" gorm:"index"`
+	Status           string    `json:"status"`
+	AllowAdjustments bool      `json:"allow_adjustments" gorm:"default:true"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type SourceFile struct {
@@ -309,4 +310,43 @@ type RosterEntry struct {
 	Remarks    string    `json:"remarks"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type Employee struct {
+	ID               uint      `json:"id" gorm:"primaryKey"`
+	UserID           uint      `json:"user_id" gorm:"index:idx_employee_user_id_number,unique"`
+	EmployeeID       string    `json:"employee_id" gorm:"size:100"`
+	Name             string    `json:"name" gorm:"size:100;not null;index"`
+	Department       string    `json:"department" gorm:"size:150"`
+	Position         string    `json:"position" gorm:"size:150"`
+	Gender           string    `json:"gender" gorm:"size:20"`
+	HireDate         string    `json:"hire_date" gorm:"size:20"`
+	Age              string    `json:"age" gorm:"size:20"`
+	WorkYears        string    `json:"work_years" gorm:"size:20"`
+	BirthMonth       string    `json:"birth_month" gorm:"size:20"`
+	Education        string    `json:"education" gorm:"size:100"`
+	PoliticalStatus  string    `json:"political_status" gorm:"size:100"`
+	WorkClothingSize string    `json:"work_clothing_size" gorm:"size:50"`
+	SafetyShoeSize   string    `json:"safety_shoe_size" gorm:"size:50"`
+	HouseholdType    string    `json:"household_type" gorm:"size:50"`
+	Ethnicity        string    `json:"ethnicity" gorm:"size:50"`
+	NativePlace      string    `json:"native_place" gorm:"size:100"`
+	IDAddress        string    `json:"id_address" gorm:"size:255"`
+	IDNumber         string    `json:"id_number" gorm:"size:40;index:idx_employee_user_id_number,unique"`
+	MaritalStatus    string    `json:"marital_status" gorm:"size:50"`
+	SocialInsurance  string    `json:"social_insurance" gorm:"size:50"`
+	HasBirth         string    `json:"has_birth" gorm:"size:50"`
+	Phone            string    `json:"phone" gorm:"size:50"`
+	EmergencyContact string    `json:"emergency_contact" gorm:"size:100"`
+	EmergencyPhone   string    `json:"emergency_phone" gorm:"size:100"`
+	CurrentAddress   string    `json:"current_address" gorm:"size:255"`
+	GraduateSchool   string    `json:"graduate_school" gorm:"size:150"`
+	Major            string    `json:"major" gorm:"size:150"`
+	GraduationTime   string    `json:"graduation_time" gorm:"size:20"`
+	Email            string    `json:"email" gorm:"size:120"`
+	Remarks          string    `json:"remarks" gorm:"size:255"`
+	Status           string    `json:"status" gorm:"size:20;default:'active'"`
+	ResignDate       string    `json:"resign_date" gorm:"size:20"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }

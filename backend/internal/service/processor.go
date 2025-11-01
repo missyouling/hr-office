@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bufio"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"siapp/internal/models"
 )
@@ -31,6 +35,12 @@ type ParseResult struct {
 
 type RosterParseResult struct {
 	Imported int `json:"imported"`
+}
+
+type EmployeeImportResult struct {
+	Imported  int               `json:"imported"`
+	Skipped   int               `json:"skipped"`
+	Employees []models.Employee `json:"employees"`
 }
 
 var headerMap = map[string]string{
@@ -57,6 +67,67 @@ var rosterHeaderMap = map[string]string{
 	"岗位":    "title",
 	"职务":    "title",
 	"备注":    "remarks",
+}
+
+var employeeHeaderAliases = map[string]string{
+	"工号":            "employee_id",
+	"员工编号":          "employee_id",
+	"编号":            "employee_id",
+	"姓名":            "name",
+	"名称":            "name",
+	"部门":            "department",
+	"部门名称":          "department",
+	"所在部门":          "department",
+	"岗位":            "position",
+	"职位":            "position",
+	"岗位名称":          "position",
+	"性别":            "gender",
+	"入职时间":          "hire_date",
+	"入职日期":          "hire_date",
+	"年龄":            "age",
+	"工龄":            "work_years",
+	"出生月份":          "birth_month",
+	"文化程度":          "education",
+	"政治面貌":          "political_status",
+	"工作服":           "work_clothing_size",
+	"工作服尺码":         "work_clothing_size",
+	"劳保鞋":           "safety_shoe_size",
+	"劳保鞋尺码":         "safety_shoe_size",
+	"户口性质":          "household_type",
+	"民族":            "ethnicity",
+	"籍贯":            "native_place",
+	"身份证地址":         "id_address",
+	"户籍地址":          "id_address",
+	"身份证住址":         "id_address",
+	"身份证号码":         "id_number",
+	"身份证号":          "id_number",
+	"证件号码":          "id_number",
+	"证件号":           "id_number",
+	"婚姻状况":          "marital_status",
+	"社保":            "social_insurance",
+	"是否缴纳社保":        "social_insurance",
+	"是否生育":          "has_birth",
+	"联系电话":          "phone",
+	"联系方式":          "phone",
+	"手机号":           "phone",
+	"手机号码":          "phone",
+	"紧急联系人":         "emergency_contact",
+	"紧急联系电话":        "emergency_phone",
+	"紧急联系电话(家庭电话)":  "emergency_phone",
+	"家庭电话/紧急情况联系电话": "emergency_phone",
+	"现居住地址":         "current_address",
+	"现住址":           "current_address",
+	"毕业院校":          "graduate_school",
+	"毕业学校":          "graduate_school",
+	"专业":            "major",
+	"毕业时间":          "graduation_time",
+	"邮箱":            "email",
+	"电子邮箱":          "email",
+	"备注":            "remarks",
+	"状态":            "status",
+	"员工状态":          "status",
+	"离职日期":          "resign_date",
+	"离职时间":          "resign_date",
 }
 
 func (p *Processor) ParseSourceFile(periodID uint, userID *uint, storedPath, originalName string, scheme models.Scheme, part models.Part) (*ParseResult, error) {
@@ -315,6 +386,333 @@ func (p *Processor) ParseRosterFile(periodID uint, userID *uint, storedPath, ori
 	}
 
 	return &RosterParseResult{Imported: len(entries)}, nil
+}
+
+func (p *Processor) ParseEmployeeFile(userID uint, storedPath, originalName string) (*EmployeeImportResult, error) {
+	normalizedMap := make(map[string]string, len(employeeHeaderAliases))
+	for raw, field := range employeeHeaderAliases {
+		normalizedMap[normalizeEmployeeHeader(raw)] = field
+	}
+
+	rows, err := loadEmployeeRows(storedPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) < 2 {
+		return nil, errors.New("员工文件中没有数据行，请检查模板内容")
+	}
+
+	header := rows[0]
+	indexMap := map[string]int{}
+	for idx, cell := range header {
+		key := normalizeEmployeeHeader(cell)
+		if key == "" {
+			continue
+		}
+		if field, ok := normalizedMap[key]; ok {
+			indexMap[field] = idx
+		}
+	}
+
+	required := []string{"id_number", "name"}
+	for _, key := range required {
+		if _, ok := indexMap[key]; !ok {
+			return nil, fmt.Errorf("导入文件缺少必需列：%s", key)
+		}
+	}
+
+	var existing []models.Employee
+	if err := p.db.Where("user_id = ?", userID).Find(&existing).Error; err != nil {
+		return nil, fmt.Errorf("load existing employees: %w", err)
+	}
+
+	existingMap := make(map[string]models.Employee, len(existing))
+	for _, emp := range existing {
+		if key := normalizeIDNumber(emp.IDNumber); key != "" {
+			existingMap[key] = emp
+		}
+	}
+
+	now := time.Now()
+	skipped := 0
+	unique := make(map[string]models.Employee)
+
+	for _, row := range rows[1:] {
+		if len(row) == 0 {
+			continue
+		}
+
+		idIdx := indexMap["id_number"]
+		idNumber := normalizeIDNumber(getCell(row, idIdx))
+		if idNumber == "" {
+			skipped++
+			continue
+		}
+
+		nameIdx := indexMap["name"]
+		name := strings.TrimSpace(getCell(row, nameIdx))
+
+		entry := models.Employee{
+			UserID:    userID,
+			IDNumber:  idNumber,
+			Name:      name,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		setField := func(key string, setter func(string)) {
+			if idx, ok := indexMap[key]; ok {
+				setter(getCell(row, idx))
+			}
+		}
+
+		setField("employee_id", func(val string) { entry.EmployeeID = val })
+		setField("department", func(val string) { entry.Department = val })
+		setField("position", func(val string) { entry.Position = val })
+		setField("gender", func(val string) { entry.Gender = val })
+		setField("hire_date", func(val string) { entry.HireDate = normalizeDateValue(val) })
+		setField("age", func(val string) { entry.Age = val })
+		setField("work_years", func(val string) { entry.WorkYears = val })
+		setField("birth_month", func(val string) { entry.BirthMonth = val })
+		setField("education", func(val string) { entry.Education = val })
+		setField("political_status", func(val string) { entry.PoliticalStatus = val })
+		setField("work_clothing_size", func(val string) { entry.WorkClothingSize = val })
+		setField("safety_shoe_size", func(val string) { entry.SafetyShoeSize = val })
+		setField("household_type", func(val string) { entry.HouseholdType = val })
+		setField("ethnicity", func(val string) { entry.Ethnicity = val })
+		setField("native_place", func(val string) { entry.NativePlace = val })
+		setField("id_address", func(val string) { entry.IDAddress = val })
+		setField("marital_status", func(val string) { entry.MaritalStatus = val })
+		setField("social_insurance", func(val string) { entry.SocialInsurance = val })
+		setField("has_birth", func(val string) { entry.HasBirth = val })
+		setField("phone", func(val string) { entry.Phone = val })
+		setField("emergency_contact", func(val string) { entry.EmergencyContact = val })
+		setField("emergency_phone", func(val string) { entry.EmergencyPhone = val })
+		setField("current_address", func(val string) { entry.CurrentAddress = val })
+		setField("graduate_school", func(val string) { entry.GraduateSchool = val })
+		setField("major", func(val string) { entry.Major = val })
+		setField("graduation_time", func(val string) { entry.GraduationTime = normalizeDateValue(val) })
+		setField("email", func(val string) { entry.Email = val })
+		setField("remarks", func(val string) { entry.Remarks = val })
+		setField("status", func(val string) { entry.Status = normalizeEmployeeStatus(val) })
+		setField("resign_date", func(val string) { entry.ResignDate = normalizeDateValue(val) })
+
+		if entry.Name == "" {
+			if existing, ok := existingMap[idNumber]; ok && existing.Name != "" {
+				entry.Name = existing.Name
+			}
+		}
+		if entry.Name == "" {
+			skipped++
+			continue
+		}
+
+		if existing, ok := existingMap[idNumber]; ok {
+			entry.ID = existing.ID
+			if entry.EmployeeID == "" {
+				entry.EmployeeID = existing.EmployeeID
+			}
+			if entry.Department == "" {
+				entry.Department = existing.Department
+			}
+			if entry.Position == "" {
+				entry.Position = existing.Position
+			}
+			if entry.Gender == "" {
+				entry.Gender = existing.Gender
+			}
+			if entry.HireDate == "" {
+				entry.HireDate = existing.HireDate
+			}
+			if entry.Age == "" {
+				entry.Age = existing.Age
+			}
+			if entry.WorkYears == "" {
+				entry.WorkYears = existing.WorkYears
+			}
+			if entry.BirthMonth == "" {
+				entry.BirthMonth = existing.BirthMonth
+			}
+			if entry.Education == "" {
+				entry.Education = existing.Education
+			}
+			if entry.PoliticalStatus == "" {
+				entry.PoliticalStatus = existing.PoliticalStatus
+			}
+			if entry.WorkClothingSize == "" {
+				entry.WorkClothingSize = existing.WorkClothingSize
+			}
+			if entry.SafetyShoeSize == "" {
+				entry.SafetyShoeSize = existing.SafetyShoeSize
+			}
+			if entry.HouseholdType == "" {
+				entry.HouseholdType = existing.HouseholdType
+			}
+			if entry.Ethnicity == "" {
+				entry.Ethnicity = existing.Ethnicity
+			}
+			if entry.NativePlace == "" {
+				entry.NativePlace = existing.NativePlace
+			}
+			if entry.IDAddress == "" {
+				entry.IDAddress = existing.IDAddress
+			}
+			if entry.MaritalStatus == "" {
+				entry.MaritalStatus = existing.MaritalStatus
+			}
+			if entry.SocialInsurance == "" {
+				entry.SocialInsurance = existing.SocialInsurance
+			}
+			if entry.HasBirth == "" {
+				entry.HasBirth = existing.HasBirth
+			}
+			if entry.Phone == "" {
+				entry.Phone = existing.Phone
+			}
+			if entry.EmergencyContact == "" {
+				entry.EmergencyContact = existing.EmergencyContact
+			}
+			if entry.EmergencyPhone == "" {
+				entry.EmergencyPhone = existing.EmergencyPhone
+			}
+			if entry.CurrentAddress == "" {
+				entry.CurrentAddress = existing.CurrentAddress
+			}
+			if entry.GraduateSchool == "" {
+				entry.GraduateSchool = existing.GraduateSchool
+			}
+			if entry.Major == "" {
+				entry.Major = existing.Major
+			}
+			if entry.GraduationTime == "" {
+				entry.GraduationTime = existing.GraduationTime
+			}
+			if entry.Email == "" {
+				entry.Email = existing.Email
+			}
+			if entry.Remarks == "" {
+				entry.Remarks = existing.Remarks
+			}
+			if existing.Status != "" {
+				entry.Status = existing.Status
+			}
+			if existing.ResignDate != "" {
+				entry.ResignDate = existing.ResignDate
+			}
+			entry.CreatedAt = existing.CreatedAt
+		}
+
+		if entry.Status == "" {
+			entry.Status = "active"
+		}
+
+		unique[idNumber] = entry
+	}
+
+	if len(unique) == 0 {
+		return nil, errors.New("未识别到有效的员工数据，请检查模板格式")
+	}
+
+	entries := make([]models.Employee, 0, len(unique))
+	for _, entry := range unique {
+		entries = append(entries, entry)
+	}
+
+	updateColumns := []string{
+		"employee_id", "name", "department", "position", "gender", "hire_date", "age", "work_years", "birth_month", "education",
+		"political_status", "work_clothing_size", "safety_shoe_size", "household_type", "ethnicity", "native_place", "id_address",
+		"marital_status", "social_insurance", "has_birth", "phone", "emergency_contact", "emergency_phone", "current_address",
+		"graduate_school", "major", "graduation_time", "email", "remarks", "status", "resign_date", "updated_at",
+	}
+
+	if err := p.db.Transaction(func(tx *gorm.DB) error {
+		if len(entries) == 0 {
+			return nil
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "id_number"}},
+			DoUpdates: clause.AssignmentColumns(updateColumns),
+		}).Create(&entries).Error; err != nil {
+			return fmt.Errorf("upsert employees: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	var employees []models.Employee
+	if err := p.db.Where("user_id = ?", userID).Order("name ASC, id_number ASC").Find(&employees).Error; err != nil {
+		return nil, fmt.Errorf("load employees: %w", err)
+	}
+
+	return &EmployeeImportResult{
+		Imported:  len(entries),
+		Skipped:   skipped,
+		Employees: employees,
+	}, nil
+}
+
+func loadEmployeeRows(path string) ([][]string, error) {
+	if strings.EqualFold(filepath.Ext(path), ".csv") {
+		return readEmployeeCSV(path)
+	}
+
+	f, err := excelize.OpenFile(path)
+	if err == nil {
+		defer func() { _ = f.Close() }()
+		sheets := f.GetSheetList()
+		if len(sheets) == 0 {
+			return nil, errors.New("员工Excel文件中没有找到工作表")
+		}
+
+		rows, err := f.GetRows(sheets[0])
+		if err != nil {
+			return nil, fmt.Errorf("读取员工Excel数据失败: %w", err)
+		}
+		return rows, nil
+	}
+
+	rows, csvErr := readEmployeeCSV(path)
+	if csvErr == nil {
+		return rows, nil
+	}
+
+	return nil, fmt.Errorf("无法解析员工文件，请确认格式为Excel或CSV: %w", err)
+}
+
+func readEmployeeCSV(path string) ([][]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	reader := csv.NewReader(bufio.NewReader(file))
+	reader.FieldsPerRecord = -1
+
+	rows, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, errors.New("员工CSV文件为空")
+	}
+
+	for i := range rows {
+		for j := range rows[i] {
+			value := rows[i][j]
+			if i == 0 && j == 0 {
+				value = stripBOM(value)
+			}
+			rows[i][j] = strings.TrimSpace(value)
+		}
+	}
+
+	return rows, nil
+}
+
+func stripBOM(value string) string {
+	return strings.TrimPrefix(value, "\ufeff")
 }
 
 type ProcessOutput struct {
@@ -613,11 +1011,68 @@ func buildAggregates(records []models.RawRecord, roster map[string]models.Roster
 	}
 }
 
+func normalizeEmployeeHeader(header string) string {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer("（", "", "）", "", "(", "", ")", "", " ", "", "\t", "", "\n", "", "\r", "")
+	normalized := replacer.Replace(header)
+	return strings.ToLower(normalized)
+}
+
+func normalizeIDNumber(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return strings.ReplaceAll(value, " ", "")
+}
+
+func normalizeDateValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if f, err := strconv.ParseFloat(value, 64); err == nil {
+		if t, err := excelize.ExcelDateToTime(f, false); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+
+	replacer := strings.NewReplacer("年", "-", "月", "-", "日", "", ".", "-", "/", "-")
+	clean := replacer.Replace(value)
+	layouts := []string{"2006-1-2", "2006-01-02", "2006-1", "2006-01", "2006"}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, clean); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+	return value
+}
+
 func getCell(row []string, idx int) string {
 	if idx < 0 || idx >= len(row) {
 		return ""
 	}
-	return strings.TrimSpace(row[idx])
+	return strings.TrimSpace(stripBOM(row[idx]))
+}
+
+func normalizeEmployeeStatus(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	lower := strings.ToLower(v)
+	switch lower {
+	case "在职", "active", "就职", "在岗", "正常":
+		return "active"
+	case "离职", "resigned", "离岗", "已离职", "terminated":
+		return "resigned"
+	default:
+		return v
+	}
 }
 
 func toInt(value string) int {

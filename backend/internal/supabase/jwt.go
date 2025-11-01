@@ -10,10 +10,12 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"siapp/internal/auth"
 )
 
 // SupabaseJWTClaims represents Supabase JWT claims
@@ -200,18 +202,33 @@ func SupabaseJWTMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := ValidateSupabaseToken(token)
-			if err != nil {
-				http.Error(w, `{"error":"Unauthorized: Invalid token"}`, http.StatusUnauthorized)
+			// Try Supabase validation first
+			if claims, err := ValidateSupabaseToken(token); err == nil {
+				ctx := context.WithValue(r.Context(), UserIDKey, claims.Sub)
+				ctx = context.WithValue(ctx, UserEmailKey, claims.Email)
+				ctx = context.WithValue(ctx, UserRoleKey, claims.Role)
+
+				// If the Supabase user ID can be parsed as integer, propagate to legacy auth context
+				if parsed, parseErr := strconv.ParseUint(claims.Sub, 10, 64); parseErr == nil {
+					ctx = context.WithValue(ctx, auth.UserIDKey, uint(parsed))
+				}
+
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			// Add user information to request context
-			ctx := context.WithValue(r.Context(), UserIDKey, claims.Sub)
-			ctx = context.WithValue(ctx, UserEmailKey, claims.Email)
-			ctx = context.WithValue(ctx, UserRoleKey, claims.Role)
+			// Fall back to local JWT validation (legacy login)
+			jwtManager := auth.NewJWTManager()
+			if localClaims, err := jwtManager.ValidateToken(token); err == nil {
+				ctx := context.WithValue(r.Context(), auth.UserIDKey, localClaims.UserID)
+				ctx = context.WithValue(ctx, auth.UsernameKey, localClaims.Username)
+				ctx = context.WithValue(ctx, UserIDKey, fmt.Sprintf("%d", localClaims.UserID))
 
-			next.ServeHTTP(w, r.WithContext(ctx))
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			http.Error(w, `{"error":"Unauthorized: Invalid token"}`, http.StatusUnauthorized)
 		})
 	}
 }

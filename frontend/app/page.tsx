@@ -17,7 +17,7 @@ import { OrganizationManagement } from "@/components/organization-management";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function HomePage() {
-  const { user, loading } = useAuth();
+  const { user, isLoading: loading } = useAuth();
   const router = useRouter();
   const isAuthenticated = !!user;
   const isLoading = loading;

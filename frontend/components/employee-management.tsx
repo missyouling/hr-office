@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Plus,
@@ -62,6 +62,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { fetchEmployees, importEmployees as importEmployeesApi, EmployeeResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 // 定义所有可用的字段
 interface FieldOption {
@@ -106,6 +108,66 @@ const DEFAULT_VISIBLE_FIELDS: (keyof Employee)[] = [
   "employeeId", "name", "department", "position", "gender", "hireDate", "phone"
 ];
 
+interface SearchableSelectProps {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder: string;
+}
+
+const SearchableSelect = ({ id, value, onChange, options, placeholder }: SearchableSelectProps) => {
+  const sanitizedOptions = options
+    .map((option) => option.trim())
+    .filter((option) => option.length > 0);
+
+  if (sanitizedOptions.length === 0) {
+    return (
+      <Input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  if (sanitizedOptions.length > 3) {
+    const dataListId = `${id}-options`;
+    return (
+      <>
+        <Input
+          id={id}
+          list={dataListId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+        <datalist id={dataListId}>
+          {sanitizedOptions.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      </>
+    );
+  }
+
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger id={id}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {sanitizedOptions.map((option) => (
+          <SelectItem key={option} value={option}>
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};
+
 interface Employee {
   id: string;
   // 基本信息 - 对应Excel模板字段
@@ -145,6 +207,163 @@ interface Employee {
   resignDate?: string;
 }
 
+const normalizeApiString = (value?: string | null) => (value ?? "").trim();
+
+const generateClientId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const MS_PER_YEAR = MS_PER_DAY * 365.25;
+
+const formatDateToInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeDateInput = (value?: string | null) => {
+  if (!value) return "";
+  let cleaned = value.trim();
+  if (!cleaned) return "";
+  cleaned = cleaned.replace(/[.\/]/g, "-");
+  if (/^\d{8}$/.test(cleaned)) {
+    return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`;
+  }
+  const match = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) {
+    const [, y, m, d] = match;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return cleaned.slice(0, 10);
+};
+
+const formatAgeValue = (value?: string | null) => {
+  if (!value) return "";
+  const num = parseInt(value, 10);
+  if (Number.isNaN(num) || num <= 0) {
+    return "";
+  }
+  return String(num);
+};
+
+const formatWorkYearsValue = (value?: string | null) => {
+  if (!value) return "";
+  const num = Number(value);
+  if (Number.isNaN(num) || num < 0) {
+    return "";
+  }
+  return num.toFixed(2);
+};
+
+const normalizeBirthMonth = (value?: string | null) => {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^\d{1,2}月$/.test(trimmed)) {
+    const month = trimmed.replace("月", "");
+    return `${month.padStart(2, "0")}月`;
+  }
+  if (/^\d{4}-\d{1,2}$/.test(trimmed)) {
+    const month = trimmed.split("-")[1];
+    return `${month.padStart(2, "0")}月`;
+  }
+  if (/^\d{6}$/.test(trimmed)) {
+    return `${trimmed.slice(4, 6)}月`;
+  }
+  return trimmed;
+};
+
+const formatFieldDisplayValue = (employee: Employee, fieldKey: keyof Employee) => {
+  const raw = employee[fieldKey];
+  if (!raw) {
+    return "-";
+  }
+  if (fieldKey === "hireDate") {
+    return normalizeDateInput(raw as string) || "-";
+  }
+  if (fieldKey === "age") {
+    return formatAgeValue(raw as string) || "-";
+  }
+  if (fieldKey === "workYears") {
+    return formatWorkYearsValue(raw as string) || "-";
+  }
+  return raw;
+};
+
+const mapEmployeeFromApi = (employee: EmployeeResponse): Employee => ({
+  id: employee.id ? String(employee.id) : generateClientId(),
+  employeeId: normalizeApiString(employee.employee_id),
+  name: normalizeApiString(employee.name),
+  department: normalizeApiString(employee.department),
+  position: normalizeApiString(employee.position),
+  gender: normalizeApiString(employee.gender),
+  hireDate: normalizeDateInput(employee.hire_date),
+  age: formatAgeValue(employee.age),
+  workYears: formatWorkYearsValue(employee.work_years),
+  birthMonth: normalizeBirthMonth(employee.birth_month),
+  education: normalizeApiString(employee.education),
+  politicalStatus: normalizeApiString(employee.political_status),
+  workClothingSize: normalizeApiString(employee.work_clothing_size),
+  safetyShoeSize: normalizeApiString(employee.safety_shoe_size),
+  householdType: normalizeApiString(employee.household_type),
+  ethnicity: normalizeApiString(employee.ethnicity),
+  nativePlace: normalizeApiString(employee.native_place),
+  idAddress: normalizeApiString(employee.id_address),
+  idNumber: normalizeApiString(employee.id_number),
+  maritalStatus: normalizeApiString(employee.marital_status),
+  socialInsurance: normalizeApiString(employee.social_insurance),
+  hasBirth: normalizeApiString(employee.has_birth),
+  phone: normalizeApiString(employee.phone),
+  emergencyContact: normalizeApiString(employee.emergency_contact),
+  emergencyPhone: normalizeApiString(employee.emergency_phone),
+  currentAddress: normalizeApiString(employee.current_address),
+  graduateSchool: normalizeApiString(employee.graduate_school),
+  major: normalizeApiString(employee.major),
+  graduationTime: normalizeApiString(employee.graduation_time),
+  email: normalizeApiString(employee.email),
+  remarks: normalizeApiString(employee.remarks),
+  status: employee.status === "resigned" ? "resigned" : "active",
+  resignDate: normalizeDateInput(employee.resign_date),
+});
+
+const createEmptyEmployee = (): Partial<Employee> => ({
+  employeeId: "",
+  name: "",
+  department: "",
+  position: "",
+  gender: "",
+  hireDate: formatDateToInput(new Date()),
+  age: "",
+  workYears: "",
+  birthMonth: "",
+  education: "",
+  politicalStatus: "",
+  workClothingSize: "",
+  safetyShoeSize: "",
+  householdType: "",
+  ethnicity: "",
+  nativePlace: "",
+  idAddress: "",
+  idNumber: "",
+  maritalStatus: "",
+  socialInsurance: "",
+  hasBirth: "",
+  phone: "",
+  emergencyContact: "",
+  emergencyPhone: "",
+  currentAddress: "",
+  graduateSchool: "",
+  major: "",
+  graduationTime: "",
+  email: "",
+  remarks: "",
+});
+
 interface SocialInsuranceChange {
   id: string;
   employeeId: string;
@@ -166,6 +385,35 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
   const [resignedEmployees, setResignedEmployees] = useState<Employee[]>([]);
   const [socialInsuranceChanges, setSocialInsuranceChanges] = useState<SocialInsuranceChange[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const { token, isAuthenticated, isLoading: authLoading } = useAuth();
+  const applyEmployeeData = useCallback((list: EmployeeResponse[]) => {
+    const mapped = list.map(mapEmployeeFromApi);
+    const active = mapped.filter((emp) => emp.status !== "resigned");
+    const resigned = mapped.filter((emp) => emp.status === "resigned");
+    setEmployees(active);
+    setResignedEmployees(resigned);
+  }, [setEmployees, setResignedEmployees]);
+
+  const loadEmployees = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    try {
+      const data = await fetchEmployees(token);
+      applyEmployeeData(data);
+    } catch (error) {
+      console.error("[EmployeeManagement] failed to load employees", error);
+      toast.error(
+        error instanceof Error ? error.message : "获取员工列表失败，请稍后重试",
+      );
+    }
+  }, [applyEmployeeData, token]);
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      loadEmployees();
+    }
+  }, [authLoading, isAuthenticated, loadEmployees]);
 
   // 对话框状态
   const [showAddEmployee, setShowAddEmployee] = useState(false);
@@ -194,38 +442,14 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
   };
 
   // 表单数据（包含默认值）
-  const [newEmployee, setNewEmployee] = useState<Partial<Employee>>({
-    employeeId: "",
-    name: "",
-    department: "",
-    position: "",
-    gender: "",
-    hireDate: "",
-    age: "",
-    workYears: "",
-    birthMonth: "",
+  const [newEmployee, setNewEmployee] = useState<Partial<Employee>>(() => ({
+    ...createEmptyEmployee(),
     education: "初中",
     politicalStatus: "群众",
     workClothingSize: "L",
     safetyShoeSize: "40",
-    householdType: "",
-    ethnicity: "",
-    nativePlace: "",
-    idAddress: "",
-    idNumber: "",
-    maritalStatus: "",
     socialInsurance: "有",
-    hasBirth: "",
-    phone: "",
-    emergencyContact: "",
-    emergencyPhone: "",
-    currentAddress: "",
-    graduateSchool: "",
-    major: "",
-    graduationTime: "",
-    email: "",
-    remarks: "",
-  });
+  }));
 
   const [resignDate, setResignDate] = useState("");
   const [socialInsuranceChange, setSocialInsuranceChange] = useState({
@@ -261,10 +485,63 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
   // 获取所有部门列表
   const getDepartments = () => {
     const depts = new Set<string>();
-    employees.forEach(emp => emp.department && depts.add(emp.department));
-    resignedEmployees.forEach(emp => emp.department && depts.add(emp.department));
-    return Array.from(depts).sort();
+    Object.keys(DEPARTMENT_CODES).forEach((dept) => depts.add(dept));
+    employees.forEach(emp => {
+      const dept = emp.department?.trim();
+      if (dept) depts.add(dept);
+    });
+    resignedEmployees.forEach(emp => {
+      const dept = emp.department?.trim();
+      if (dept) depts.add(dept);
+    });
+    return Array.from(depts).sort((a, b) => a.localeCompare(b, "zh-CN"));
   };
+
+  const positionOptions = useMemo(() => {
+    const set = new Set<string>();
+    [...employees, ...resignedEmployees].forEach((emp) => {
+      const value = emp.position?.trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [employees, resignedEmployees]);
+
+  const nativePlaceOptions = useMemo(() => {
+    const set = new Set<string>();
+    [...employees, ...resignedEmployees].forEach((emp) => {
+      const value = emp.nativePlace?.trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [employees, resignedEmployees]);
+
+  const educationOptions = useMemo(() => {
+    const defaults = ["小学", "初中", "高中", "中专", "大专", "本科", "硕士", "博士"];
+    const set = new Set<string>(defaults);
+    [...employees, ...resignedEmployees].forEach((emp) => {
+      const value = emp.education?.trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [employees, resignedEmployees]);
+
+  const graduateSchoolOptions = useMemo(() => {
+    const set = new Set<string>();
+    [...employees, ...resignedEmployees].forEach((emp) => {
+      const value = emp.graduateSchool?.trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [employees, resignedEmployees]);
+
+  const majorOptions = useMemo(() => {
+    const set = new Set<string>();
+    [...employees, ...resignedEmployees].forEach((emp) => {
+      const value = emp.major?.trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [employees, resignedEmployees]);
 
   // 字段管理函数
   const handleFieldToggle = (fieldKey: keyof Employee) => {
@@ -297,7 +574,7 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     const matchesSearch = !searchTerm ||
       emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       emp.idNumber.includes(searchTerm) ||
-      emp.department.toLowerCase().includes(searchTerm.toLowerCase());
+      emp.department?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesDepartment = !departmentFilter || departmentFilter === "all" || emp.department === departmentFilter;
 
@@ -309,7 +586,7 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     const matchesSearch = !searchTerm ||
       emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       emp.idNumber.includes(searchTerm) ||
-      emp.department.toLowerCase().includes(searchTerm.toLowerCase());
+      emp.department?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesDepartment = !departmentFilter || departmentFilter === "all" || emp.department === departmentFilter;
 
@@ -364,86 +641,69 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     }
 
     // 检查身份证号是否重复
-    const existingEmployee = employees.find(emp => emp.idNumber === newEmployee.idNumber);
+    const sanitizedIdNumber = newEmployee.idNumber.trim().toUpperCase();
+    const existingEmployee = employees.find(emp => emp.idNumber === sanitizedIdNumber);
     if (existingEmployee) {
       toast.error("该身份证号已存在");
       return;
     }
 
+    const autoInfo = calculateAgeFromIdNumber(sanitizedIdNumber);
+    const normalizedHireDate = normalizeDateInput(newEmployee.hireDate || formatDateToInput(new Date()));
+    const normalizedAge = formatAgeValue(newEmployee.age || autoInfo.age);
+    const normalizedWorkYears = formatWorkYearsValue(newEmployee.workYears || calculateWorkYears(normalizedHireDate));
+    const normalizedBirthMonth = normalizeBirthMonth(newEmployee.birthMonth || autoInfo.birthMonth);
+
     const employee: Employee = {
       id: Date.now().toString(),
       employeeId: newEmployee.employeeId || Date.now().toString(),
       name: newEmployee.name.trim(),
-      department: newEmployee.department,
-      position: newEmployee.position || "",
+      department: newEmployee.department.trim(),
+      position: newEmployee.position?.trim() || "",
       gender: newEmployee.gender || "",
-      hireDate: newEmployee.hireDate || new Date().toISOString().split('T')[0],
-      age: newEmployee.age || "",
-      workYears: newEmployee.workYears || "",
-      birthMonth: newEmployee.birthMonth || "",
-      education: newEmployee.education || "",
-      politicalStatus: newEmployee.politicalStatus || "",
-      workClothingSize: newEmployee.workClothingSize || "",
-      safetyShoeSize: newEmployee.safetyShoeSize || "",
-      householdType: newEmployee.householdType || "",
-      ethnicity: newEmployee.ethnicity || "",
-      nativePlace: newEmployee.nativePlace || "",
-      idAddress: newEmployee.idAddress || "",
-      idNumber: newEmployee.idNumber.trim(),
-      maritalStatus: newEmployee.maritalStatus || "",
-      socialInsurance: newEmployee.socialInsurance || "",
-      hasBirth: newEmployee.hasBirth || "",
-      phone: newEmployee.phone || "",
-      emergencyContact: newEmployee.emergencyContact || "",
-      emergencyPhone: newEmployee.emergencyPhone || "",
-      currentAddress: newEmployee.currentAddress || "",
-      graduateSchool: newEmployee.graduateSchool || "",
-      major: newEmployee.major || "",
-      graduationTime: newEmployee.graduationTime || "",
-      email: newEmployee.email || "",
-      remarks: newEmployee.remarks || "",
+      hireDate: normalizedHireDate,
+      age: normalizedAge,
+      workYears: normalizedWorkYears,
+      birthMonth: normalizedBirthMonth,
+      education: newEmployee.education?.trim() || "",
+      politicalStatus: newEmployee.politicalStatus?.trim() || "",
+      workClothingSize: newEmployee.workClothingSize?.trim() || "",
+      safetyShoeSize: newEmployee.safetyShoeSize?.trim() || "",
+      householdType: newEmployee.householdType?.trim() || "",
+      ethnicity: newEmployee.ethnicity?.trim() || "",
+      nativePlace: newEmployee.nativePlace?.trim() || "",
+      idAddress: newEmployee.idAddress?.trim() || "",
+      idNumber: sanitizedIdNumber,
+      maritalStatus: newEmployee.maritalStatus?.trim() || "",
+      socialInsurance: newEmployee.socialInsurance?.trim() || "",
+      hasBirth: newEmployee.hasBirth?.trim() || "",
+      phone: newEmployee.phone?.trim() || "",
+      emergencyContact: newEmployee.emergencyContact?.trim() || "",
+      emergencyPhone: newEmployee.emergencyPhone?.trim() || "",
+      currentAddress: newEmployee.currentAddress?.trim() || "",
+      graduateSchool: newEmployee.graduateSchool?.trim() || "",
+      major: newEmployee.major?.trim() || "",
+      graduationTime: normalizeDateInput(newEmployee.graduationTime),
+      email: newEmployee.email?.trim() || "",
+      remarks: newEmployee.remarks?.trim() || "",
       status: 'active',
     };
 
     setEmployees(prev => [...prev, employee]);
     setNewEmployee({
-      employeeId: "",
-      name: "",
-      department: "",
-      position: "",
-      gender: "",
-      hireDate: "",
-      age: "",
-      workYears: "",
-      birthMonth: "",
-      education: "",
-      politicalStatus: "",
-      workClothingSize: "",
-      safetyShoeSize: "",
-      householdType: "",
-      ethnicity: "",
-      nativePlace: "",
-      idAddress: "",
-      idNumber: "",
-      maritalStatus: "",
-      socialInsurance: "",
-      hasBirth: "",
-      phone: "",
-      emergencyContact: "",
-      emergencyPhone: "",
-      currentAddress: "",
-      graduateSchool: "",
-      major: "",
-      graduationTime: "",
-      email: "",
-      remarks: "",
+      ...createEmptyEmployee(),
+      education: "初中",
+      politicalStatus: "群众",
+      workClothingSize: "L",
+      safetyShoeSize: "40",
+      socialInsurance: "有",
     });
     setShowAddEmployee(false);
     toast.success("员工添加成功");
   };
 
   // 批量导入员工
-  const handleBatchImport = () => {
+  const handleBatchImport = async () => {
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
       toast.error("请选择文件");
@@ -451,15 +711,39 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     }
 
     setIsLoading(true);
-    // 这里应该调用API处理Excel文件
-    setTimeout(() => {
-      toast.success("批量导入成功");
+    try {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast.error("登录状态失效，请重新登录后再导入");
       setIsLoading(false);
+      return;
+    }
+
+      if (!token) {
+        toast.error("登录状态失效，请重新登录后再导入");
+        return;
+      }
+
+      const result = await importEmployeesApi(file, token);
+      applyEmployeeData(result.employees);
       setShowBatchImport(false);
+      const skippedMsg = result.skipped
+        ? `，已跳过 ${result.skipped} 行无效数据`
+        : "";
+      toast.success(`批量导入成功，共导入 ${result.imported} 人${skippedMsg}`);
+    } catch (error) {
+      console.error("[EmployeeImport] failed", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "导入失败，请确认文件符合模板要求",
+      );
+    } finally {
+      setIsLoading(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-    }, 2000);
+    }
   };
 
   // 员工离职
@@ -469,10 +753,12 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
       return;
     }
 
+    const normalizedResignDate = normalizeDateInput(resignDate);
+
     const resignedEmployee: Employee = {
       ...selectedEmployee,
       status: 'resigned',
-      resignDate,
+      resignDate: normalizedResignDate,
     };
 
     setEmployees(prev => prev.filter(emp => emp.id !== selectedEmployee.id));
@@ -497,7 +783,7 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
         id: Date.now().toString() + empId,
         employeeId: empId,
         employeeName: employee?.name || "",
-        department: employee?.department || "",
+        department: employee?.department?.trim() || "",
         type: socialInsuranceChange.type,
         effectiveDate: socialInsuranceChange.effectiveDate,
         reason: socialInsuranceChange.reason,
@@ -527,7 +813,7 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
       id: Date.now().toString(),
       employeeId: selectedEmployee.id,
       employeeName: selectedEmployee.name,
-      department: selectedEmployee.department,
+      department: selectedEmployee.department.trim(),
       type: singleSocialInsuranceChange.type,
       effectiveDate: singleSocialInsuranceChange.effectiveDate,
       reason: singleSocialInsuranceChange.reason,
@@ -547,6 +833,22 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     toast.success(`${selectedEmployee.name} 社保${typeText}记录添加成功`);
   };
 
+  const handleRestoreEmployee = (employee: Employee) => {
+    setResignedEmployees((prev) => prev.filter((item) => item.id !== employee.id));
+    setEmployees((prev) => [...prev, { ...employee, status: "active", resignDate: "", department: employee.department.trim() }]);
+    toast.success(`已恢复 ${employee.name} 为在职状态`);
+  };
+
+  const handleRemoveResignedEmployee = (employee: Employee) => {
+    setResignedEmployees((prev) => prev.filter((item) => item.id !== employee.id));
+    toast.success(`已删除离职员工 ${employee.name} 的记录`);
+  };
+
+  const handleRemoveSocialInsuranceChange = (id: string) => {
+    setSocialInsuranceChanges((prev) => prev.filter((change) => change.id !== id));
+    toast.success("已撤销该社保变动记录");
+  };
+
   // 下载模板
   const downloadTemplate = () => {
     // 这里应该调用API下载模板
@@ -555,9 +857,10 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
   // 从身份证号码计算年龄和出生月份
   const calculateAgeFromIdNumber = (idNumber: string) => {
-    if (!idNumber || idNumber.length !== 18) return { age: "", birthMonth: "" };
+    const normalized = idNumber.replace(/\s+/g, "").toUpperCase();
+    if (!normalized || normalized.length !== 18) return { age: "", birthMonth: "" };
 
-    const birth = idNumber.substring(6, 14);
+    const birth = normalized.substring(6, 14);
     const birthYear = parseInt(birth.substring(0, 4));
     const birthMonth = parseInt(birth.substring(4, 6));
     const birthDay = parseInt(birth.substring(6, 8));
@@ -574,20 +877,21 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
     return {
       age: age.toString(),
-      birthMonth: `${birthMonth}月`
+      birthMonth: `${String(birthMonth).padStart(2, "0")}月`
     };
   };
 
   // 从入职时间计算工龄
   const calculateWorkYears = (hireDate: string) => {
-    if (!hireDate) return "";
+    const normalized = normalizeDateInput(hireDate);
+    if (!normalized) return "";
 
-    const hire = new Date(hireDate);
+    const hire = new Date(normalized);
     const today = new Date();
     const diffTime = Math.abs(today.getTime() - hire.getTime());
-    const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
-
-    return Math.floor(diffYears).toString();
+    if (!Number.isFinite(diffTime)) return "";
+    const diffYears = diffTime / MS_PER_YEAR;
+    return formatWorkYearsValue(diffYears.toString());
   };
 
   // 生成工号
@@ -630,19 +934,20 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
   // 处理身份证号变化
   const handleIdNumberChange = (idNumber: string, isEdit = false) => {
-    const { age, birthMonth } = calculateAgeFromIdNumber(idNumber);
+    const normalized = idNumber.replace(/\s+/g, "").toUpperCase();
+    const { age, birthMonth } = calculateAgeFromIdNumber(normalized);
 
     if (isEdit) {
       setEditEmployee(prev => ({
         ...prev,
-        idNumber,
+        idNumber: normalized,
         age: age || prev.age,
         birthMonth: birthMonth || prev.birthMonth
       }));
     } else {
       setNewEmployee(prev => ({
         ...prev,
-        idNumber,
+        idNumber: normalized,
         age: age || prev.age,
         birthMonth: birthMonth || prev.birthMonth
       }));
@@ -651,20 +956,39 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
   // 处理入职时间变化
   const handleHireDateChange = (hireDate: string, isEdit = false) => {
-    const workYears = calculateWorkYears(hireDate);
+    const normalized = normalizeDateInput(hireDate);
+    const workYears = calculateWorkYears(normalized);
 
     if (isEdit) {
       setEditEmployee(prev => ({
         ...prev,
-        hireDate,
+        hireDate: normalized,
         workYears: workYears || prev.workYears
       }));
     } else {
       setNewEmployee(prev => ({
         ...prev,
-        hireDate,
+        hireDate: normalized,
         workYears: workYears || prev.workYears
       }));
+    }
+  };
+
+  const handleAgeBlur = (value: string, isEdit = false) => {
+    const normalized = formatAgeValue(value);
+    if (isEdit) {
+      setEditEmployee(prev => ({ ...prev, age: normalized }));
+    } else {
+      setNewEmployee(prev => ({ ...prev, age: normalized }));
+    }
+  };
+
+  const handleWorkYearsBlur = (value: string, isEdit = false) => {
+    const normalized = formatWorkYearsValue(value);
+    if (isEdit) {
+      setEditEmployee(prev => ({ ...prev, workYears: normalized }));
+    } else {
+      setNewEmployee(prev => ({ ...prev, workYears: normalized }));
     }
   };
 
@@ -722,46 +1046,53 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
     }
 
     // 检查身份证号是否重复（排除当前员工）
+    const sanitizedIdNumber = editEmployee.idNumber.trim().toUpperCase();
     const existingEmployee = [...employees, ...resignedEmployees].find(
-      emp => emp.idNumber === editEmployee.idNumber && emp.id !== editEmployee.id
+      emp => emp.idNumber === sanitizedIdNumber && emp.id !== editEmployee.id
     );
     if (existingEmployee) {
       toast.error("该身份证号已存在");
       return;
     }
 
+    const autoInfo = calculateAgeFromIdNumber(sanitizedIdNumber);
+    const normalizedHireDate = normalizeDateInput(editEmployee.hireDate || "");
+    const normalizedAge = formatAgeValue(editEmployee.age || autoInfo.age);
+    const normalizedWorkYears = formatWorkYearsValue(editEmployee.workYears || calculateWorkYears(normalizedHireDate));
+    const normalizedBirthMonth = normalizeBirthMonth(editEmployee.birthMonth || autoInfo.birthMonth);
+
     const updatedEmployee: Employee = {
       ...editEmployee,
       name: editEmployee.name!.trim(),
-      idNumber: editEmployee.idNumber!.trim(),
-      department: editEmployee.department!,
-      employeeId: editEmployee.employeeId || editEmployee.id || "",
-      position: editEmployee.position || "",
-      gender: editEmployee.gender || "",
-      hireDate: editEmployee.hireDate || "",
-      age: editEmployee.age || "",
-      workYears: editEmployee.workYears || "",
-      birthMonth: editEmployee.birthMonth || "",
-      education: editEmployee.education || "",
-      politicalStatus: editEmployee.politicalStatus || "",
-      workClothingSize: editEmployee.workClothingSize || "",
-      safetyShoeSize: editEmployee.safetyShoeSize || "",
-      householdType: editEmployee.householdType || "",
-      ethnicity: editEmployee.ethnicity || "",
-      nativePlace: editEmployee.nativePlace || "",
-      idAddress: editEmployee.idAddress || "",
-      maritalStatus: editEmployee.maritalStatus || "",
-      socialInsurance: editEmployee.socialInsurance || "",
-      hasBirth: editEmployee.hasBirth || "",
-      phone: editEmployee.phone || "",
-      emergencyContact: editEmployee.emergencyContact || "",
-      emergencyPhone: editEmployee.emergencyPhone || "",
-      currentAddress: editEmployee.currentAddress || "",
-      graduateSchool: editEmployee.graduateSchool || "",
-      major: editEmployee.major || "",
-      graduationTime: editEmployee.graduationTime || "",
-      email: editEmployee.email || "",
-      remarks: editEmployee.remarks || "",
+      idNumber: sanitizedIdNumber,
+      department: editEmployee.department!.trim(),
+      employeeId: editEmployee.employeeId?.trim() || editEmployee.id || "",
+      position: editEmployee.position?.trim() || "",
+      gender: editEmployee.gender?.trim() || "",
+      hireDate: normalizedHireDate,
+      age: normalizedAge,
+      workYears: normalizedWorkYears,
+      birthMonth: normalizedBirthMonth,
+      education: editEmployee.education?.trim() || "",
+      politicalStatus: editEmployee.politicalStatus?.trim() || "",
+      workClothingSize: editEmployee.workClothingSize?.trim() || "",
+      safetyShoeSize: editEmployee.safetyShoeSize?.trim() || "",
+      householdType: editEmployee.householdType?.trim() || "",
+      ethnicity: editEmployee.ethnicity?.trim() || "",
+      nativePlace: editEmployee.nativePlace?.trim() || "",
+      idAddress: editEmployee.idAddress?.trim() || "",
+      maritalStatus: editEmployee.maritalStatus?.trim() || "",
+      socialInsurance: editEmployee.socialInsurance?.trim() || "",
+      hasBirth: editEmployee.hasBirth?.trim() || "",
+      phone: editEmployee.phone?.trim() || "",
+      emergencyContact: editEmployee.emergencyContact?.trim() || "",
+      emergencyPhone: editEmployee.emergencyPhone?.trim() || "",
+      currentAddress: editEmployee.currentAddress?.trim() || "",
+      graduateSchool: editEmployee.graduateSchool?.trim() || "",
+      major: editEmployee.major?.trim() || "",
+      graduationTime: normalizeDateInput(editEmployee.graduationTime),
+      email: editEmployee.email?.trim() || "",
+      remarks: editEmployee.remarks?.trim() || "",
     } as Employee;
 
     // 根据员工状态更新对应的列表
@@ -835,7 +1166,8 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
                           {/* 基本信息 */}
                           <TabsContent value="basic" className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="rounded-lg border bg-muted/20 p-4">
+                              <div className="grid gap-4 sm:grid-cols-2">
                               <div className="space-y-2">
                                 <Label htmlFor="employeeId">工号</Label>
                                 <div className="flex gap-2">
@@ -868,31 +1200,22 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="department">部门 *</Label>
-                                <Select value={newEmployee.department || ""} onValueChange={(value) => setNewEmployee(prev => ({ ...prev, department: value }))}>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="选择部门" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {getDepartments().map((dept) => (
-                                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                                    ))}
-                                    <SelectItem value="总经办">总经办</SelectItem>
-                                    <SelectItem value="销售部">销售部</SelectItem>
-                                    <SelectItem value="生产部">生产部</SelectItem>
-                                    <SelectItem value="机电部">机电部</SelectItem>
-                                    <SelectItem value="财务部">财务部</SelectItem>
-                                    <SelectItem value="人事行政部">人事行政部</SelectItem>
-                                    <SelectItem value="技术质量部">技术质量部</SelectItem>
-                                    <SelectItem value="仓库">仓库</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                <SearchableSelect
+                                  id="department"
+                                  value={newEmployee.department || ""}
+                                  onChange={(value) => setNewEmployee(prev => ({ ...prev, department: value }))}
+                                  options={getDepartments()}
+                                  placeholder="选择或搜索部门"
+                                />
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="position">岗位</Label>
-                                <Input
+                                <SearchableSelect
                                   id="position"
-                                  value={newEmployee.position}
-                                  onChange={(e) => setNewEmployee(prev => ({ ...prev, position: e.target.value }))}
+                                  value={newEmployee.position || ""}
+                                  onChange={(value) => setNewEmployee(prev => ({ ...prev, position: value }))}
+                                  options={positionOptions}
+                                  placeholder="选择或输入岗位"
                                 />
                               </div>
                               <div className="space-y-2">
@@ -923,21 +1246,26 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                                   type="number"
                                   value={newEmployee.age}
                                   onChange={(e) => setNewEmployee(prev => ({ ...prev, age: e.target.value }))}
+                                  onBlur={(e) => handleAgeBlur(e.target.value)}
                                 />
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="workYears">工龄</Label>
                                 <Input
                                   id="workYears"
+                                  inputMode="decimal"
                                   value={newEmployee.workYears}
                                   onChange={(e) => setNewEmployee(prev => ({ ...prev, workYears: e.target.value }))}
+                                  onBlur={(e) => handleWorkYearsBlur(e.target.value)}
                                 />
+                              </div>
                               </div>
                             </div>
                           </TabsContent>
 
                           {/* 个人信息 */}
                           <TabsContent value="personal" className="space-y-4">
+                            <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <Label htmlFor="birthMonth">出生月份</Label>
@@ -949,21 +1277,13 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="education">文化程度</Label>
-                                <Select value={newEmployee.education} onValueChange={(value) => setNewEmployee(prev => ({ ...prev, education: value }))}>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="选择文化程度" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="小学">小学</SelectItem>
-                                    <SelectItem value="初中">初中</SelectItem>
-                                    <SelectItem value="高中">高中</SelectItem>
-                                    <SelectItem value="中专">中专</SelectItem>
-                                    <SelectItem value="大专">大专</SelectItem>
-                                    <SelectItem value="本科">本科</SelectItem>
-                                    <SelectItem value="硕士">硕士</SelectItem>
-                                    <SelectItem value="博士">博士</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                <SearchableSelect
+                                  id="education"
+                                  value={newEmployee.education || ""}
+                                  onChange={(value) => setNewEmployee(prev => ({ ...prev, education: value }))}
+                                  options={educationOptions}
+                                  placeholder="选择或输入文化程度"
+                                />
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="politicalStatus">政治面貌</Label>
@@ -989,10 +1309,12 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="nativePlace">籍贯</Label>
-                                <Input
+                                <SearchableSelect
                                   id="nativePlace"
-                                  value={newEmployee.nativePlace}
-                                  onChange={(e) => setNewEmployee(prev => ({ ...prev, nativePlace: e.target.value }))}
+                                  value={newEmployee.nativePlace || ""}
+                                  onChange={(value) => setNewEmployee(prev => ({ ...prev, nativePlace: value }))}
+                                  options={nativePlaceOptions}
+                                  placeholder="选择或输入籍贯"
                                 />
                               </div>
                               <div className="space-y-2">
@@ -1054,10 +1376,12 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                                 />
                               </div>
                             </div>
+                            </div>
                           </TabsContent>
 
                           {/* 联系信息 */}
                           <TabsContent value="contact" className="space-y-4">
+                            <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <Label htmlFor="phone">联系电话</Label>
@@ -1101,10 +1425,12 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                                 onChange={(e) => setNewEmployee(prev => ({ ...prev, currentAddress: e.target.value }))}
                               />
                             </div>
+                            </div>
                           </TabsContent>
 
                           {/* 其他信息 */}
                           <TabsContent value="other" className="space-y-4">
+                            <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <Label htmlFor="workClothingSize">工作服</Label>
@@ -1148,18 +1474,22 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="graduateSchool">毕业院校</Label>
-                                <Input
+                                <SearchableSelect
                                   id="graduateSchool"
-                                  value={newEmployee.graduateSchool}
-                                  onChange={(e) => setNewEmployee(prev => ({ ...prev, graduateSchool: e.target.value }))}
+                                  value={newEmployee.graduateSchool || ""}
+                                  onChange={(value) => setNewEmployee(prev => ({ ...prev, graduateSchool: value }))}
+                                  options={graduateSchoolOptions}
+                                  placeholder="选择或输入毕业院校"
                                 />
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor="major">专业</Label>
-                                <Input
+                                <SearchableSelect
                                   id="major"
-                                  value={newEmployee.major}
-                                  onChange={(e) => setNewEmployee(prev => ({ ...prev, major: e.target.value }))}
+                                  value={newEmployee.major || ""}
+                                  onChange={(value) => setNewEmployee(prev => ({ ...prev, major: value }))}
+                                  options={majorOptions}
+                                  placeholder="选择或输入专业"
                                 />
                               </div>
                               <div className="space-y-2">
@@ -1171,13 +1501,14 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                                 />
                               </div>
                             </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="remarks">备注</Label>
-                              <Input
-                                id="remarks"
-                                value={newEmployee.remarks}
-                                onChange={(e) => setNewEmployee(prev => ({ ...prev, remarks: e.target.value }))}
-                              />
+                              <div className="space-y-2">
+                                <Label htmlFor="remarks">备注</Label>
+                                <Input
+                                  id="remarks"
+                                  value={newEmployee.remarks}
+                                  onChange={(e) => setNewEmployee(prev => ({ ...prev, remarks: e.target.value }))}
+                                />
+                              </div>
                             </div>
                           </TabsContent>
                         </Tabs>
@@ -1344,13 +1675,13 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                             className="cursor-pointer hover:bg-muted/50"
                           >
                             {getVisibleFieldsConfig().map((field) => {
-                              const value = employee[field.key];
+                              const displayValue = formatFieldDisplayValue(employee, field.key);
                               return (
                                 <TableCell
                                   key={field.key}
                                   className={field.key === 'name' ? 'font-medium' : field.key === 'idNumber' ? 'font-mono text-sm' : 'text-sm'}
                                 >
-                                  {value || "-"}
+                                  {displayValue}
                                 </TableCell>
                               );
                             })}
@@ -1510,12 +1841,13 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                         ))}
                         <TableHead className="min-w-[100px]">离职日期</TableHead>
                         <TableHead className="min-w-[80px]">状态</TableHead>
+                        <TableHead className="min-w-[140px]">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredResignedEmployees.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={visibleFields.length + 2} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={visibleFields.length + 3} className="text-center py-8 text-muted-foreground">
                             暂无离职员工数据
                           </TableCell>
                         </TableRow>
@@ -1527,19 +1859,41 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                             className="cursor-pointer hover:bg-muted/50"
                           >
                             {getVisibleFieldsConfig().map((field) => {
-                              const value = employee[field.key];
+                              const displayValue = formatFieldDisplayValue(employee, field.key);
                               return (
                                 <TableCell
                                   key={field.key}
                                   className={field.key === 'name' ? 'font-medium' : field.key === 'idNumber' ? 'font-mono text-sm' : 'text-sm'}
                                 >
-                                  {value || "-"}
+                                  {displayValue}
                                 </TableCell>
                               );
                             })}
-                            <TableCell className="text-sm">{employee.resignDate}</TableCell>
+                            <TableCell className="text-sm">{normalizeDateInput(employee.resignDate) || "-"}</TableCell>
                             <TableCell>
                               <Badge variant="secondary">已离职</Badge>
+                            </TableCell>
+                            <TableCell className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRestoreEmployee(employee);
+                                }}
+                              >
+                                恢复
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRemoveResignedEmployee(employee);
+                                }}
+                              >
+                                删除
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))
@@ -1664,12 +2018,13 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                         <TableHead>生效日期</TableHead>
                         <TableHead>变动原因</TableHead>
                         <TableHead>记录日期</TableHead>
+                        <TableHead className="min-w-[100px]">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {socialInsuranceChanges.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                             暂无社保变动记录
                           </TableCell>
                         </TableRow>
@@ -1683,9 +2038,18 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                                 {change.type === 'increase' ? '增加' : '减少'}
                               </Badge>
                             </TableCell>
-                            <TableCell>{change.effectiveDate}</TableCell>
-                            <TableCell>{change.reason}</TableCell>
-                            <TableCell>{change.createDate}</TableCell>
+                            <TableCell>{normalizeDateInput(change.effectiveDate) || "-"}</TableCell>
+                            <TableCell>{change.reason || "-"}</TableCell>
+                            <TableCell>{normalizeDateInput(change.createDate) || "-"}</TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRemoveSocialInsuranceChange(change.id)}
+                              >
+                                撤销
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))
                       )}
@@ -1807,7 +2171,8 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
 
               {/* 基本信息标签页 */}
               <TabsContent value="basic" className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-muted/20 p-4">
+                  <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-employeeId">工号</Label>
                     <Input
@@ -1827,28 +2192,22 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-department">部门 *</Label>
-                    <Select value={editEmployee.department || ""} onValueChange={(value) => setEditEmployee(prev => ({ ...prev, department: value }))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择部门" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getDepartments().map((dept) => (
-                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                        ))}
-                        <SelectItem value="销售部">销售部</SelectItem>
-                        <SelectItem value="技术部">技术部</SelectItem>
-                        <SelectItem value="财务部">财务部</SelectItem>
-                        <SelectItem value="人事部">人事部</SelectItem>
-                        <SelectItem value="行政部">行政部</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      id="edit-department"
+                      value={editEmployee.department || ""}
+                      onChange={(value) => setEditEmployee(prev => ({ ...prev, department: value }))}
+                      options={getDepartments()}
+                      placeholder="选择或搜索部门"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-position">岗位</Label>
-                    <Input
+                    <SearchableSelect
                       id="edit-position"
                       value={editEmployee.position || ""}
-                      onChange={(e) => setEditEmployee(prev => ({ ...prev, position: e.target.value }))}
+                      onChange={(value) => setEditEmployee(prev => ({ ...prev, position: value }))}
+                      options={positionOptions}
+                      placeholder="选择或输入岗位"
                     />
                   </div>
                   <div className="space-y-2">
@@ -1872,18 +2231,21 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                       onChange={(e) => handleHireDateChange(e.target.value, true)}
                     />
                   </div>
+                  </div>
                 </div>
               </TabsContent>
 
               {/* 个人信息标签页 */}
               <TabsContent value="personal" className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-age">年龄</Label>
                     <Input
                       id="edit-age"
                       value={editEmployee.age || ""}
                       onChange={(e) => setEditEmployee(prev => ({ ...prev, age: e.target.value }))}
+                      onBlur={(e) => handleAgeBlur(e.target.value, true)}
                       placeholder="可根据身份证自动计算"
                     />
                   </div>
@@ -1891,8 +2253,10 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                     <Label htmlFor="edit-workYears">工龄</Label>
                     <Input
                       id="edit-workYears"
+                      inputMode="decimal"
                       value={editEmployee.workYears || ""}
                       onChange={(e) => setEditEmployee(prev => ({ ...prev, workYears: e.target.value }))}
+                      onBlur={(e) => handleWorkYearsBlur(e.target.value, true)}
                       placeholder="可根据入职时间自动计算"
                     />
                   </div>
@@ -1911,21 +2275,13 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-education">文化程度</Label>
-                    <Select value={editEmployee.education || ""} onValueChange={(value) => setEditEmployee(prev => ({ ...prev, education: value }))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择文化程度" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="小学">小学</SelectItem>
-                        <SelectItem value="初中">初中</SelectItem>
-                        <SelectItem value="高中">高中</SelectItem>
-                        <SelectItem value="中专">中专</SelectItem>
-                        <SelectItem value="大专">大专</SelectItem>
-                        <SelectItem value="本科">本科</SelectItem>
-                        <SelectItem value="硕士">硕士</SelectItem>
-                        <SelectItem value="博士">博士</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      id="edit-education"
+                      value={editEmployee.education || ""}
+                      onChange={(value) => setEditEmployee(prev => ({ ...prev, education: value }))}
+                      options={educationOptions}
+                      placeholder="选择或输入文化程度"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-politicalStatus">政治面貌</Label>
@@ -1964,10 +2320,12 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-nativePlace">籍贯</Label>
-                    <Input
+                    <SearchableSelect
                       id="edit-nativePlace"
                       value={editEmployee.nativePlace || ""}
-                      onChange={(e) => setEditEmployee(prev => ({ ...prev, nativePlace: e.target.value }))}
+                      onChange={(value) => setEditEmployee(prev => ({ ...prev, nativePlace: value }))}
+                      options={nativePlaceOptions}
+                      placeholder="选择或输入籍贯"
                     />
                   </div>
                   <div className="space-y-2">
@@ -2014,12 +2372,33 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                       onChange={(e) => setEditEmployee(prev => ({ ...prev, idAddress: e.target.value }))}
                     />
                   </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-idAddress">身份证地址</Label>
+                      <Input
+                        id="edit-idAddress"
+                        value={editEmployee.idAddress || ""}
+                        onChange={(e) => setEditEmployee(prev => ({ ...prev, idAddress: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-idNumber">身份证号码 *</Label>
+                      <Input
+                        id="edit-idNumber"
+                        value={editEmployee.idNumber || ""}
+                        onChange={(e) => handleIdNumberChange(e.target.value, true)}
+                        placeholder="自动计算年龄和出生月份"
+                      />
+                    </div>
+                  </div>
                 </div>
               </TabsContent>
 
               {/* 联系信息标签页 */}
               <TabsContent value="contact" className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-phone">联系电话</Label>
                     <Input
@@ -2061,12 +2440,22 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                       onChange={(e) => setEditEmployee(prev => ({ ...prev, currentAddress: e.target.value }))}
                     />
                   </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-currentAddress">现居住地址</Label>
+                    <Input
+                      id="edit-currentAddress"
+                      value={editEmployee.currentAddress || ""}
+                      onChange={(e) => setEditEmployee(prev => ({ ...prev, currentAddress: e.target.value }))}
+                    />
+                  </div>
                 </div>
               </TabsContent>
 
               {/* 其他信息标签页 */}
               <TabsContent value="other" className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-workClothingSize">工作服</Label>
                     <Select value={editEmployee.workClothingSize || ""} onValueChange={(value) => setEditEmployee(prev => ({ ...prev, workClothingSize: value }))}>
@@ -2123,18 +2512,22 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-graduateSchool">毕业院校</Label>
-                    <Input
+                    <SearchableSelect
                       id="edit-graduateSchool"
                       value={editEmployee.graduateSchool || ""}
-                      onChange={(e) => setEditEmployee(prev => ({ ...prev, graduateSchool: e.target.value }))}
+                      onChange={(value) => setEditEmployee(prev => ({ ...prev, graduateSchool: value }))}
+                      options={graduateSchoolOptions}
+                      placeholder="选择或输入毕业院校"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-major">专业</Label>
-                    <Input
+                    <SearchableSelect
                       id="edit-major"
                       value={editEmployee.major || ""}
-                      onChange={(e) => setEditEmployee(prev => ({ ...prev, major: e.target.value }))}
+                      onChange={(value) => setEditEmployee(prev => ({ ...prev, major: value }))}
+                      options={majorOptions}
+                      placeholder="选择或输入专业"
                     />
                   </div>
                   <div className="space-y-2">
@@ -2154,6 +2547,7 @@ export function EmployeeManagement({ className }: EmployeeManagementProps) {
                     value={editEmployee.remarks || ""}
                     onChange={(e) => setEditEmployee(prev => ({ ...prev, remarks: e.target.value }))}
                   />
+                  </div>
                 </div>
               </TabsContent>
             </Tabs>

@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/supabase/auth-context";
-import { createClient } from "@/lib/supabase/client";
-import { checkAccountAvailability, resendVerificationEmail } from "@/lib/api";
+import type { User } from "@/lib/auth";
+import {
+  checkAccountAvailability,
+  resendVerificationEmail,
+  login as backendLogin,
+  register as backendRegister,
+} from "@/lib/api";
 import { Eye, EyeOff, Building2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -36,7 +41,7 @@ import {
 } from "@/components/ui/dialog";
 
 interface LoginData {
-  email: string;
+  username: string;
   password: string;
 }
 
@@ -57,16 +62,14 @@ interface CompanyOption {
 
 export default function AuthPage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
-  const supabase = useMemo(() => createClient(), []);
-
+  const { user, isLoading: loading, login: setAuthSession } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [loginData, setLoginData] = useState<LoginData>({
-    email: "",
+    username: "",
     password: "",
   });
   
@@ -183,22 +186,41 @@ export default function AuthPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const username = loginData.username.trim();
+    if (!username) {
+      toast.error("请输入用户名");
+      return;
+    }
+    if (!loginData.password) {
+      toast.error("请输入密码");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: loginData.email,
+      const { token, user: userPayload } = await backendLogin({
+        username,
         password: loginData.password,
       });
 
-      if (error) throw error;
+      if (!token || !userPayload) {
+        throw new Error("登录失败，请稍后重试");
+      }
 
+      setAuthSession(token, userPayload as User);
       toast.success("登录成功");
       router.push("/");
     } catch (error) {
       console.error("Login error:", error);
       const errorMessage = error instanceof Error ? error.message : "登录失败";
-      toast.error(errorMessage);
+      const normalized = errorMessage.toLowerCase();
+      if (normalized.includes("invalid") || normalized.includes("unauthorized")) {
+        toast.error("用户名或密码错误");
+      } else {
+        toast.error(errorMessage || "登录失败");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -293,27 +315,18 @@ export default function AuthPage() {
     }
 
     try {
-      // 使用Supabase Auth注册
-      // 注意：profile会通过数据库触发器自动创建，不需要手动插入
-      const { error } = await supabase.auth.signUp({
+      const response = await backendRegister({
+        username: usernameToCheck,
         email: emailToCheck,
         password: registerData.password,
-        options: {
-          data: {
-            username: usernameToCheck,
-            full_name: registerData.fullName,
-            company_id: registerData.companyId,
-          },
-        },
+        fullName: registerData.fullName.trim(),
+        companyId: registerData.companyId,
       });
 
-      if (error) throw error;
-
-      // Profile会通过数据库触发器自动创建（见 001_initial_schema.sql 第396-416行）
-      // 触发器会从 raw_user_meta_data 中提取 username, full_name, company_id
-
       toast.success(
-        `注册成功！我们已向 ${registerData.email} 发送了验证邮件，请点击邮件中的链接验证您的邮箱，然后返回登录。`,
+        response?.message
+          ? response.message
+          : `注册成功！我们已向 ${registerData.email} 发送了验证邮件，请点击邮件中的链接验证您的邮箱，然后返回登录。`,
         { duration: 8000 }
       );
 
@@ -408,20 +421,20 @@ export default function AuthPage() {
               <CardHeader>
                 <CardTitle>登录</CardTitle>
                 <CardDescription>
-                  使用您的邮箱和密码登录系统
+                  使用您的用户名和密码登录系统
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="login-email">邮箱</Label>
+                    <Label htmlFor="login-username">用户名</Label>
                     <Input
-                      id="login-email"
-                      type="email"
-                      placeholder="请输入邮箱"
-                      value={loginData.email}
+                      id="login-username"
+                      type="text"
+                      placeholder="请输入用户名"
+                      value={loginData.username}
                       onChange={(e) =>
-                        setLoginData({ ...loginData, email: e.target.value })
+                        setLoginData({ ...loginData, username: e.target.value })
                       }
                       required
                     />
@@ -466,7 +479,7 @@ export default function AuthPage() {
                     size="sm"
                     className="px-0"
                     onClick={() => {
-                      setResendEmailInput(loginData.email || registerData.email || "");
+                      setResendEmailInput(registerData.email || "");
                       setResendFeedback(null);
                       setShowResendDialog(true);
                     }}

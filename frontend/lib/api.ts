@@ -201,11 +201,11 @@ export async function resendVerificationEmail(email: string): Promise<{ message:
   );
 }
 
-export async function createPeriod(yearMonth: string): Promise<Period> {
+export async function createPeriod(yearMonth: string, allowAdjustments = true): Promise<Period> {
   return request<Period>("/periods", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year_month: yearMonth }),
+    body: JSON.stringify({ year_month: yearMonth, allow_adjustments: allowAdjustments }),
   });
 }
 
@@ -314,6 +314,93 @@ export async function importLatestRoster(
   }
 
   return (await res.json()) as { imported: number; message: string };
+}
+
+export interface EmployeeResponse {
+  id: number;
+  user_id: number;
+  employee_id: string | null;
+  name: string;
+  department: string | null;
+  position: string | null;
+  gender: string | null;
+  hire_date: string | null;
+  age: string | null;
+  work_years: string | null;
+  birth_month: string | null;
+  education: string | null;
+  political_status: string | null;
+  work_clothing_size: string | null;
+  safety_shoe_size: string | null;
+  household_type: string | null;
+  ethnicity: string | null;
+  native_place: string | null;
+  id_address: string | null;
+  id_number: string;
+  marital_status: string | null;
+  social_insurance: string | null;
+  has_birth: string | null;
+  phone: string | null;
+  emergency_contact: string | null;
+  emergency_phone: string | null;
+  current_address: string | null;
+  graduate_school: string | null;
+  major: string | null;
+  graduation_time: string | null;
+  email: string | null;
+  remarks: string | null;
+  status: "active" | "resigned" | string;
+  resign_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeeImportResponse {
+  imported: number;
+  skipped: number;
+  employees: EmployeeResponse[];
+}
+
+function buildAuthHeaders(token?: string) {
+  const reqToken = token ?? (typeof window !== "undefined" ? localStorage.getItem("token") ?? undefined : undefined);
+  return reqToken
+    ? {
+        Authorization: `Bearer ${reqToken}`,
+      }
+    : undefined;
+}
+
+export async function fetchEmployees(token?: string): Promise<EmployeeResponse[]> {
+  return request("/employees", {
+    headers: buildAuthHeaders(token),
+  });
+}
+
+export async function importEmployees(file: File, token: string): Promise<EmployeeImportResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+
+  const res = await fetch(`${API_BASE}/employees/import`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      const data = JSON.parse(text);
+      detail = data?.details || data?.error || text;
+    } catch {
+      // ignore json parse failure
+    }
+    throw new Error(detail || "员工导入失败");
+  }
+
+  return (await res.json()) as EmployeeImportResponse;
 }
 
 interface BatchUploadParams {
