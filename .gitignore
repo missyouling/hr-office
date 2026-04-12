@@ -1,0 +1,95 @@
+# 社保数据文件（私密数据）
+*.xlsx
+*.xls
+*.csv
+excel_analysis.json
+excel_summary.txt
+analyze_excels.py
+补退模板/
+
+# 数据库文件
+backend/data/siapp.db
+backend/data/*.db
+
+# 上传文件目录
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# 环境配置文件
+frontend/.env.local
+.env
+.env.local
+.env.production
+
+# 依赖和构建目录
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/out/
+
+# 日志文件
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Go 编译文件
+backend/siapp
+backend/*.exe
+backend/debug
+
+# Docker 相关
+.dockerignore
+
+# 其他
+.cache/
+.serena/
+.uv/
+.roo/
+
+# Go 安装包和敏感文件
+go*.tar.gz
+go*.zip
+go/
+mail.md
+supabase.txt
+docker-compose.supabase.yml
+
+# 数据迁移配置和报告（包含敏感数据）
+migration-config.json
+user_migration_report.json
+*_migration_report.json
+
+# 历史总结文档（不再纳入版本控制）
+AGENTS.md
+CLAUDE.md
+DATABASE_MIGRATION.md
+DEPLOYMENT.md
+DEPLOYMENT_SUMMARY.md
+DOCKER_README.md
+PROJECT_INITIALIZATION_REPORT.md
+SUPABASE_BACKEND_INTEGRATION.md
+SUPABASE_DASHBOARD_GUIDE.md
+SUPABASE_INTEGRATION_COMPLETE.md
+SUPABASE_MIGRATION_CHECKLIST.md
+SUPABASE_MIGRATION_FILES.md
+SUPABASE_MIGRATION_IMPLEMENTATION.md
+SUPABASE_MIGRATION_PHASE3_SUMMARY.md
+SUPABASE_MIGRATION_PLAN.md
+SUPABASE_MIGRATION_README.md
+SUPABASE_SQL_EXECUTION_GUIDE.md
+.worktrees/
