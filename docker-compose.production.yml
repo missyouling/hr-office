@@ -1,0 +1,148 @@
+services:
+  # PostgreSQL 数据库服务
+  postgres:
+    image: postgres:15-alpine
+    container_name: siapp-postgres-prod
+    environment:
+      POSTGRES_DB: ${SIAPP_DB_NAME:-siapp}
+      POSTGRES_USER: ${SIAPP_DB_USER:-siapp}
+      POSTGRES_PASSWORD: ${SIAPP_DB_PASSWORD}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - siapp-network-prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SIAPP_DB_USER:-siapp} -d ${SIAPP_DB_NAME:-siapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 生产环境后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: siapp-backend-prod
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    env_file:
+      - .env.production  # 加载生产环境配置
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - backend_data_prod:/app/data  # 生产环境数据持久化
+      - ./logs:/app/logs  # 日志文件挂载
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/health || true"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - siapp-network-prod
+    # 生产环境资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+
+  # 生产环境前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL_DOMAIN: ${NEXT_PUBLIC_API_BASE_URL_DOMAIN}
+        NEXT_PUBLIC_API_BASE_URL_IP: ${NEXT_PUBLIC_API_BASE_URL_IP}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+        NEXT_PUBLIC_API_IPV4_FALLBACK_PORT: ${NEXT_PUBLIC_API_IPV4_FALLBACK_PORT}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL}
+    container_name: siapp-frontend-prod
+    ports:
+      - "${FRONTEND_PORT:-3000}:8080"
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - siapp-network-prod
+    # 生产环境资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+
+  # Nginx反向代理 (生产环境推荐)
+  nginx:
+    image: nginx:alpine
+    container_name: siapp-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro  # SSL证书
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    networks:
+      - siapp-network-prod
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+      
+volumes:
+  # PostgreSQL 数据持久化
+  postgres_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/siapp/postgres
+
+  # 生产环境数据持久化 (可选用于文件存储)
+  backend_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/siapp/data
+
+networks:
+  # 生产环境网络
+  siapp-network-prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

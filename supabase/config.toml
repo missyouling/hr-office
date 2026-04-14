@@ -1,0 +1,82 @@
+# Supabase 本地开发配置文件
+# 文档: https://supabase.com/docs/guides/cli/config
+
+[project]
+# 项目名称（可选）
+name = "hr-office"
+
+# 项目 ID（从 Supabase Dashboard 获取）
+# ref = "your-project-ref"
+
+[api]
+# API 端口
+port = 54321
+# API 协议
+schemas = ["public", "storage", "graphql_public"]
+# 额外的 schema（如果有自定义 schema）
+extra_search_path = ["public", "extensions"]
+# 最大行数限制
+max_rows = 1000
+
+[db]
+# PostgreSQL 端口
+port = 54322
+# 数据库名称
+major_version = 15
+
+[studio]
+# Studio 端口
+port = 54323
+
+[inbucket]
+# 邮件测试服务端口
+port = 54324
+smtp_port = 54325
+pop3_port = 54326
+
+[auth]
+# 启用注册
+enable_signup = true
+
+# JWT 密钥过期时间（秒）
+jwt_expiry = 3600
+
+# 允许的重定向 URL
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:10086"]
+
+# 外部认证提供商（可选）
+[auth.external.google]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.github]
+enabled = false
+client_id = ""
+secret = ""
+
+# 邮件模板
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+# 存储配置
+[storage]
+# 存储文件的最大大小（字节）
+file_size_limit = 52428800 # 50MB
+
+# 边缘函数配置（如果使用）
+[functions]
+# 函数超时时间（秒）
+timeout = 300
+
+# 实时订阅配置
+[realtime]
+# 启用实时功能
+enabled = true
+# 最大连接数
+max_connections = 100
+# 最大订阅数
+max_channels = 100

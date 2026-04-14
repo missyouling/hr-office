@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: siapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SIAPP_DB_NAME:-siapp}
+      POSTGRES_USER: ${SIAPP_DB_USER:-siapp}
+      POSTGRES_PASSWORD: ${SIAPP_DB_PASSWORD:-secure_password_change_me}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - siapp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SIAPP_DB_USER:-siapp} -d ${SIAPP_DB_NAME:-siapp}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  backend:
+    image: koujiang2025/hr-backend:latest
+    container_name: siapp-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SIAPP_ADDR: 0.0.0.0:8080
+      SIAPP_DATABASE_TYPE: postgres
+      SIAPP_DB_HOST: postgres
+      SIAPP_DB_PORT: 5432
+      SIAPP_DB_USER: ${SIAPP_DB_USER:-siapp}
+      SIAPP_DB_PASSWORD: ${SIAPP_DB_PASSWORD:-secure_password_change_me}
+      SIAPP_DB_NAME: ${SIAPP_DB_NAME:-siapp}
+      SIAPP_DB_SSLMODE: disable
+      SIAPP_UPLOAD_DIR: /app/data/uploads
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-secret-key-change-this-in-production}
+      JWT_TOKEN_DURATION: ${JWT_TOKEN_DURATION:-12h}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:10010}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-development}
+    ports:
+      - "10011:8080"
+    volumes:
+      - backend_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://0.0.0.0:8080/health > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - siapp-network
+
+  frontend:
+    image: koujiang2025/hr-frontend:latest
+    container_name: siapp-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+    ports:
+      - "10010:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - siapp-network
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "next-server"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_data:
+    driver: local
+
+networks:
+  siapp-network:
+    driver: bridge

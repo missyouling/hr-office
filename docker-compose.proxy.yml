@@ -1,0 +1,58 @@
+# 该编排文件配合宿主机 Nginx 反向代理使用，
+# 默认将前端容器映射到本地 10100 端口、后端容器映射到 10101 端口。
+# 请确保宿主机或 FRP 服务器放行对应端口，并在 .env 中配置好后端数据库与 Supabase 信息。
+
+services:
+  frontend:
+    image: koujiang2025/hr-office-frontend:latest
+    container_name: hr-office-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL}
+    ports:
+      - "10100:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    image: koujiang2025/hr-office-backend:latest
+    container_name: hr-office-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      SIAPP_DB_HOST: ${SIAPP_DB_HOST}
+      SIAPP_DB_PORT: ${SIAPP_DB_PORT}
+      SIAPP_DB_USER: ${SIAPP_DB_USER}
+      SIAPP_DB_NAME: ${SIAPP_DB_NAME}
+      SIAPP_DB_PASSWORD: ${SIAPP_DB_PASSWORD}
+      SIAPP_DB_SSLMODE: ${SIAPP_DB_SSLMODE}
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./logs/backend:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    ports:
+      - "10101:8080"
+
+networks:
+  default:
+    name: hr-office-net
