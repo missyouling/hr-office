@@ -4,8 +4,8 @@ import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { getAuditLogs, fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, createRole, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, testSMTPConnection, saveSMTPConfig, getSMTPConfig, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, type DocumentSubCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, createSubCategory, updateSubCategoryCode, deleteSubCategory, deleteCategory } from "@/lib/api";
-import type { AuditLog, StorageConfig, StorageRule } from "@/lib/types";
+import { getAuditLogs, fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, testSMTPConnection, saveSMTPConfig, getSMTPConfig, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, deleteCategory, listStorageConfigs, createStorageConfig, updateStorageConfig, deleteStorageConfig, testStorageConnection, uploadStorageFile, listStorageFiles, deleteStorageFile, getStorageFileDownloadUrl } from "@/lib/api";
+import type { AuditLog, StorageConfig, SysFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,14 +17,12 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
-import { RefreshCw, Download, Eye, Plus, Trash2, Edit, GripVertical, Shield, CircleDot, X, Search, ArrowUp, ArrowDown, ArrowUpDown, FolderOpen } from "lucide-react";
+import { RefreshCw, Download, Eye, Plus, Trash2, Edit, CircleDot, Upload, HardDrive, Cloud, Server } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 
@@ -77,6 +75,14 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
     icon: "👥",
     items: [
       { id: "roles", label: "角色权限" },
+    ],
+  },
+  {
+    group: "存储管理",
+    icon: "💾",
+    items: [
+      { id: "storage-configs", label: "存储配置" },
+      { id: "storage-files", label: "文件管理" },
     ],
   },
 ];
@@ -1878,6 +1884,503 @@ function CodeRulesTab() {
   );
 }
 
+// 存储配置 Tab
+function StorageConfigTab() {
+  const [configs, setConfigs] = useState<StorageConfig[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<StorageConfig | null>(null);
+  const [testingId, setTestingId] = useState<number | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    type: "local" as "local" | "s3" | "webdav",
+    enabled: true,
+    config: {} as Record<string, unknown>,
+  });
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const data = await listStorageConfigs();
+        setConfigs(data);
+      } catch (error) {
+        toast.error("加载存储配置失败");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const handleCreate = () => {
+    setEditingConfig(null);
+    setFormData({ name: "", type: "local", enabled: true, config: {} });
+    setShowCreateDialog(true);
+  };
+
+  const handleEdit = (config: StorageConfig) => {
+    setEditingConfig(config);
+    setFormData({
+      name: config.name,
+      type: config.type as "local" | "s3" | "webdav",
+      enabled: config.enabled,
+      config: config.config,
+    });
+    setShowCreateDialog(true);
+  };
+
+  const handleSave = async () => {
+    if (!formData.name.trim()) {
+      toast.error("请输入存储配置名称");
+      return;
+    }
+
+    try {
+      if (editingConfig) {
+        await updateStorageConfig(editingConfig.id, formData);
+        toast.success("存储配置已更新");
+      } else {
+        await createStorageConfig(formData);
+        toast.success("存储配置已创建");
+      }
+      setShowCreateDialog(false);
+      const data = await listStorageConfigs();
+      setConfigs(data);
+    } catch (error) {
+      toast.error("保存失败");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteStorageConfig(id);
+      toast.success("存储配置已删除");
+      const data = await listStorageConfigs();
+      setConfigs(data);
+    } catch (error) {
+      toast.error("删除失败");
+    }
+  };
+
+  const handleTest = async (config: StorageConfig) => {
+    setTestingId(config.id);
+    try {
+      const result = await testStorageConnection({
+        type: config.type,
+        config: config.config,
+      });
+      if (result.success) {
+        toast.success(`连接成功 (${result.latency_ms}ms)`);
+      } else {
+        toast.error(`连接失败: ${result.message}`);
+      }
+    } catch (error) {
+      toast.error("测试连接失败");
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case "s3":
+        return <Cloud className="w-4 h-4" />;
+      case "webdav":
+        return <Server className="w-4 h-4" />;
+      default:
+        return <HardDrive className="w-4 h-4" />;
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case "s3":
+        return "S3";
+      case "webdav":
+        return "WebDAV";
+      default:
+        return "本地";
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>存储配置</CardTitle>
+          <CardDescription>管理文件存储位置和配置</CardDescription>
+        </div>
+        <Button onClick={handleCreate} size="sm">
+          <Plus className="w-4 h-4 mr-2" />
+          新增配置
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">加载中...</div>
+        ) : configs.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">暂无存储配置</div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {configs.map((config) => (
+              <Card key={config.id} className="border">
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        {getTypeIcon(config.type)}
+                        <div>
+                          <p className="font-medium">{config.name}</p>
+                          <p className="text-xs text-muted-foreground">{getTypeLabel(config.type)}</p>
+                        </div>
+                      </div>
+                      {config.is_default && <Badge variant="default">默认</Badge>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">状态:</span>
+                      <Badge variant={config.enabled ? "outline" : "secondary"}>
+                        {config.enabled ? "启用" : "禁用"}
+                      </Badge>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTest(config)}
+                        disabled={testingId === config.id}
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                        {testingId === config.id ? "测试中" : "测试"}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleEdit(config)}>
+                        <Edit className="w-3 h-3 mr-1" />
+                        编辑
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(config.id)}
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" />
+                        删除
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingConfig ? "编辑存储配置" : "新增存储配置"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="config-name">配置名称</Label>
+              <Input
+                id="config-name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="例如: 主存储"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-type">存储类型</Label>
+              <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v as "local" | "s3" | "webdav" })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local">本地存储</SelectItem>
+                  <SelectItem value="s3">S3 兼容</SelectItem>
+                  <SelectItem value="webdav">WebDAV</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="config-enabled"
+                checked={formData.enabled}
+                onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
+              />
+              <Label htmlFor="config-enabled">启用此配置</Label>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-json">配置 JSON</Label>
+              <Textarea
+                id="config-json"
+                value={JSON.stringify(formData.config, null, 2)}
+                onChange={(e) => {
+                  try {
+                    setFormData({ ...formData, config: JSON.parse(e.target.value) });
+                  } catch {
+                    // 保持原值
+                  }
+                }}
+                placeholder='{"root_path": "/data"}'
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSave}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// 文件管理 Tab
+function FileManagementTab() {
+  const [files, setFiles] = useState<SysFile[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const [configs, setConfigs] = useState<StorageConfig[]>([]);
+  const [selectedConfigId, setSelectedConfigId] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  const pageSize = 20;
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await listStorageConfigs();
+        setConfigs(data);
+        if (data.length > 0 && selectedConfigId === null) {
+          setSelectedConfigId(data[0].id);
+        }
+      } catch (error) {
+        toast.error("加载存储配置失败");
+      }
+    };
+    load();
+  }, [selectedConfigId]);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const response = await listStorageFiles({
+          storage_config_id: selectedConfigId || undefined,
+          limit: pageSize,
+          offset: page * pageSize,
+        });
+        setFiles(response.files);
+        setTotal(response.total);
+      } catch (error) {
+        toast.error("加载文件列表失败");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [page, selectedConfigId]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedConfigId) {
+      toast.error("请选择文件和存储配置");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      await uploadStorageFile(file, selectedConfigId);
+      toast.success("文件上传成功");
+      setPage(0);
+    } catch (error) {
+      toast.error("文件上传失败");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDownload = (fileId: number) => {
+    const url = getStorageFileDownloadUrl(fileId);
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    window.open(url, "_blank");
+  };
+
+  const handleDelete = async (fileId: number) => {
+    try {
+      await deleteStorageFile(fileId);
+      toast.success("文件已删除");
+      setPage(0);
+    } catch (error) {
+      toast.error("删除失败");
+    } finally {
+      setDeleteConfirmId(null);
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  };
+
+  const totalPages = Math.ceil(total / pageSize);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>文件管理</CardTitle>
+        <CardDescription>上传和管理存储文件</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3 items-end">
+            <div className="grid gap-2">
+              <Label htmlFor="storage-select">选择存储配置</Label>
+              <Select
+                value={selectedConfigId?.toString() || ""}
+                onValueChange={(v) => {
+                  setSelectedConfigId(Number(v));
+                  setPage(0);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {configs.map((config) => (
+                    <SelectItem key={config.id} value={config.id.toString()}>
+                      {config.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="file-input">选择文件</Label>
+              <Input
+                id="file-input"
+                type="file"
+                onChange={handleFileUpload}
+                disabled={uploading || !selectedConfigId}
+              />
+            </div>
+            <Button disabled={uploading} className="w-full">
+              <Upload className="w-4 h-4 mr-2" />
+              {uploading ? "上传中..." : "上传"}
+            </Button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">加载中...</div>
+        ) : files.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">暂无文件</div>
+        ) : (
+          <>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>文件名</TableHead>
+                    <TableHead>大小</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead>存储类型</TableHead>
+                    <TableHead>创建时间</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {files.map((file) => (
+                    <TableRow key={file.id}>
+                      <TableCell className="font-medium">{file.original_name}</TableCell>
+                      <TableCell>{formatFileSize(file.size)}</TableCell>
+                      <TableCell>{file.content_type}</TableCell>
+                      <TableCell>{file.storage_type}</TableCell>
+                      <TableCell>{format(new Date(file.created_at), "yyyy-MM-dd HH:mm")}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDownload(file.id)}
+                          >
+                            <Download className="w-3 h-3 mr-1" />
+                            下载
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDeleteConfirmId(file.id)}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            删除
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  共 {total} 个文件，第 {page + 1} / {totalPages} 页
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(Math.max(0, page - 1))}
+                    disabled={page === 0}
+                  >
+                    上一页
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                    disabled={page === totalPages - 1}
+                  >
+                    下一页
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+
+      <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>确定要删除这个文件吗？此操作无法撤销。</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}>
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
 // ============ 主组件 ============
 export function SystemSettings() {
   const { user } = useAuth();
@@ -1929,6 +2432,10 @@ export function SystemSettings() {
         return <SystemLogsTab />;
       case "maintenance":
         return <SystemMaintenanceTab />;
+      case "storage-configs":
+        return <StorageConfigTab />;
+      case "storage-files":
+        return <FileManagementTab />;
       default:
         return null;
     }

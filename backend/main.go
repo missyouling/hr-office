@@ -24,6 +24,7 @@ import (
 	auditmw "siapp/internal/middleware"
 	"siapp/internal/models"
 	"siapp/internal/service"
+	"siapp/internal/service/storage"
 	"siapp/internal/supabase"
 )
 
@@ -333,6 +334,8 @@ func main() {
 		&models.CodeRulePlaceholder{},
 		&models.StorageConfig{},
 		&models.StorageRule{},
+		// SysFile 文件元数据表
+		&models.SysFile{},
 		&models.SMTPConfig{},
 		&models.DocumentContent{},
 		&models.DocumentEmbedding{},
@@ -384,6 +387,15 @@ func main() {
 	emailVerificationService := service.NewEmailVerificationService(db)
 	emailService := service.NewEmailService()
 	monitoringService := service.NewMonitoringService(db)
+
+	storageManager := storage.NewStorageManager(db, storage.DefaultRegistry)
+	if err := storageManager.Init(); err != nil {
+		log.Printf("storage manager init: %v", err)
+	}
+	storage.GlobalManager = storageManager
+
+	healthMonitor := storage.NewHealthMonitor(db, storage.DefaultRegistry)
+	healthMonitor.Start()
 
 	// Create handlers
 	handler := api.NewHandler(db)

@@ -525,3 +525,17 @@ export interface StorageTestResult {
   message: string;
   latency_ms: number;
 }
+
+export interface SysFile {
+  id: number;
+  storage_type: string;
+  path: string;
+  original_name: string;
+  size: number;
+  content_type: string;
+  etag: string;
+  storage_config_id: number | null;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}

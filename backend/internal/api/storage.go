@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -699,4 +700,155 @@ func (h *Handler) getStorageCapacity(w http.ResponseWriter, r *http.Request) {
 			Message:   "this storage type does not support capacity reporting",
 		})
 	}
+}
+
+// uploadStorageFile POST /api/admin/storage/files
+func (h *Handler) uploadStorageFile(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		respondError(w, http.StatusBadRequest, "failed to parse form", err)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "failed to get file from form", err)
+		return
+	}
+	defer file.Close()
+
+	configIDStr := r.FormValue("storage_config_id")
+	if configIDStr == "" {
+		respondError(w, http.StatusBadRequest, "storage_config_id is required", nil)
+		return
+	}
+
+	configID, err := strconv.ParseUint(configIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid storage_config_id", err)
+		return
+	}
+
+	sysFile, err := storage.GlobalManager.UploadFile(r.Context(), uint(configID), userID, header.Filename, file, header.Size)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to upload file", err)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, sysFile)
+}
+
+// listStorageFiles GET /api/admin/storage/files
+func (h *Handler) listStorageFiles(w http.ResponseWriter, r *http.Request) {
+	_, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	configIDStr := r.URL.Query().Get("storage_config_id")
+	var configID *uint
+	if configIDStr != "" {
+		id, err := strconv.ParseUint(configIDStr, 10, 32)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid storage_config_id", err)
+			return
+		}
+		configID = (*uint)(&[]uint{uint(id)}[0])
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid limit", err)
+			return
+		}
+		limit = l
+	}
+
+	offsetStr := r.URL.Query().Get("offset")
+	offset := 0
+	if offsetStr != "" {
+		o, err := strconv.Atoi(offsetStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid offset", err)
+			return
+		}
+		offset = o
+	}
+
+	files, total, err := storage.GlobalManager.ListFiles(r.Context(), configID, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list files", err)
+		return
+	}
+
+	response := map[string]interface{}{
+		"files":  files,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	}
+
+	respondJSON(w, http.StatusOK, response)
+}
+
+// downloadStorageFile GET /api/admin/storage/files/{fileID}
+func (h *Handler) downloadStorageFile(w http.ResponseWriter, r *http.Request) {
+	_, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	fileIDStr := chi.URLParam(r, "fileID")
+	fileID, err := strconv.ParseUint(fileIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid fileID", err)
+		return
+	}
+
+	reader, sysFile, err := storage.GlobalManager.DownloadFile(r.Context(), uint(fileID))
+	if err != nil {
+		respondError(w, http.StatusNotFound, "failed to download file", err)
+		return
+	}
+	defer reader.Close()
+
+	w.Header().Set("Content-Type", sysFile.ContentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", sysFile.OriginalName))
+
+	if _, err := io.Copy(w, reader); err != nil {
+		fmt.Printf("error copying file to response: %v\n", err)
+	}
+}
+
+// deleteStorageFile DELETE /api/admin/storage/files/{fileID}
+func (h *Handler) deleteStorageFile(w http.ResponseWriter, r *http.Request) {
+	_, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	fileIDStr := chi.URLParam(r, "fileID")
+	fileID, err := strconv.ParseUint(fileIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid fileID", err)
+		return
+	}
+
+	if err := storage.GlobalManager.DeleteFile(r.Context(), uint(fileID)); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to delete file", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "file deleted"})
 }

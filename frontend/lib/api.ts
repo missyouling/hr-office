@@ -34,6 +34,7 @@ import type {
   StorageConfig,
   StorageRule,
   StorageTestResult,
+  SysFile,
 } from "./types";
 import { getRuntimeConfig } from "./runtime-config";
 
@@ -2463,6 +2464,44 @@ export async function saveStorageConfig(config: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
   });
+}
+
+// Storage File API
+export async function uploadStorageFile(file: File, storageConfigId: number): Promise<SysFile> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("storage_config_id", String(storageConfigId));
+  return request("/admin/storage/files", {
+    method: "POST",
+    body: formData,
+    // Do NOT set Content-Type header - browser sets it with boundary for multipart
+  });
+}
+
+export interface StorageFileListResponse {
+  files: SysFile[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export async function listStorageFiles(params?: { storage_config_id?: number; limit?: number; offset?: number }): Promise<StorageFileListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.storage_config_id) searchParams.set("storage_config_id", String(params.storage_config_id));
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const query = searchParams.toString();
+  return request(`/admin/storage/files${query ? `?${query}` : ""}`);
+}
+
+export async function deleteStorageFile(fileId: number): Promise<{ message: string }> {
+  return request(`/admin/storage/files/${fileId}`, { method: "DELETE" });
+}
+
+export function getStorageFileDownloadUrl(fileId: number): string {
+  // Returns the URL for direct download - caller handles auth header
+  const base = PUBLIC_API_BASE || DEFAULT_LOCAL_API;
+  return `${base}/admin/storage/files/${fileId}`;
 }
 
 // SMTP 配置 API

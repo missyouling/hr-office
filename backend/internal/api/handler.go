@@ -449,6 +449,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		sr.Put("/rules", h.updateStorageRules)
 		sr.Put("/rules/{id}", h.updateStorageRule)
 		sr.Delete("/rules/{id}", h.deleteStorageRule)
+		sr.Post("/files", h.uploadStorageFile)
+		sr.Get("/files", h.listStorageFiles)
+		sr.Get("/files/{fileID}", h.downloadStorageFile)
+		sr.Delete("/files/{fileID}", h.deleteStorageFile)
 	})
 
 	r.Route("/periods/{periodID}", func(pr chi.Router) {

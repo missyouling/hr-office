@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // StorageConfig 存储配置
@@ -47,6 +48,22 @@ type StorageRule struct {
 	FallbackStorageID *uint     `json:"fallback_storage_id" gorm:"index"` // 降级存储ID
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// SysFile 文件元数据表
+type SysFile struct {
+	ID              uint           `json:"id" gorm:"primaryKey"`
+	StorageType     string         `json:"storage_type" gorm:"size:30;index"` // local/s3/webdav
+	Path            string         `json:"path" gorm:"size:500;index"`        // storage path
+	OriginalName    string         `json:"original_name" gorm:"size:255"`     // original filename
+	Size            int64          `json:"size"`                              // file size in bytes
+	ContentType     string         `json:"content_type" gorm:"size:100"`      // MIME type
+	ETag            string         `json:"etag" gorm:"size:100"`              // file hash/etag
+	StorageConfigID *uint          `json:"storage_config_id" gorm:"index"`    // FK to StorageConfig
+	CreatedBy       *uint          `json:"created_by" gorm:"index"`           // FK to User who uploaded
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `json:"deleted_at" gorm:"index"` // soft delete support
 }
 
 // SMTPConfig SMTP配置

@@ -6,6 +6,7 @@ excel_analysis.json
 excel_summary.txt
 analyze_excels.py
 补退模板/
+模板/
 
 # 数据库文件
 backend/data/siapp.db
