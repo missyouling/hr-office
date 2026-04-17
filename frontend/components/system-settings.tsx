@@ -392,34 +392,16 @@ function ModelConfigTab() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="chat" className="mt-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">通用大模型配置</CardTitle>
-                <CardDescription>用于文档理解、问答等通用 AI 功能</CardDescription>
-              </CardHeader>
-              <CardContent>{renderChatConfig()}</CardContent>
-            </Card>
+          <TabsContent value="chat" className="mt-4 space-y-4">
+            {renderChatConfig()}
           </TabsContent>
 
-          <TabsContent value="embedding" className="mt-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">向量模型配置</CardTitle>
-                <CardDescription>用于文档向量化、相似度搜索</CardDescription>
-              </CardHeader>
-              <CardContent>{renderEmbeddingConfig()}</CardContent>
-            </Card>
+          <TabsContent value="embedding" className="mt-4 space-y-4">
+            {renderEmbeddingConfig()}
           </TabsContent>
 
-          <TabsContent value="rerank" className="mt-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">重排模型配置</CardTitle>
-                <CardDescription>用于搜索结果重排、相关性优化</CardDescription>
-              </CardHeader>
-              <CardContent>{renderRerankConfig()}</CardContent>
-            </Card>
+          <TabsContent value="rerank" className="mt-4 space-y-4">
+            {renderRerankConfig()}
           </TabsContent>
         </Tabs>
       </CardContent>
