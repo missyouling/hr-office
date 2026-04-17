@@ -442,6 +442,8 @@ function SMTPConfigTab() {
     from: "",
     from_name: "人事系统",
     use_tls: true,
+    force_tls: false,
+    server_name: "",
   });
   const [smsConfig, setSmsConfig] = useState({
     enabled: false,
@@ -474,7 +476,7 @@ function SMTPConfigTab() {
       const data = await listNotificationConfigs();
       setConfigs(data);
       data.forEach(c => {
-        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", use_tls: c.config?.use_tls ?? true });
+        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", use_tls: c.config?.use_tls ?? true, force_tls: c.config?.force_tls ?? false, server_name: c.config?.server_name || "" });
         if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: c.config?.access_key_id || "", access_key_secret: c.config?.access_key_secret || "", sign_name: c.config?.sign_name || "", template_code: c.config?.template_code || "" });
         if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
         if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
@@ -528,7 +530,9 @@ function SMTPConfigTab() {
             <div className="grid gap-2"><Label>发件人邮箱</Label><Input value={smtpConfig.from} onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })} placeholder="noreply@example.com" /></div>
             <div className="grid gap-2"><Label>用户名</Label><Input value={smtpConfig.username} onChange={(e) => setSmtpConfig({ ...smtpConfig, username: e.target.value })} /></div>
             <div className="grid gap-2"><Label>密码</Label><Input type="password" value={smtpConfig.password} onChange={(e) => setSmtpConfig({ ...smtpConfig, password: e.target.value })} /></div>
-            <div className="flex items-center space-x-2"><Switch checked={smtpConfig.use_tls} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, use_tls: v })} /><Label>启用 TLS</Label></div>
+            <div className="flex items-center space-x-2"><Switch checked={smtpConfig.use_tls} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, use_tls: v })} /><Label>TLS</Label></div>
+            <div className="flex items-center space-x-2"><Switch checked={smtpConfig.force_tls} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, force_tls: v })} /><Label>强制 TLS (Port 465)</Label></div>
+            <div className="grid gap-2"><Label>Server Name (HELO)</Label><Input value={smtpConfig.server_name} onChange={(e) => setSmtpConfig({ ...smtpConfig, server_name: e.target.value })} placeholder="smtp.example.com" /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("smtp")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("smtp")} disabled={testing}>测试</Button></div>
           </div>
         )}

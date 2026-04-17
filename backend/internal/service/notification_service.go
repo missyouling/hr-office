@@ -27,13 +27,16 @@ func NewNotificationService() *NotificationService {
 }
 
 type SMTPConfigFields struct {
-	Host     string `json:"host"`
-	Port     string `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	From     string `json:"from"`
-	FromName string `json:"from_name"`
-	UseTLS   bool   `json:"use_tls"`
+	Host       string `json:"host"`
+	Port       string `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	From       string `json:"from"`
+	FromName   string `json:"from_name"`
+	UseTLS     bool   `json:"use_tls"`
+	ForceTLS   bool   `json:"force_tls"`
+	Timeout    int    `json:"timeout"`     // 连接超时秒数
+	ServerName string `json:"server_name"` // HELO 时发送的服务器名称
 }
 
 type SMSConfigFields struct {
@@ -121,7 +124,11 @@ func (s *NotificationService) SendSMTPEmail(req *SendRequest) error {
 
 	serverName := net.JoinHostPort(cfg.Host, cfg.Port)
 	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
-	tlsConfig := &tls.Config{InsecureSkipVerify: false, ServerName: cfg.Host}
+	tlsServerName := cfg.ServerName
+	if tlsServerName == "" {
+		tlsServerName = cfg.Host
+	}
+	tlsConfig := &tls.Config{InsecureSkipVerify: false, ServerName: tlsServerName}
 
 	conn, err := net.Dial("tcp", serverName)
 	if err != nil {
@@ -135,7 +142,11 @@ func (s *NotificationService) SendSMTPEmail(req *SendRequest) error {
 	}
 	defer client.Quit()
 
-	if cfg.UseTLS {
+	if cfg.ForceTLS {
+		if err = client.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("启动TLS失败: %v", err)
+		}
+	} else if cfg.UseTLS {
 		if err = client.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("启动TLS失败: %v", err)
 		}
