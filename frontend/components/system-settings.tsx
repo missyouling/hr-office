@@ -515,14 +515,35 @@ function SMTPConfigTab() {
     <Card>
       <CardHeader><CardTitle>通知配置</CardTitle><CardDescription>配置邮件、短信、Telegram、Webhook 等通知渠道</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex gap-2 border-b pb-2">
-          <Button variant={activeChannel === "smtp" ? "default" : "ghost"} onClick={() => setActiveChannel("smtp")}>SMTP</Button>
-          <Button variant={activeChannel === "sms" ? "default" : "ghost"} onClick={() => setActiveChannel("sms")}>阿里短信</Button>
-          <Button variant={activeChannel === "telegram" ? "default" : "ghost"} onClick={() => setActiveChannel("telegram")}>Telegram</Button>
-          <Button variant={activeChannel === "webhook" ? "default" : "ghost"} onClick={() => setActiveChannel("webhook")}>Webhook</Button>
-        </div>
+        <Tabs value={activeChannel || "smtp"} onValueChange={(v) => setActiveChannel(v)}>
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="smtp">
+              <span className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${smtpConfig.enabled ? "bg-green-500" : "bg-gray-400"}`}></span>
+                SMTP
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="sms">
+              <span className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${smsConfig.enabled ? "bg-green-500" : "bg-gray-400"}`}></span>
+                阿里短信
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="telegram">
+              <span className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${telegramConfig.enabled ? "bg-green-500" : "bg-gray-400"}`}></span>
+                Telegram
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="webhook">
+              <span className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${webhookConfig.enabled ? "bg-green-500" : "bg-gray-400"}`}></span>
+                Webhook
+              </span>
+            </TabsTrigger>
+          </TabsList>
 
-        {activeChannel === "smtp" && (
+        <TabsContent value="smtp" className="mt-4">
           <div className="space-y-4">
             <div className="flex items-center space-x-2"><Switch checked={smtpConfig.enabled} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, enabled: v })} /><Label>启用 SMTP</Label></div>
             <div className="grid gap-2"><Label>SMTP 地址</Label><Input value={smtpConfig.host} onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })} placeholder="smtp.example.com" /></div>
@@ -546,9 +567,9 @@ function SMTPConfigTab() {
             <div className="grid gap-2"><Label>回复地址 (Reply-To)</Label><Input value={smtpConfig.reply_to} onChange={(e) => setSmtpConfig({ ...smtpConfig, reply_to: e.target.value })} placeholder="reply@example.com (可选)" /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("smtp")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("smtp")} disabled={testing}>测试</Button></div>
           </div>
-        )}
+        </TabsContent>
 
-        {activeChannel === "sms" && (
+        <TabsContent value="sms" className="mt-4">
           <div className="space-y-4">
             <div className="flex items-center space-x-2"><Switch checked={smsConfig.enabled} onCheckedChange={(v) => setSmsConfig({ ...smsConfig, enabled: v })} /><Label>启用阿里短信</Label></div>
             <div className="grid gap-2"><Label>AccessKeyId</Label><Input value={smsConfig.access_key_id} onChange={(e) => setSmsConfig({ ...smsConfig, access_key_id: e.target.value })} /></div>
@@ -557,18 +578,18 @@ function SMTPConfigTab() {
             <div className="grid gap-2"><Label>模板码</Label><Input value={smsConfig.template_code} onChange={(e) => setSmsConfig({ ...smsConfig, template_code: e.target.value })} /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("sms")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("sms")} disabled={testing}>测试</Button></div>
           </div>
-        )}
+        </TabsContent>
 
-        {activeChannel === "telegram" && (
+        <TabsContent value="telegram" className="mt-4">
           <div className="space-y-4">
             <div className="flex items-center space-x-2"><Switch checked={telegramConfig.enabled} onCheckedChange={(v) => setTelegramConfig({ ...telegramConfig, enabled: v })} /><Label>启用 Telegram</Label></div>
             <div className="grid gap-2"><Label>Bot Token</Label><Input value={telegramConfig.bot_token} onChange={(e) => setTelegramConfig({ ...telegramConfig, bot_token: e.target.value })} placeholder="123456:ABC-DEF" /></div>
             <div className="grid gap-2"><Label>Chat ID</Label><Input value={telegramConfig.chat_id} onChange={(e) => setTelegramConfig({ ...telegramConfig, chat_id: e.target.value })} placeholder="123456789" /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("telegram")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("telegram")} disabled={testing}>测试</Button></div>
           </div>
-        )}
+        </TabsContent>
 
-        {activeChannel === "webhook" && (
+        <TabsContent value="webhook" className="mt-4">
           <div className="space-y-4">
             <div className="flex items-center space-x-2"><Switch checked={webhookConfig.enabled} onCheckedChange={(v) => setWebhookConfig({ ...webhookConfig, enabled: v })} /><Label>启用 Webhook</Label></div>
             <div className="grid gap-2"><Label>URL</Label><Input value={webhookConfig.url} onChange={(e) => setWebhookConfig({ ...webhookConfig, url: e.target.value })} placeholder="https://example.com/webhook" /></div>
@@ -576,7 +597,8 @@ function SMTPConfigTab() {
             <div className="grid gap-2"><Label>认证</Label><Input value={webhookConfig.auth} onChange={(e) => setWebhookConfig({ ...webhookConfig, auth: e.target.value })} placeholder="Bearer token" /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("webhook")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("webhook")} disabled={testing}>测试</Button></div>
           </div>
-        )}
+        </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   );
