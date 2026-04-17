@@ -23,7 +23,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Plus, Edit, Trash2, Eye, EyeOff, Circle, Loader2 } from "lucide-react";
@@ -377,30 +376,40 @@ export function ModelSettings() {
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold tracking-tight">模型配置管理</h2>
-        <Button size="sm" onClick={() => handleOpenDialog()}>
-          <Plus className="w-3.5 h-3.5 mr-1" />
-          新增配置
-        </Button>
-      </div>
-
-      <Tabs value={activeType} onValueChange={setActiveType}>
-        <TabsList>
+    <Card className="space-y-2">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>模型配置管理</CardTitle>
+            <CardDescription>管理 OCR、LLM、Embedding、Reranker 等模型配置</CardDescription>
+          </div>
+          <Button size="sm" onClick={() => handleOpenDialog()}>
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            新增配置
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 按钮式标签栏 */}
+        <div className="flex gap-2">
           {CONFIG_TYPES.map((type) => (
-            <TabsTrigger key={type.value} value={type.value}>
+            <Button
+              key={type.value}
+              variant={activeType === type.value ? "default" : "ghost"}
+              onClick={() => setActiveType(type.value)}
+            >
               {type.label}
-            </TabsTrigger>
+            </Button>
           ))}
-        </TabsList>
+        </div>
 
+        {/* 内容区域 */}
         {CONFIG_TYPES.map((type) => {
           const typeConfigs = groupedConfigs[type.value];
           const primary = typeConfigs.find((c) => c.role === "primary");
 
           return (
-            <TabsContent key={type.value} value={type.value}>
+            <div key={type.value} style={{display: activeType === type.value ? 'block' : 'none'}}>
               <Card>
                 <CardHeader className="py-1.5 px-3">
                   <CardTitle className="text-xs flex items-center gap-2">
@@ -532,10 +541,9 @@ export function ModelSettings() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
+            </div>
           );
         })}
-      </Tabs>
 
       <Dialog open={!!detailConfig} onOpenChange={(open) => !open && setDetailConfig(null)}>
         <DialogContent className="max-w-2xl">
@@ -796,6 +804,7 @@ export function ModelSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
