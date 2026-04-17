@@ -526,11 +526,6 @@ function SMTPConfigTab() {
           <div className="space-y-4">
             <div className="flex items-center space-x-2"><Switch checked={smtpConfig.enabled} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, enabled: v })} /><Label>启用 SMTP</Label></div>
             <div className="grid gap-2"><Label>SMTP 地址</Label><Input value={smtpConfig.host} onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })} placeholder="smtp.example.com" /></div>
-            <div className="grid gap-2"><Label>端口</Label><Input value={smtpConfig.port} onChange={(e) => setSmtpConfig({ ...smtpConfig, port: e.target.value })} placeholder="587" /></div>
-            <div className="grid gap-2"><Label>发件人邮箱</Label><Input value={smtpConfig.from} onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })} placeholder="noreply@example.com" /></div>
-            <div className="grid gap-2"><Label>发件人名称</Label><Input value={smtpConfig.from_name} onChange={(e) => setSmtpConfig({ ...smtpConfig, from_name: e.target.value })} placeholder="人事系统" /></div>
-            <div className="grid gap-2"><Label>用户名</Label><Input value={smtpConfig.username} onChange={(e) => setSmtpConfig({ ...smtpConfig, username: e.target.value })} /></div>
-            <div className="grid gap-2"><Label>密码</Label><Input type="password" value={smtpConfig.password} onChange={(e) => setSmtpConfig({ ...smtpConfig, password: e.target.value })} /></div>
             <div className="grid gap-2">
               <Label>加密方式</Label>
               <Select value={smtpConfig.encryption} onValueChange={(v) => { const m = { ssl: "465", tls: "587", none: "25" }; setSmtpConfig({ ...smtpConfig, encryption: v, port: m[v as keyof typeof m] || smtpConfig.port }); }}>
@@ -542,6 +537,11 @@ function SMTPConfigTab() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid gap-2"><Label>端口</Label><Input value={smtpConfig.port} onChange={(e) => setSmtpConfig({ ...smtpConfig, port: e.target.value })} placeholder="587" /></div>
+            <div className="grid gap-2"><Label>发件人邮箱</Label><Input value={smtpConfig.from} onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })} placeholder="noreply@example.com" /></div>
+            <div className="grid gap-2"><Label>发件人名称</Label><Input value={smtpConfig.from_name} onChange={(e) => setSmtpConfig({ ...smtpConfig, from_name: e.target.value })} placeholder="人事系统" /></div>
+            <div className="grid gap-2"><Label>用户名</Label><Input value={smtpConfig.username} onChange={(e) => setSmtpConfig({ ...smtpConfig, username: e.target.value })} /></div>
+            <div className="grid gap-2"><Label>密码</Label><Input type="password" value={smtpConfig.password} onChange={(e) => setSmtpConfig({ ...smtpConfig, password: e.target.value })} /></div>
             <div className="grid gap-2"><Label>Server Name (TLS验证)</Label><Input value={smtpConfig.server_name} onChange={(e) => setSmtpConfig({ ...smtpConfig, server_name: e.target.value })} placeholder="smtp.example.com (可选)" /></div>
             <div className="grid gap-2"><Label>回复地址 (Reply-To)</Label><Input value={smtpConfig.reply_to} onChange={(e) => setSmtpConfig({ ...smtpConfig, reply_to: e.target.value })} placeholder="reply@example.com (可选)" /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("smtp")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("smtp")} disabled={testing}>测试</Button></div>
