@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { getAuditLogs, fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, testSMTPConnection, saveSMTPConfig, getSMTPConfig, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, deleteCategory, listStorageConfigs, createStorageConfig, updateStorageConfig, deleteStorageConfig, testStorageConnection, uploadStorageFile, listStorageFiles, deleteStorageFile, getStorageFileDownloadUrl } from "@/lib/api";
+import { getAuditLogs, fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, deleteCategory, listStorageConfigs, createStorageConfig, updateStorageConfig, deleteStorageConfig, testStorageConnection, uploadStorageFile, listStorageFiles, deleteStorageFile, getStorageFileDownloadUrl, listNotificationConfigs, createNotificationConfig, updateNotificationConfig, testNotification, type NotificationConfig } from "@/lib/api";
 import type { AuditLog, StorageConfig, SysFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +22,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Download, Eye, Plus, Trash2, Edit, CircleDot, Upload, HardDrive, Cloud, Server } from "lucide-react";
+import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 
@@ -56,7 +56,7 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
     icon: "⚙️",
     items: [
       { id: "ai", label: "模型配置" },
-      { id: "smtp", label: "发信配置" },
+      { id: "notification", label: "通知配置" },
     ],
   },
   {
@@ -429,7 +429,11 @@ function ModelConfigTab() {
 
 // ============ SMTP 配置 Tab ============
 function SMTPConfigTab() {
-  const [config, setConfig] = useState({
+  const [activeChannel, setActiveChannel] = useState<string | null>("smtp");
+  const [loading, setLoading] = useState(true);
+  const [configs, setConfigs] = useState<NotificationConfig[]>([]);
+
+  const [smtpConfig, setSmtpConfig] = useState({
     enabled: false,
     host: "",
     port: "587",
@@ -439,128 +443,125 @@ function SMTPConfigTab() {
     from_name: "人事系统",
     use_tls: true,
   });
+  const [smsConfig, setSmsConfig] = useState({
+    enabled: false,
+    access_key_id: "",
+    access_key_secret: "",
+    sign_name: "",
+    template_code: "",
+  });
+  const [telegramConfig, setTelegramConfig] = useState({
+    enabled: false,
+    bot_token: "",
+    chat_id: "",
+  });
+  const [webhookConfig, setWebhookConfig] = useState({
+    enabled: false,
+    url: "",
+    method: "POST",
+    auth: "",
+  });
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [smtpConfigured, setSmtpConfigured] = useState(false);
 
-  // 获取 SMTP 配置状态
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const data = await getSMTPConfig();
-        setSmtpConfigured(data.configured);
-      } catch (error) {
-        if (error instanceof Error && !error.message.includes("[404]") && !error.message.includes("Not Found")) {
-          console.error("获取 SMTP 配置失败:", error);
-        }
-      }
-    };
-    fetchConfig();
+    loadConfigs();
   }, []);
 
-  const handleSave = async () => {
-    setSaving(true);
+  const loadConfigs = async () => {
+    setLoading(true);
     try {
-      await saveSMTPConfig(config);
-      toast.success("SMTP 配置已保存");
-      try {
-        const data = await getSMTPConfig();
-        setSmtpConfigured(data.configured);
-      } catch (e) {
-        console.error("获取配置状态失败:", e);
-      }
-    } catch (error) {
-      if (error instanceof Error && (error.message.includes("[404]") || error.message.includes("Not Found"))) {
-        console.warn("SMTP 配置 API 尚未实现");
-      } else {
-        console.error("保存失败:", error);
-        toast.error("保存失败");
-      }
-    } finally {
-      setSaving(false);
-    }
+      const data = await listNotificationConfigs();
+      setConfigs(data);
+      data.forEach(c => {
+        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", use_tls: c.config?.use_tls ?? true });
+        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: c.config?.access_key_id || "", access_key_secret: c.config?.access_key_secret || "", sign_name: c.config?.sign_name || "", template_code: c.config?.template_code || "" });
+        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
+        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
+      });
+    } catch (e) { console.error("加载配置失败:", e); }
+    finally { setLoading(false); }
   };
 
-  const handleTest = async () => {
+  const handleSave = async (channel: string) => {
+    setSaving(true);
+    try {
+      const existing = configs.find(c => c.channel === channel);
+      const configData = channel === "smtp" ? smtpConfig : channel === "sms" ? smsConfig : channel === "telegram" ? telegramConfig : webhookConfig;
+      const payload = { channel, name: channel.toUpperCase(), enabled: configData.enabled, config: configData };
+      if (existing?.id) { await updateNotificationConfig(existing.id, payload); }
+      else { await createNotificationConfig(payload); }
+      toast.success(channel.toUpperCase() + " 配置已保存");
+      loadConfigs();
+    } catch (error) { console.error("保存失败:", error); toast.error("保存失败"); }
+    finally { setSaving(false); }
+  };
+
+  const handleTest = async (channel: string) => {
     setTesting(true);
     try {
-      const result = await testSMTPConnection(config);
-      if (result.success) {
-        toast.success("测试邮件发送成功");
-      } else {
-        toast.error(`发送失败: ${result.message}`);
-      }
-    } catch (error) {
-      console.error("测试失败:", error);
-      toast.error("测试邮件发送失败");
-    } finally {
-      setTesting(false);
-    }
+      const configData = channel === "smtp" ? smtpConfig : channel === "sms" ? smsConfig : channel === "telegram" ? telegramConfig : webhookConfig;
+      await testNotification(channel, channel === "smtp" ? smtpConfig.from : channel === "sms" ? "13800138000" : channel === "telegram" ? telegramConfig.chat_id : "", configData);
+      toast.success("测试消息发送成功");
+    } catch (error) { console.error("测试失败:", error); toast.error("测试发送失败"); }
+    finally { setTesting(false); }
   };
+
+  if (loading) return <div className="p-4">加载中...</div>;
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>SMTP 发信配置</CardTitle>
-            <CardDescription>配置邮件发送服务。关闭时用户无法注册和找回密码。</CardDescription>
-          </div>
-          <div className={cn("flex items-center gap-1.5 text-sm px-2 py-1 rounded-md", smtpConfigured ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground")}>
-            <CircleDot className={cn("h-4 w-4", smtpConfigured ? "fill-green-600" : "fill-muted-foreground")} />
-            <span>{smtpConfigured ? "已配置" : "未配置"}</span>
-          </div>
-        </div>
-      </CardHeader>
+      <CardHeader><CardTitle>通知配置</CardTitle><CardDescription>配置邮件、短信、Telegram、Webhook 等通知渠道</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center space-x-2">
-          <Switch id="smtp-enabled" checked={config.enabled} onCheckedChange={(checked) => setConfig({ ...config, enabled: checked })} />
-          <Label htmlFor="smtp-enabled">启用 SMTP 发信</Label>
+        <div className="flex gap-2 border-b pb-2">
+          <Button variant={activeChannel === "smtp" ? "default" : "ghost"} onClick={() => setActiveChannel("smtp")}>SMTP</Button>
+          <Button variant={activeChannel === "sms" ? "default" : "ghost"} onClick={() => setActiveChannel("sms")}>阿里短信</Button>
+          <Button variant={activeChannel === "telegram" ? "default" : "ghost"} onClick={() => setActiveChannel("telegram")}>Telegram</Button>
+          <Button variant={activeChannel === "webhook" ? "default" : "ghost"} onClick={() => setActiveChannel("webhook")}>Webhook</Button>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="smtp-host">SMTP 地址</Label>
-          <Input id="smtp-host" placeholder="smtp.example.com" value={config.host} onChange={(e) => setConfig({ ...config, host: e.target.value })} />
-        </div>
+        {activeChannel === "smtp" && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2"><Switch checked={smtpConfig.enabled} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, enabled: v })} /><Label>启用 SMTP</Label></div>
+            <div className="grid gap-2"><Label>SMTP 地址</Label><Input value={smtpConfig.host} onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })} placeholder="smtp.example.com" /></div>
+            <div className="grid gap-2"><Label>端口</Label><Input value={smtpConfig.port} onChange={(e) => setSmtpConfig({ ...smtpConfig, port: e.target.value })} placeholder="587" /></div>
+            <div className="grid gap-2"><Label>发件人邮箱</Label><Input value={smtpConfig.from} onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })} placeholder="noreply@example.com" /></div>
+            <div className="grid gap-2"><Label>用户名</Label><Input value={smtpConfig.username} onChange={(e) => setSmtpConfig({ ...smtpConfig, username: e.target.value })} /></div>
+            <div className="grid gap-2"><Label>密码</Label><Input type="password" value={smtpConfig.password} onChange={(e) => setSmtpConfig({ ...smtpConfig, password: e.target.value })} /></div>
+            <div className="flex items-center space-x-2"><Switch checked={smtpConfig.use_tls} onCheckedChange={(v) => setSmtpConfig({ ...smtpConfig, use_tls: v })} /><Label>启用 TLS</Label></div>
+            <div className="flex gap-2"><Button onClick={() => handleSave("smtp")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("smtp")} disabled={testing}>测试</Button></div>
+          </div>
+        )}
 
-        <div className="grid gap-2">
-          <Label htmlFor="smtp-port">端口</Label>
-          <Input id="smtp-port" placeholder="587" value={config.port} onChange={(e) => setConfig({ ...config, port: e.target.value })} />
-        </div>
+        {activeChannel === "sms" && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2"><Switch checked={smsConfig.enabled} onCheckedChange={(v) => setSmsConfig({ ...smsConfig, enabled: v })} /><Label>启用阿里短信</Label></div>
+            <div className="grid gap-2"><Label>AccessKeyId</Label><Input value={smsConfig.access_key_id} onChange={(e) => setSmsConfig({ ...smsConfig, access_key_id: e.target.value })} /></div>
+            <div className="grid gap-2"><Label>AccessKeySecret</Label><Input type="password" value={smsConfig.access_key_secret} onChange={(e) => setSmsConfig({ ...smsConfig, access_key_secret: e.target.value })} /></div>
+            <div className="grid gap-2"><Label>签名</Label><Input value={smsConfig.sign_name} onChange={(e) => setSmsConfig({ ...smsConfig, sign_name: e.target.value })} placeholder="【公司名】" /></div>
+            <div className="grid gap-2"><Label>模板码</Label><Input value={smsConfig.template_code} onChange={(e) => setSmsConfig({ ...smsConfig, template_code: e.target.value })} /></div>
+            <div className="flex gap-2"><Button onClick={() => handleSave("sms")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("sms")} disabled={testing}>测试</Button></div>
+          </div>
+        )}
 
-        <div className="grid gap-2">
-          <Label htmlFor="smtp-from">发件人邮箱</Label>
-          <Input id="smtp-from" type="email" placeholder="noreply@example.com" value={config.from} onChange={(e) => setConfig({ ...config, from: e.target.value })} />
-        </div>
+        {activeChannel === "telegram" && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2"><Switch checked={telegramConfig.enabled} onCheckedChange={(v) => setTelegramConfig({ ...telegramConfig, enabled: v })} /><Label>启用 Telegram</Label></div>
+            <div className="grid gap-2"><Label>Bot Token</Label><Input value={telegramConfig.bot_token} onChange={(e) => setTelegramConfig({ ...telegramConfig, bot_token: e.target.value })} placeholder="123456:ABC-DEF" /></div>
+            <div className="grid gap-2"><Label>Chat ID</Label><Input value={telegramConfig.chat_id} onChange={(e) => setTelegramConfig({ ...telegramConfig, chat_id: e.target.value })} placeholder="123456789" /></div>
+            <div className="flex gap-2"><Button onClick={() => handleSave("telegram")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("telegram")} disabled={testing}>测试</Button></div>
+          </div>
+        )}
 
-        <div className="grid gap-2">
-          <Label htmlFor="smtp-from-name">发件人名称</Label>
-          <Input id="smtp-from-name" placeholder="人事系统" value={config.from_name} onChange={(e) => setConfig({ ...config, from_name: e.target.value })} />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="smtp-username">用户名</Label>
-          <Input id="smtp-username" placeholder="noreply@example.com" value={config.username} onChange={(e) => setConfig({ ...config, username: e.target.value })} />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="smtp-password">密码</Label>
-          <Input id="smtp-password" type="password" placeholder="..." value={config.password} onChange={(e) => setConfig({ ...config, password: e.target.value })} />
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <Switch id="smtp-tls" checked={config.use_tls} onCheckedChange={(checked) => setConfig({ ...config, use_tls: checked })} />
-          <Label htmlFor="smtp-tls">启用 TLS</Label>
-        </div>
-
-        <div className="flex gap-2">
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "保存中..." : "保存配置"}
-          </Button>
-          <Button variant="outline" onClick={handleTest} disabled={testing}>
-            {testing ? "发送中..." : "发送测试邮件"}
-          </Button>
-        </div>
+        {activeChannel === "webhook" && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2"><Switch checked={webhookConfig.enabled} onCheckedChange={(v) => setWebhookConfig({ ...webhookConfig, enabled: v })} /><Label>启用 Webhook</Label></div>
+            <div className="grid gap-2"><Label>URL</Label><Input value={webhookConfig.url} onChange={(e) => setWebhookConfig({ ...webhookConfig, url: e.target.value })} placeholder="https://example.com/webhook" /></div>
+            <div className="grid gap-2"><Label>方法</Label><Input value={webhookConfig.method} onChange={(e) => setWebhookConfig({ ...webhookConfig, method: e.target.value })} placeholder="POST" /></div>
+            <div className="grid gap-2"><Label>认证</Label><Input value={webhookConfig.auth} onChange={(e) => setWebhookConfig({ ...webhookConfig, auth: e.target.value })} placeholder="Bearer token" /></div>
+            <div className="flex gap-2"><Button onClick={() => handleSave("webhook")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("webhook")} disabled={testing}>测试</Button></div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -2410,7 +2411,7 @@ export function SystemSettings() {
     switch (activeSubTab) {
       case "ai":
         return <ModelSettings />;
-      case "smtp":
+      case "notification":
         return <SMTPConfigTab />;
       case "model-usage":
         return <ModelUsageTab />;

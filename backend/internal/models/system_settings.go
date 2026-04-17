@@ -79,3 +79,17 @@ type SMTPConfig struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// NotificationConfig 通知配置（统一表）
+type NotificationConfig struct {
+	ID        uint           `json:"id" gorm:"primaryKey"`
+	Channel   string         `json:"channel" gorm:"size:20;not null;index"`
+	Name      string         `json:"name" gorm:"size:100"`
+	Enabled   bool           `json:"enabled" gorm:"default:false"`
+	Config    datatypes.JSON `json:"config" gorm:"type:json"`
+	Status    string         `json:"status" gorm:"size:20;default:active"`
+	Remark    string         `json:"remark" gorm:"size:500"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+}

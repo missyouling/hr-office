@@ -2551,6 +2551,80 @@ export async function getSMTPConfig(): Promise<{
   });
 }
 
+export interface NotificationConfig {
+  id?: number;
+  channel: string;
+  name: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+  status?: string;
+  remark?: string;
+}
+
+export async function listNotificationConfigs(): Promise<NotificationConfig[]> {
+  return request("/notifications/configs", { method: "GET" });
+}
+
+export async function createNotificationConfig(config: NotificationConfig): Promise<NotificationConfig> {
+  return request("/notifications/configs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function updateNotificationConfig(id: number, config: Partial<NotificationConfig>): Promise<NotificationConfig> {
+  return request(`/notifications/configs/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function deleteNotificationConfig(id: number): Promise<void> {
+  return request(`/notifications/configs/${id}`, { method: "DELETE" });
+}
+
+export async function sendSMTPNotification(to: string, subject: string, content: string, config?: Record<string, unknown>): Promise<void> {
+  return request("/notifications/smtp/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to, subject, content, config }),
+  });
+}
+
+export async function sendSMSNotification(phone: string, template: Record<string, string>, config?: Record<string, unknown>): Promise<void> {
+  return request("/notifications/sms/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, template: template, config }),
+  });
+}
+
+export async function sendTelegramNotification(chatId: string, text: string, config?: Record<string, unknown>): Promise<void> {
+  return request("/notifications/telegram/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, config }),
+  });
+}
+
+export async function sendWebhookNotification(method: string, body: string, headers?: Record<string, string>, config?: Record<string, unknown>): Promise<void> {
+  return request("/notifications/webhook/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method, body, headers, config }),
+  });
+}
+
+export async function testNotification(channel: string, to: string, config?: Record<string, unknown>): Promise<void> {
+  return request("/notifications/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel, to, config }),
+  });
+}
+
 // ============ 知识库 API ============
 
 // 文档入知识库

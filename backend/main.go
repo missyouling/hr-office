@@ -336,6 +336,7 @@ func main() {
 		&models.StorageRule{},
 		// SysFile 文件元数据表
 		&models.SysFile{},
+		&models.NotificationConfig{},
 		&models.SMTPConfig{},
 		&models.DocumentContent{},
 		&models.DocumentEmbedding{},
