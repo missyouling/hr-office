@@ -436,13 +436,13 @@ function SMTPConfigTab() {
   const [smtpConfig, setSmtpConfig] = useState({
     enabled: false,
     host: "",
-    port: "587",
+    port: "465",
     username: "",
     password: "",
     from: "",
     from_name: "人事系统",
     reply_to: "",
-    encryption: "tls",
+    encryption: "ssl",
     server_name: "",
   });
   const [smsConfig, setSmsConfig] = useState({
@@ -476,7 +476,7 @@ function SMTPConfigTab() {
       const data = await listNotificationConfigs();
       setConfigs(data);
       data.forEach(c => {
-        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", reply_to: c.config?.reply_to || "", encryption: c.config?.encryption || "tls", server_name: c.config?.server_name || "" });
+        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", reply_to: c.config?.reply_to || "", encryption: c.config?.encryption || "ssl", server_name: c.config?.server_name || "" });
         if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: c.config?.access_key_id || "", access_key_secret: c.config?.access_key_secret || "", sign_name: c.config?.sign_name || "", template_code: c.config?.template_code || "" });
         if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
         if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
@@ -529,12 +529,11 @@ function SMTPConfigTab() {
             <div className="grid gap-2"><Label>端口</Label><Input value={smtpConfig.port} onChange={(e) => setSmtpConfig({ ...smtpConfig, port: e.target.value })} placeholder="587" /></div>
             <div className="grid gap-2"><Label>发件人邮箱</Label><Input value={smtpConfig.from} onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })} placeholder="noreply@example.com" /></div>
             <div className="grid gap-2"><Label>发件人名称</Label><Input value={smtpConfig.from_name} onChange={(e) => setSmtpConfig({ ...smtpConfig, from_name: e.target.value })} placeholder="人事系统" /></div>
-            <div className="grid gap-2"><Label>回复地址 (Reply-To)</Label><Input value={smtpConfig.reply_to} onChange={(e) => setSmtpConfig({ ...smtpConfig, reply_to: e.target.value })} placeholder="reply@example.com (可选)" /></div>
             <div className="grid gap-2"><Label>用户名</Label><Input value={smtpConfig.username} onChange={(e) => setSmtpConfig({ ...smtpConfig, username: e.target.value })} /></div>
             <div className="grid gap-2"><Label>密码</Label><Input type="password" value={smtpConfig.password} onChange={(e) => setSmtpConfig({ ...smtpConfig, password: e.target.value })} /></div>
             <div className="grid gap-2">
               <Label>加密方式</Label>
-              <Select value={smtpConfig.encryption} onValueChange={(v) => setSmtpConfig({ ...smtpConfig, encryption: v })}>
+              <Select value={smtpConfig.encryption} onValueChange={(v) => { const m = { ssl: "465", tls: "587", none: "25" }; setSmtpConfig({ ...smtpConfig, encryption: v, port: m[v as keyof typeof m] || smtpConfig.port }); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">无加密 (端口 25)</SelectItem>
@@ -544,6 +543,7 @@ function SMTPConfigTab() {
               </Select>
             </div>
             <div className="grid gap-2"><Label>Server Name (TLS验证)</Label><Input value={smtpConfig.server_name} onChange={(e) => setSmtpConfig({ ...smtpConfig, server_name: e.target.value })} placeholder="smtp.example.com (可选)" /></div>
+            <div className="grid gap-2"><Label>回复地址 (Reply-To)</Label><Input value={smtpConfig.reply_to} onChange={(e) => setSmtpConfig({ ...smtpConfig, reply_to: e.target.value })} placeholder="reply@example.com (可选)" /></div>
             <div className="flex gap-2"><Button onClick={() => handleSave("smtp")} disabled={saving}>保存</Button><Button variant="outline" onClick={() => handleTest("smtp")} disabled={testing}>测试</Button></div>
           </div>
         )}
