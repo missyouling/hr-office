@@ -33,10 +33,9 @@ type SMTPConfigFields struct {
 	Password   string `json:"password"`
 	From       string `json:"from"`
 	FromName   string `json:"from_name"`
-	UseTLS     bool   `json:"use_tls"`
-	ForceTLS   bool   `json:"force_tls"`
-	Timeout    int    `json:"timeout"`     // 连接超时秒数
-	ServerName string `json:"server_name"` // HELO 时发送的服务器名称
+	ReplyTo    string `json:"reply_to"`
+	Encryption string `json:"encryption"`
+	ServerName string `json:"server_name"`
 }
 
 type SMSConfigFields struct {
@@ -102,11 +101,16 @@ func (s *NotificationService) SendSMTPEmail(req *SendRequest) error {
 		cfg.Password = os.Getenv("SMTP_PASSWORD")
 		cfg.From = os.Getenv("SMTP_FROM")
 		cfg.FromName = os.Getenv("FROM_NAME")
-		cfg.UseTLS = os.Getenv("SMTP_USE_TLS") == "true"
+		cfg.Encryption = os.Getenv("SMTP_ENCRYPTION")
 	}
 
 	if cfg.Host == "" || cfg.Port == "" || cfg.Username == "" || cfg.Password == "" || cfg.From == "" {
 		return fmt.Errorf("SMTP配置不完整")
+	}
+
+	// Default encryption
+	if cfg.Encryption == "" {
+		cfg.Encryption = "tls"
 	}
 
 	fromName := cfg.FromName
@@ -115,42 +119,67 @@ func (s *NotificationService) SendSMTPEmail(req *SendRequest) error {
 	}
 	from := fmt.Sprintf("%s <%s>", fromName, cfg.From)
 
+	// Build message with Reply-To
 	message := fmt.Sprintf("From: %s\r\n", from) +
-		fmt.Sprintf("To: %s\r\n", req.To) +
-		fmt.Sprintf("Subject: %s\r\n", req.Subject) +
+		fmt.Sprintf("To: %s\r\n", req.To)
+	if cfg.ReplyTo != "" {
+		message += fmt.Sprintf("Reply-To: %s\r\n", cfg.ReplyTo)
+	}
+	message += fmt.Sprintf("Subject: %s\r\n", req.Subject) +
 		"Content-Type: text/plain; charset=UTF-8\r\n" +
 		"\r\n" +
 		req.Content
 
 	serverName := net.JoinHostPort(cfg.Host, cfg.Port)
 	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+
 	tlsServerName := cfg.ServerName
 	if tlsServerName == "" {
 		tlsServerName = cfg.Host
 	}
 	tlsConfig := &tls.Config{InsecureSkipVerify: false, ServerName: tlsServerName}
 
-	conn, err := net.Dial("tcp", serverName)
-	if err != nil {
-		return fmt.Errorf("连接SMTP服务器失败: %v", err)
-	}
-	defer conn.Close()
+	var client *smtp.Client
+	var err error
 
-	client, err := smtp.NewClient(conn, cfg.Host)
-	if err != nil {
-		return fmt.Errorf("创建SMTP客户端失败: %v", err)
+	switch cfg.Encryption {
+	case "ssl":
+		tlsConn, err := tls.Dial("tcp", serverName, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("连接SMTP服务器(SSL)失败: %v", err)
+		}
+		defer tlsConn.Close()
+		client, err = smtp.NewClient(tlsConn, cfg.Host)
+		if err != nil {
+			return fmt.Errorf("创建SMTP客户端失败: %v", err)
+		}
+	case "tls":
+		conn, err := net.Dial("tcp", serverName)
+		if err != nil {
+			return fmt.Errorf("连接SMTP服务器失败: %v", err)
+		}
+		defer conn.Close()
+		client, err = smtp.NewClient(conn, cfg.Host)
+		if err != nil {
+			return fmt.Errorf("创建SMTP客户端失败: %v", err)
+		}
+		if err = client.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("启动TLS失败: %v", err)
+		}
+	case "none":
+		conn, err := net.Dial("tcp", serverName)
+		if err != nil {
+			return fmt.Errorf("连接SMTP服务器失败: %v", err)
+		}
+		defer conn.Close()
+		client, err = smtp.NewClient(conn, cfg.Host)
+		if err != nil {
+			return fmt.Errorf("创建SMTP客户端失败: %v", err)
+		}
+	default:
+		return fmt.Errorf("不支持的加密方式: %s (支持 none/ssl/tls)", cfg.Encryption)
 	}
 	defer client.Quit()
-
-	if cfg.ForceTLS {
-		if err = client.StartTLS(tlsConfig); err != nil {
-			return fmt.Errorf("启动TLS失败: %v", err)
-		}
-	} else if cfg.UseTLS {
-		if err = client.StartTLS(tlsConfig); err != nil {
-			return fmt.Errorf("启动TLS失败: %v", err)
-		}
-	}
 
 	if err = client.Auth(auth); err != nil {
 		return fmt.Errorf("SMTP身份验证失败: %v", err)
