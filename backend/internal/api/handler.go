@@ -26,6 +26,7 @@ import (
 	"siapp/internal/auth"
 	"siapp/internal/models"
 	"siapp/internal/service"
+	"siapp/internal/service/storage"
 )
 
 type Handler struct {
@@ -35,6 +36,7 @@ type Handler struct {
 	embeddingService *service.EmbeddingService
 	retrievalService *service.RetrievalService
 	chatService      *service.ChatService
+	storageRouter    *storage.StorageRouter
 	uploadBaseDir    string
 	uploadBaseURL    string
 }
@@ -187,6 +189,7 @@ func NewHandler(db *gorm.DB) *Handler {
 		embeddingService: embSvc,
 		retrievalService: retSvc,
 		chatService:      chatSvc,
+		storageRouter:    storage.NewStorageRouter(db),
 		uploadBaseDir:    uploadDir,
 		uploadBaseURL:    uploadURL,
 	}
@@ -448,6 +451,11 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		sr.Post("/{id}/set-primary", h.setStoragePrimary)
 		sr.Post("/test", h.testStorageConnectionNew)
 		sr.Get("/directories", h.listStorageDirectories)
+		// 模块配置
+		sr.Get("/modules", h.listStorageModules)
+		sr.Post("/modules", h.createStorageModule)
+		sr.Put("/modules/{id}", h.updateStorageModule)
+		sr.Delete("/modules/{id}", h.deleteStorageModule)
 		sr.Get("/rules", h.listStorageRules)
 		sr.Post("/rules", h.createStorageRule)
 		sr.Put("/rules", h.updateStorageRules)
@@ -561,32 +569,53 @@ func (h *Handler) importEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	targetDir, err := h.ensureUploadDir("employees", fmt.Sprintf("%d", userID))
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to prepare employee directory", err)
-		return
-	}
-
 	ext := filepath.Ext(header.Filename)
 	if ext == "" {
 		ext = ".xlsx"
 	}
 	filename := fmt.Sprintf("employees-%d-%d%s", userID, time.Now().UnixNano(), ext)
-	storedPath := filepath.Join(targetDir, filename)
 
-	out, err := os.Create(storedPath)
+	// Resolve storage path using StorageRouter
+	resolvedRoute, err := h.storageRouter.Resolve(r.Context(), storage.ResolveRequest{
+		ModuleCode:   "archives",
+		ResourceType: "employees",
+		Filename:     filename,
+	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create file", err)
+		respondError(w, http.StatusInternalServerError, "failed to resolve storage path", err)
 		return
 	}
-	if _, err := io.Copy(out, file); err != nil {
-		_ = out.Close()
-		respondError(w, http.StatusInternalServerError, "failed to save file", err)
+
+	// Upload file using GlobalManager
+	_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, filename, file, header.Size)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to upload file", err)
 		return
 	}
-	if err := out.Close(); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to finalize file", err)
+
+	// For backward compatibility, also store the file path locally
+	storedPath := filepath.Join(h.uploadBaseDir, "employees", fmt.Sprintf("%d", userID), filename)
+	if err := os.MkdirAll(filepath.Dir(storedPath), 0o755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to prepare employee directory", err)
 		return
+	}
+
+	// Re-read the file from storage for local backup
+	if _, err := file.Seek(0, io.SeekStart); err == nil {
+		out, err := os.Create(storedPath)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to create file", err)
+			return
+		}
+		if _, err := io.Copy(out, file); err != nil {
+			_ = out.Close()
+			respondError(w, http.StatusInternalServerError, "failed to save file", err)
+			return
+		}
+		if err := out.Close(); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to finalize file", err)
+			return
+		}
 	}
 
 	mode := service.ParseEmployeeImportMode(r.FormValue("mode"))
@@ -621,32 +650,53 @@ func (h *Handler) importResignedEmployees(w http.ResponseWriter, r *http.Request
 	}
 	defer file.Close()
 
-	targetDir, err := h.ensureUploadDir("employees", fmt.Sprintf("%d", userID))
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to prepare employee directory", err)
-		return
-	}
-
 	ext := filepath.Ext(header.Filename)
 	if ext == "" {
 		ext = ".xlsx"
 	}
 	filename := fmt.Sprintf("resigned-employees-%d-%d%s", userID, time.Now().UnixNano(), ext)
-	storedPath := filepath.Join(targetDir, filename)
 
-	out, err := os.Create(storedPath)
+	// Resolve storage path using StorageRouter
+	resolvedRoute, err := h.storageRouter.Resolve(r.Context(), storage.ResolveRequest{
+		ModuleCode:   "archives",
+		ResourceType: "employees",
+		Filename:     filename,
+	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create file", err)
+		respondError(w, http.StatusInternalServerError, "failed to resolve storage path", err)
 		return
 	}
-	if _, err := io.Copy(out, file); err != nil {
-		_ = out.Close()
-		respondError(w, http.StatusInternalServerError, "failed to save file", err)
+
+	// Upload file using GlobalManager
+	_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, filename, file, header.Size)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to upload file", err)
 		return
 	}
-	if err := out.Close(); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to finalize file", err)
+
+	// For backward compatibility, also store the file path locally
+	storedPath := filepath.Join(h.uploadBaseDir, "employees", fmt.Sprintf("%d", userID), filename)
+	if err := os.MkdirAll(filepath.Dir(storedPath), 0o755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to prepare employee directory", err)
 		return
+	}
+
+	// Re-read the file from storage for local backup
+	if _, err := file.Seek(0, io.SeekStart); err == nil {
+		out, err := os.Create(storedPath)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to create file", err)
+			return
+		}
+		if _, err := io.Copy(out, file); err != nil {
+			_ = out.Close()
+			respondError(w, http.StatusInternalServerError, "failed to save file", err)
+			return
+		}
+		if err := out.Close(); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to finalize file", err)
+			return
+		}
 	}
 
 	mode := service.ParseEmployeeImportMode(r.FormValue("mode"))
@@ -794,8 +844,29 @@ func (h *Handler) resignEmployee(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		targetDir, err := h.ensureUploadDir("employees", fmt.Sprintf("%d", userID), "resign", fmt.Sprintf("%d", employee.ID))
+		storedName := fmt.Sprintf("proof-%d-%d%s", employee.ID, time.Now().UnixNano(), ext)
+
+		// Resolve storage path using StorageRouter
+		resolvedRoute, err := h.storageRouter.Resolve(r.Context(), storage.ResolveRequest{
+			ModuleCode:   "archives",
+			ResourceType: "resign_proof",
+			Filename:     storedName,
+		})
 		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to resolve storage path", err)
+			return
+		}
+
+		// Upload file using GlobalManager
+		_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, storedName, proofFile, header.Size)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to upload resign proof", err)
+			return
+		}
+
+		// For backward compatibility, also store the file path locally
+		targetDir := filepath.Join(h.uploadBaseDir, "employees", fmt.Sprintf("%d", userID), "resign", fmt.Sprintf("%d", employee.ID))
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to prepare resign proof directory", err)
 			return
 		}
@@ -806,22 +877,24 @@ func (h *Handler) resignEmployee(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		storedName := fmt.Sprintf("proof-%d-%d%s", employee.ID, time.Now().UnixNano(), ext)
 		storedPath = filepath.Join(targetDir, storedName)
 
-		out, err := os.Create(storedPath)
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to create resign proof", err)
-			return
-		}
-		if _, err := io.Copy(out, proofFile); err != nil {
-			_ = out.Close()
-			respondError(w, http.StatusInternalServerError, "failed to save resign proof", err)
-			return
-		}
-		if err := out.Close(); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to finalize resign proof", err)
-			return
+		// Re-read the file from storage for local backup
+		if _, err := proofFile.Seek(0, io.SeekStart); err == nil {
+			out, err := os.Create(storedPath)
+			if err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to create resign proof", err)
+				return
+			}
+			if _, err := io.Copy(out, proofFile); err != nil {
+				_ = out.Close()
+				respondError(w, http.StatusInternalServerError, "failed to save resign proof", err)
+				return
+			}
+			if err := out.Close(); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to finalize resign proof", err)
+				return
+			}
 		}
 	}
 
@@ -1230,14 +1303,33 @@ func (h *Handler) importSocialInsuranceChanges(w http.ResponseWriter, r *http.Re
 	if ext == "" {
 		ext = ".xls"
 	}
-	relativeDir := filepath.Join("social-insurance", changeType, strconv.FormatUint(uint64(userID), 10))
-	fullDir, err := h.ensureUploadDir(relativeDir)
+	storedFileName := fmt.Sprintf("%s%s", uuidName, ext)
+
+	// Resolve storage path using StorageRouter
+	resolvedRoute, err := h.storageRouter.Resolve(r.Context(), storage.ResolveRequest{
+		ModuleCode:   "provident",
+		ResourceType: "social_insurance_change",
+		Filename:     storedFileName,
+	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to create upload directory", err)
+		respondError(w, http.StatusInternalServerError, "failed to resolve storage path", err)
 		return
 	}
-	storedFileName := fmt.Sprintf("%s%s", uuidName, ext)
-	storedPath := filepath.Join(fullDir, storedFileName)
+
+	// Upload file using GlobalManager
+	_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, storedFileName, bytes.NewReader(buffer), int64(len(buffer)))
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to upload file", err)
+		return
+	}
+
+	// For backward compatibility, also store the file path locally
+	relativeDir := filepath.Join("social-insurance", changeType, strconv.FormatUint(uint64(userID), 10))
+	storedPath := filepath.Join(h.uploadBaseDir, relativeDir, storedFileName)
+	if err := os.MkdirAll(filepath.Dir(storedPath), 0o755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to prepare social insurance directory", err)
+		return
+	}
 	if err := os.WriteFile(storedPath, buffer, 0o644); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to persist uploaded file", err)
 		return

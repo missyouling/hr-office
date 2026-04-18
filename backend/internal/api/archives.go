@@ -24,6 +24,7 @@ import (
 	"siapp/internal/auth"
 	"siapp/internal/models"
 	"siapp/internal/service"
+	"siapp/internal/service/storage"
 )
 
 // writeJSON 统一的 JSON 响应方法
@@ -398,19 +399,39 @@ func (h *Handler) uploadDocumentFile(w http.ResponseWriter, r *http.Request) {
 	// 生成存储路径
 	ext := filepath.Ext(header.Filename)
 	newFilename := uuid.New().String() + ext
+
+	// Resolve storage path using StorageRouter
+	resolvedRoute, err := h.storageRouter.Resolve(r.Context(), storage.ResolveRequest{
+		ModuleCode:   "archives",
+		ResourceType: "document_file",
+		Filename:     newFilename,
+	})
+	if err != nil {
+		http.Error(w, "failed to resolve storage path: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Upload file using GlobalManager
+	_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, newFilename, file, header.Size)
+	if err != nil {
+		http.Error(w, "failed to upload file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// For backward compatibility, also store the file path locally
 	relativePath := fmt.Sprintf("documents/%d/%s/%s", userID, time.Now().Format("2006-01"), newFilename)
 	fullPath := filepath.Join(h.uploadBaseDir, relativePath)
-
-	// 确保目录存在
 	if err := ensureDir(filepath.Dir(fullPath)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// 保存文件
-	if err := saveFile(file, fullPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Re-read the file from storage for local backup
+	if _, err := file.Seek(0, io.SeekStart); err == nil {
+		if err := saveFile(file, fullPath); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// 更新档案记录
@@ -1041,6 +1062,42 @@ func (h *Handler) batchUploadDocuments(w http.ResponseWriter, r *http.Request) {
 
 		ext := filepath.Ext(fileHeader.Filename)
 		newFilename := uuid.New().String() + ext
+
+		// Resolve storage path using StorageRouter
+		resolvedRoute, err := h.storageRouter.Resolve(r.Context(), storage.ResolveRequest{
+			ModuleCode:   "archives",
+			ResourceType: "document_batch",
+			Filename:     newFilename,
+		})
+		if err != nil {
+			file.Close()
+			results = append(results, BatchUploadItem{
+				ID:           doc.ID,
+				DocumentCode: docCode,
+				FileName:     fileHeader.Filename,
+				Status:       "error",
+				Error:        "failed to resolve storage path",
+			})
+			failCount++
+			continue
+		}
+
+		// Upload file using GlobalManager
+		_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, newFilename, file, fileHeader.Size)
+		if err != nil {
+			file.Close()
+			results = append(results, BatchUploadItem{
+				ID:           doc.ID,
+				DocumentCode: docCode,
+				FileName:     fileHeader.Filename,
+				Status:       "error",
+				Error:        "failed to upload file",
+			})
+			failCount++
+			continue
+		}
+
+		// For backward compatibility, also store the file path locally
 		relativePath := fmt.Sprintf("documents/%d/%s/%s", userID, time.Now().Format("2006-01"), newFilename)
 		fullPath := filepath.Join(h.uploadBaseDir, relativePath)
 
@@ -1057,17 +1114,20 @@ func (h *Handler) batchUploadDocuments(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := saveFile(file, fullPath); err != nil {
-			file.Close()
-			results = append(results, BatchUploadItem{
-				ID:           doc.ID,
-				DocumentCode: docCode,
-				FileName:     fileHeader.Filename,
-				Status:       "error",
-				Error:        "保存文件失败",
-			})
-			failCount++
-			continue
+		// Re-read the file from storage for local backup
+		if _, err := file.Seek(0, io.SeekStart); err == nil {
+			if err := saveFile(file, fullPath); err != nil {
+				file.Close()
+				results = append(results, BatchUploadItem{
+					ID:           doc.ID,
+					DocumentCode: docCode,
+					FileName:     fileHeader.Filename,
+					Status:       "error",
+					Error:        "保存文件失败",
+				})
+				failCount++
+				continue
+			}
 		}
 		file.Close()
 
