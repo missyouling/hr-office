@@ -58,8 +58,8 @@ const ACTION_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   SUCCESS: { label: "成功", variant: "default" },
-  FAILURE: { label: "失败", variant: "destructive" },
-  WARNING: { label: "警告", variant: "secondary" },
+  FAILED: { label: "失败", variant: "destructive" },
+  ERROR: { label: "错误", variant: "secondary" },
 };
 
 export function AuditLogs({ className }: AuditLogsProps) {
@@ -275,8 +275,8 @@ export function AuditLogs({ className }: AuditLogsProps) {
                 <SelectContent>
                   <SelectItem value="all">所有状态</SelectItem>
                   <SelectItem value="SUCCESS">成功</SelectItem>
-                  <SelectItem value="FAILURE">失败</SelectItem>
-                  <SelectItem value="WARNING">警告</SelectItem>
+                  <SelectItem value="FAILED">失败</SelectItem>
+                  <SelectItem value="ERROR">错误</SelectItem>
                 </SelectContent>
               </Select>
 
