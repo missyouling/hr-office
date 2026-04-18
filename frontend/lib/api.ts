@@ -2753,3 +2753,272 @@ export interface ModelConfig {
   created_at: string;
   updated_at: string;
 }
+
+// ============ 系统日志 API ============
+
+export interface SystemLog {
+  id: number;
+  user_id?: number;
+  action: string;
+  resource?: string;
+  resource_id?: string;
+  method?: string;
+  path?: string;
+  ip_address: string;
+  user_agent?: string;
+  status: string;
+  status_code?: number;
+  error_msg?: string;
+  duration?: number;
+  details?: string;
+  created_at: string;
+  level?: string;
+  trace_id?: string;
+  source?: string;
+  message?: string;
+}
+
+export interface SystemLogParams {
+  log_type?: string;
+  start_date?: string;
+  end_date?: string;
+  action?: string;
+  user_id?: string;
+  status?: string;
+  level?: string;
+  search?: string;
+  page?: number;
+  size?: number;
+}
+
+export interface SystemLogsResponse {
+  data: SystemLog[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface LogBackup {
+  id: number;
+  filename: string;
+  file_path: string;
+  file_size: number;
+  record_count: number;
+  backup_type: string;
+  status: string;
+  created_by: number;
+  created_at: string;
+}
+
+export interface AlertRule {
+  id: number;
+  name: string;
+  keywords: string[];
+  threshold: number;
+  time_window: number;
+  enabled: boolean;
+  notification_channel: string;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  title: string;
+  content: string;
+  type: string;
+  read: boolean;
+  source: string;
+  created_at: string;
+}
+
+export interface NotificationsResponse {
+  data: Notification[];
+  total: number;
+  unread: number;
+}
+
+export async function fetchSystemLogs(params: SystemLogParams): Promise<SystemLogsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.log_type) searchParams.append("log_type", params.log_type);
+  if (params.start_date) searchParams.append("start_date", params.start_date);
+  if (params.end_date) searchParams.append("end_date", params.end_date);
+  if (params.action) searchParams.append("action", params.action);
+  if (params.user_id) searchParams.append("user_id", params.user_id);
+  if (params.status) searchParams.append("status", params.status);
+  if (params.level) searchParams.append("level", params.level);
+  if (params.search) searchParams.append("search", params.search);
+  if (params.page) searchParams.append("page", params.page.toString());
+  if (params.size) searchParams.append("size", params.size.toString());
+  
+  return request<SystemLogsResponse>(`/logs?${searchParams.toString()}`);
+}
+
+export async function exportSystemLogs(params: SystemLogParams): Promise<Blob> {
+  const searchParams = new URLSearchParams();
+  if (params.log_type) searchParams.append("log_type", params.log_type);
+  if (params.start_date) searchParams.append("start_date", params.start_date);
+  if (params.end_date) searchParams.append("end_date", params.end_date);
+  if (params.action) searchParams.append("action", params.action);
+  if (params.user_id) searchParams.append("user_id", params.user_id);
+  if (params.status) searchParams.append("status", params.status);
+  if (params.level) searchParams.append("level", params.level);
+  if (params.search) searchParams.append("search", params.search);
+  
+  return downloadBinary(`/logs/export?${searchParams.toString()}`);
+}
+
+export async function createLogBackup(): Promise<{ message: string }> {
+  return request<{ message: string }>("/logs/backup", { method: "POST" });
+}
+
+export async function fetchLogBackups(): Promise<LogBackup[]> {
+  return request<LogBackup[]>("/logs/backups");
+}
+
+export async function deleteLogBackup(id: number): Promise<{ message: string }> {
+  return request<{ message: string }>(`/logs/backups/${id}`, { method: "DELETE" });
+}
+
+export async function cleanExpiredLogs(): Promise<{ deleted: number; message: string }> {
+  return request<{ deleted: number; message: string }>("/logs/cleanup", { method: "POST" });
+}
+
+export async function updateBackupSettings(settings: {
+  retention_days: number;
+  auto_backup_enabled: boolean;
+  backup_cron: string;
+}): Promise<{ message: string }> {
+  return request<{ message: string }>("/logs/backup-settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+}
+
+export async function getBackupSettings(): Promise<{
+  retention_days: number;
+  auto_backup_enabled: boolean;
+  backup_cron: string;
+}> {
+  return request<{
+    retention_days: number;
+    auto_backup_enabled: boolean;
+    backup_cron: string;
+  }>("/logs/backup-settings");
+}
+
+export async function fetchAlertRules(): Promise<AlertRule[]> {
+  return request<AlertRule[]>("/logs/alert-rules");
+}
+
+export async function createAlertRule(rule: Omit<AlertRule, "id" | "created_by" | "created_at" | "updated_at">): Promise<AlertRule> {
+  return request<AlertRule>("/logs/alert-rules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rule),
+  });
+}
+
+export async function updateAlertRule(id: number, rule: Partial<Omit<AlertRule, "id" | "created_by" | "created_at" | "updated_at">>): Promise<AlertRule> {
+  return request<AlertRule>(`/logs/alert-rules/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rule),
+  });
+}
+
+export async function deleteAlertRule(id: number): Promise<{ message: string }> {
+  return request<{ message: string }>(`/logs/alert-rules/${id}`, { method: "DELETE" });
+}
+
+export async function fetchNotifications(page: number = 1, size: number = 20): Promise<NotificationsResponse> {
+  const params = new URLSearchParams({ page: page.toString(), size: size.toString() });
+  return request<NotificationsResponse>(`/notifications?${params.toString()}`);
+}
+
+export async function getUnreadNotificationCount(): Promise<{ unread: number }> {
+  return request<{ unread: number }>("/notifications/unread-count");
+}
+
+export async function markNotificationAsRead(id: number): Promise<{ status: string }> {
+  return request<{ status: string }>(`/notifications/${id}/read`, { method: "PUT" });
+}
+
+export async function markAllNotificationsAsRead(): Promise<{ status: string }> {
+  return request<{ status: string }>("/notifications/read-all", { method: "PUT" });
+}
+
+// ============ Model Usage Statistics API ============
+export interface ModelUsageStatsResponse {
+  total_calls: number;
+  success_calls: number;
+  failed_calls: number;
+  success_rate: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost: number;
+  avg_duration_ms: number;
+}
+
+export interface ModelUsageTrendItem {
+  date: string;
+  total_calls: number;
+  success_calls: number;
+  failed_calls: number;
+  total_tokens: number;
+  total_cost: number;
+}
+
+export interface ModelUsageByModelItem {
+  model_name: string;
+  config_type: string;
+  provider: string;
+  total_calls: number;
+  success_calls: number;
+  failed_calls: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost: number;
+  avg_duration_ms: number;
+  success_rate: number;
+}
+
+export async function fetchModelUsageStats(params?: {
+  config_type?: string;
+  start_date?: string;
+  end_date?: string;
+}): Promise<ModelUsageStatsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.config_type) searchParams.append("config_type", params.config_type);
+  if (params?.start_date) searchParams.append("start_date", params.start_date);
+  if (params?.end_date) searchParams.append("end_date", params.end_date);
+  const qs = searchParams.toString();
+  return request<ModelUsageStatsResponse>(`/settings/models/usage${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchModelUsageTrend(params?: {
+  period?: string;
+  config_type?: string;
+}): Promise<ModelUsageTrendItem[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.period) searchParams.append("period", params.period);
+  if (params?.config_type) searchParams.append("config_type", params.config_type);
+  const qs = searchParams.toString();
+  return request<ModelUsageTrendItem[]>(`/settings/models/usage/trend${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchModelUsageByModel(params?: {
+  config_type?: string;
+  model_name?: string;
+}): Promise<ModelUsageByModelItem[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.config_type) searchParams.append("config_type", params.config_type);
+  if (params?.model_name) searchParams.append("model_name", params.model_name);
+  const qs = searchParams.toString();
+  return request<ModelUsageByModelItem[]>(`/settings/models/usage/by-model${qs ? `?${qs}` : ""}`);
+}

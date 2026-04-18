@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { getAuditLogs, fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, deleteCategory, listStorageConfigs, createStorageConfig, updateStorageConfig, deleteStorageConfig, testStorageConnection, uploadStorageFile, listStorageFiles, deleteStorageFile, getStorageFileDownloadUrl, listNotificationConfigs, createNotificationConfig, updateNotificationConfig, testNotification, type NotificationConfig } from "@/lib/api";
+import { fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, deleteCategory, listStorageConfigs, createStorageConfig, updateStorageConfig, deleteStorageConfig, testStorageConnection, uploadStorageFile, listStorageFiles, deleteStorageFile, getStorageFileDownloadUrl, listNotificationConfigs, createNotificationConfig, updateNotificationConfig, testNotification, type NotificationConfig, fetchModelUsageStats, fetchModelUsageByModel, fetchModelUsageTrend, type ModelUsageStatsResponse, type ModelUsageByModelItem, type ModelUsageTrendItem } from "@/lib/api";
 import type { AuditLog, StorageConfig, SysFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
+import { SystemLogs } from "./system-logs";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 // ============ 方案 A：一级 Tab + 二级侧边栏分组结构 ============
 
@@ -561,40 +563,113 @@ function formatNum(n: number): string {
   return String(n);
 }
 
+// 货币格式化函数（CNY）
+function formatCny(amount: number): string {
+  const formatter = new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const parts = formatter.formatToParts(amount);
+  return parts.map(part => {
+    if (part.type === 'currency') {
+      return '¥';
+    }
+    return part.value;
+  }).join('');
+}
+
 // ============ 模型使用统计 Tab ============
 function ModelUsageTab() {
   const [timeRange, setTimeRange] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [loading, setLoading] = useState(false);
+  const [usageData, setUsageData] = useState<ModelUsageByModelItem[]>([]);
+  const [stats, setStats] = useState<ModelUsageStatsResponse | null>(null);
+  const [trendData, setTrendData] = useState<ModelUsageTrendItem[]>([]);
+  const [selectedConfigType, setSelectedConfigType] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
 
-  const allData = [
-    { model: "Qwen/Qwen3-8B", config_type: "llm", caller: "admin", calls: 342, tokens_in: 128_400, tokens_out: 87_300, avg_latency_ms: 1240, success_rate: 99.1 },
-    { model: "Qwen/Qwen3-8B", config_type: "llm", caller: "张伟", calls: 210, tokens_in: 79_200, tokens_out: 53_600, avg_latency_ms: 1380, success_rate: 98.6 },
-    { model: "PaddleOCR-VL-1.5", config_type: "ocr", caller: "admin", calls: 890, tokens_in: 0, tokens_out: 0, avg_latency_ms: 420, success_rate: 99.4 },
-    { model: "PaddleOCR-VL-1.5", config_type: "ocr", caller: "李娜", calls: 234, tokens_in: 0, tokens_out: 0, avg_latency_ms: 440, success_rate: 98.7 },
-    { model: "BAAI/bge-m3", config_type: "embedding", caller: "admin", calls: 567, tokens_in: 234_000, tokens_out: 0, avg_latency_ms: 180, success_rate: 99.8 },
-    { model: "BAAI/bge-reranker-v2-m3", config_type: "rerank", caller: "admin", calls: 234, tokens_in: 56_000, tokens_out: 0, avg_latency_ms: 95, success_rate: 97.9 },
-  ];
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const params: { start_date?: string; end_date?: string; config_type?: string } = {};
+      const trendParams: { period?: string; config_type?: string } = {};
+      const byModelParams: { config_type?: string; model_name?: string } = {};
+      
+      const now = new Date();
+      if (timeRange === "today") {
+        params.start_date = now.toISOString().split("T")[0];
+        params.end_date = now.toISOString().split("T")[0];
+        trendParams.period = "day";
+      } else if (timeRange === "week") {
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        params.start_date = weekAgo.toISOString().split("T")[0];
+        params.end_date = now.toISOString().split("T")[0];
+        trendParams.period = "day";
+      } else if (timeRange === "month") {
+        const monthAgo = new Date(now);
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        params.start_date = monthAgo.toISOString().split("T")[0];
+        params.end_date = now.toISOString().split("T")[0];
+        trendParams.period = "day";
+      } else if (timeRange === "custom" && customFrom && customTo) {
+        params.start_date = customFrom;
+        params.end_date = customTo;
+        trendParams.period = "day";
+      }
 
-  const usageData = allData;
-  const totalTokensIn = usageData.reduce((s, r) => s + r.tokens_in, 0);
-  const totalTokensOut = usageData.reduce((s, r) => s + r.tokens_out, 0);
-  const totalCalls = usageData.reduce((s, r) => s + r.calls, 0);
-  const avgLatency = totalCalls > 0 ? Math.round(usageData.reduce((s, r) => s + r.avg_latency_ms * r.calls, 0) / totalCalls) : 0;
+      if (selectedConfigType) {
+        params.config_type = selectedConfigType;
+        trendParams.config_type = selectedConfigType;
+        byModelParams.config_type = selectedConfigType;
+      }
+      if (selectedModel) {
+        byModelParams.model_name = selectedModel;
+      }
+
+      const [statsData, byModelData, trendChartData] = await Promise.all([
+        fetchModelUsageStats(params),
+        fetchModelUsageByModel(byModelParams),
+        fetchModelUsageTrend(trendParams),
+      ]);
+      setStats(statsData);
+      setUsageData(Array.isArray(byModelData) ? byModelData : []);
+      setTrendData(Array.isArray(trendChartData) ? trendChartData : []);
+    } catch (error) {
+      console.error("Failed to load usage data:", error);
+      setUsageData([]);
+      setStats(null);
+      setTrendData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [timeRange, customFrom, customTo, selectedConfigType, selectedModel]);
+
+  const handleRefresh = () => {
+    loadData();
+  };
+
+  const totalTokensIn = stats?.input_tokens ?? 0;
+  const totalTokensOut = stats?.output_tokens ?? 0;
+  const totalCalls = stats?.total_calls ?? 0;
+  const avgLatency = Math.round(stats?.avg_duration_ms ?? 0);
+  const totalCost = stats?.total_cost ?? 0;
 
   const byModel = usageData.reduce((acc: Record<string, number>, r) => {
-    acc[r.model] = (acc[r.model] ?? 0) + r.calls;
+    acc[r.model_name] = (acc[r.model_name] ?? 0) + r.total_calls;
     return acc;
   }, {});
 
   const chartItems = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
   const maxCalls = chartItems[0]?.[1] ?? 1;
-
-  const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => setLoading(false), 600);
-  };
 
   const timeRangeOptions = [
     { value: "today", label: "今日" },
@@ -602,6 +677,9 @@ function ModelUsageTab() {
     { value: "month", label: "本月" },
     { value: "custom", label: "自定义" },
   ];
+
+  const configTypes = Array.from(new Set(usageData.map(item => item.config_type))).sort();
+  const modelNames = Array.from(new Set(usageData.map(item => item.model_name))).sort();
 
   return (
     <div className="space-y-4">
@@ -631,7 +709,33 @@ function ModelUsageTab() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <Select value={selectedConfigType || "__all__"} onValueChange={(v) => setSelectedConfigType(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-28 h-7 text-xs">
+            <SelectValue placeholder="配置类型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部类型</SelectItem>
+            {configTypes.map((ct) => (
+              <SelectItem key={ct} value={ct}>{ct.toUpperCase()}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={selectedModel || "__all__"} onValueChange={(v) => setSelectedModel(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-28 h-7 text-xs">
+            <SelectValue placeholder="模型名称" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部模型</SelectItem>
+            {modelNames.map((mn) => (
+              <SelectItem key={mn} value={mn}>{mn}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Card className="p-3">
           <div className="text-xs text-muted-foreground mb-1">Token 输入（期间）</div>
           <div className="text-2xl font-bold text-blue-600">{formatNum(totalTokensIn)}</div>
@@ -652,7 +756,40 @@ function ModelUsageTab() {
           <div className="text-2xl font-bold text-orange-600">{avgLatency}ms</div>
           <div className="text-xs text-muted-foreground mt-0.5">加权均值</div>
         </Card>
+        <Card className="p-3">
+          <div className="text-xs text-muted-foreground mb-1">总成本</div>
+          <div className="text-2xl font-bold text-red-600">{formatCny(totalCost)}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">期间支出</div>
+        </Card>
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">趋势分析</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trendData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart
+                data={trendData}
+                margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="total_calls" stroke="#8884d8" name="总调用次数" />
+                <Line type="monotone" dataKey="total_cost" stroke="#82ca9d" name="成本(¥)" />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">
+              暂无趋势数据
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">
@@ -694,26 +831,26 @@ function ModelUsageTab() {
                   <TableHead className="text-right">成功率</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+               <TableBody>
                 {usageData.map((item, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-medium max-w-[160px] truncate" title={item.model}>
-                      {item.model}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {item.config_type.toUpperCase()}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{item.caller}</TableCell>
-                    <TableCell className="text-right">{item.calls.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">{formatNum(item.tokens_in)}</TableCell>
-                    <TableCell className="text-right">{formatNum(item.tokens_out)}</TableCell>
-                    <TableCell className="text-right">{item.avg_latency_ms}ms</TableCell>
-                    <TableCell className="text-right">{item.success_rate}%</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
+                    <TableRow key={i}>
+                      <TableCell className="font-medium max-w-[160px] truncate" title={item.model_name}>
+                        {item.model_name}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {item.config_type.toUpperCase()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{item.provider}</TableCell>
+                      <TableCell className="text-right">{item.total_calls.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{formatNum(item.input_tokens)}</TableCell>
+                      <TableCell className="text-right">{formatNum(item.output_tokens)}</TableCell>
+                      <TableCell className="text-right">{Math.round(item.avg_duration_ms)}ms</TableCell>
+                      <TableCell className="text-right">{item.success_rate.toFixed(2)}%</TableCell>
+                    </TableRow>
+                  ))}
+               </TableBody>
             </Table>
           </div>
         </CardContent>
@@ -1056,85 +1193,7 @@ function SystemMaintenanceTab() {
   );
 }
 
-// ============ 系统日志 Tab ============
-function SystemLogsTab() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [filterUser, setFilterUser] = useState("");
-  const [filterAction, setFilterAction] = useState("");
 
-  useEffect(() => {
-    loadLogs();
-  }, []);
-
-  const loadLogs = async () => {
-    setLoading(true);
-    try {
-      const { logs: logsData } = await getAuditLogs();
-      setLogs(logsData);
-    } catch (error) {
-      console.error("加载日志失败:", error);
-      toast.error("加载日志失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredLogs = logs.filter((log) => {
-    if (filterUser && !log.username?.includes(filterUser)) return false;
-    if (filterAction && !log.action.includes(filterAction)) return false;
-    return true;
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>系统日志</CardTitle>
-        <CardDescription>查看系统操作审计日志</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex gap-2">
-          <Input placeholder="筛选用户..." value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="max-w-xs" />
-          <Input placeholder="筛选操作..." value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className="max-w-xs" />
-          <Button variant="outline" onClick={loadLogs} disabled={loading}>
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </Button>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>用户</TableHead>
-                  <TableHead>操作</TableHead>
-                  <TableHead>资源</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>时间</TableHead>
-                </TableRow>
-              </TableHeader>
-               <TableBody>
-                 {filteredLogs.map((log) => (
-                   <TableRow key={log.id}>
-                     <TableCell>{log.username}</TableCell>
-                     <TableCell>{log.action}</TableCell>
-                     <TableCell className="max-w-xs truncate">{log.resource_type}</TableCell>
-                     <TableCell>
-                       <Badge variant={log.status === "SUCCESS" ? "default" : "destructive"}>{log.status}</Badge>
-                     </TableCell>
-                     <TableCell>{format(new Date(log.timestamp), "yyyy-MM-dd HH:mm:ss")}</TableCell>
-                   </TableRow>
-                 ))}
-               </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 // ============ 档案分类管理 Tab ============
 function ArchiveCategoriesTab() {
@@ -2418,7 +2477,7 @@ export function SystemSettings() {
       case "announcements":
         return <AnnouncementTab />;
       case "logs":
-        return <SystemLogsTab />;
+        return <SystemLogs />;
       case "maintenance":
         return <SystemMaintenanceTab />;
       case "storage-configs":
