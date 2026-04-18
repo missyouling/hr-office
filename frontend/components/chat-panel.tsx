@@ -121,8 +121,8 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
+      <ScrollArea className="flex-1 p-4 overflow-hidden">
+        <div className="space-y-4 pr-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-8">
               <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
@@ -130,16 +130,16 @@ export function ChatPanel() {
             </div>
           )}
 
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`flex gap-2 max-w-xs ${
-                  message.role === "user" ? "flex-row-reverse" : "flex-row"
-                }`}
-              >
+           {messages.map((message) => (
+             <div
+               key={message.id}
+               className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+             >
+               <div
+                 className={`flex gap-2 max-w-[70%] ${
+                   message.role === "user" ? "flex-row-reverse" : "flex-row"
+                 }`}
+               >
                 <div
                   className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
                     message.role === "user"
