@@ -1,0 +1,20 @@
+-- PostgreSQL 初始化脚本
+-- 自动创建数据库用户和数据库
+
+-- 创建应用用户
+CREATE USER siapp WITH ENCRYPTED PASSWORD 'siapp_password';
+
+-- 创建应用数据库
+CREATE DATABASE siapp OWNER siapp;
+
+-- 连接到新创建的数据库后，授予权限
+\c siapp
+
+-- 授予所有权限
+GRANT ALL PRIVILEGES ON SCHEMA public TO siapp;
+GRANT USAGE ON SCHEMA public TO siapp;
+
+-- 设置默认权限
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO siapp;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO siapp;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO siapp;
