@@ -265,7 +265,7 @@ export function SystemLogs() {
              <TableCell className="whitespace-nowrap">{dateStr}</TableCell>
              <TableCell className="truncate">{log.user?.username || log.user_id || "系统"}</TableCell>
              <TableCell className="truncate">{log.action}</TableCell>
-             <TableCell className="truncate">{log.ip_address}</TableCell>
+             <TableCell className="truncate">{log.ip_address || "-"}</TableCell>
              <TableCell>{renderStatusBadge(log.status)}</TableCell>
              <TableCell>{log.status_code}</TableCell>
            </TableRow>
@@ -279,7 +279,7 @@ export function SystemLogs() {
            <TableCell className="truncate">{log.action}</TableCell>
            <TableCell className="truncate">{log.resource}</TableCell>
            <TableCell>{renderStatusBadge(log.status)}</TableCell>
-           <TableCell className="truncate">{log.ip_address}</TableCell>
+           <TableCell className="truncate">{log.ip_address || "-"}</TableCell>
          </TableRow>
        );
     });

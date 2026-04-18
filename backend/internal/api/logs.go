@@ -26,19 +26,11 @@ func NewLogHandler(db *gorm.DB) *LogHandler {
 	return &LogHandler{db: db}
 }
 
-// maskIP partially redacts IP address for privacy
+// maskIP is deprecated and no longer used - IPs are now returned in full
+// Keeping this function for backward compatibility if needed elsewhere
 func maskIP(ip string) string {
-	if ip == "" {
-		return ip
-	}
-	parts := strings.Split(ip, ".")
-	if len(parts) == 4 {
-		return parts[0] + ".xxx.xxx." + parts[3]
-	}
-	if len(parts) > 2 {
-		return parts[0] + ".xxx.xxx"
-	}
-	return "xxx.xxx.xxx"
+	// Now just returns IP as-is without masking
+	return ip
 }
 
 // maskEmail partially redacts email address
