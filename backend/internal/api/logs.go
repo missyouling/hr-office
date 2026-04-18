@@ -19,6 +19,7 @@ func NewLogHandler(db *gorm.DB) *LogHandler {
 func (h *LogHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Get("/", h.QueryLogs)
+	r.Get("/export", h.ExportLogs)
 	r.Post("/backup", h.CreateBackup)
 	r.Get("/backups", h.ListBackups)
 	r.Get("/alert-rules", h.ListAlertRules)
@@ -67,4 +68,10 @@ func (h *LogHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Request) {
 
 func (h *LogHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{"status": "success"})
+}
+
+func (h *LogHandler) ExportLogs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=logs-export.xlsx")
+	respondJSON(w, http.StatusOK, map[string]interface{}{"status": "export started"})
 }

@@ -505,6 +505,10 @@ func main() {
 			logsHandler := api.NewLogHandler(db)
 			protectedRouter.Mount("/logs", logsHandler.Routes())
 
+			// Notification routes
+			notificationHandler := api.NewNotificationHandler(db)
+			protectedRouter.Mount("/notifications", notificationHandler.Routes())
+
 			// Protected monitoring routes
 			monitoringHandler.RegisterProtectedMonitoringRoutes(protectedRouter)
 
