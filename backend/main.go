@@ -501,6 +501,10 @@ func main() {
 			// Audit log routes
 			auditHandler.RegisterAuditRoutes(protectedRouter)
 
+			// Log management routes
+			logsHandler := api.NewLogHandler(db)
+			protectedRouter.Mount("/logs", logsHandler.Routes())
+
 			// Protected monitoring routes
 			monitoringHandler.RegisterProtectedMonitoringRoutes(protectedRouter)
 
