@@ -11,23 +11,9 @@ import (
 	"siapp/internal/service"
 )
 
-func (h *Handler) registerNotificationRoutes(r chi.Router) {
-	r.Group(func(r chi.Router) {
-		r.Get("/configs", h.listNotificationConfigs)
-		r.Post("/configs", h.createNotificationConfig)
-		r.Get("/configs/{id}", h.getNotificationConfig)
-		r.Put("/configs/{id}", h.updateNotificationConfig)
-		r.Delete("/configs/{id}", h.deleteNotificationConfig)
 
-		r.Post("/smtp/send", h.sendSMTPNotification)
-		r.Post("/sms/send", h.sendSMSNotification)
-		r.Post("/telegram/send", h.sendTelegramNotification)
-		r.Post("/webhook/send", h.sendWebhookNotification)
-		r.Post("/test", h.testNotification)
-	})
-}
 
-func (h *Handler) listNotificationConfigs(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListNotificationConfigs(w http.ResponseWriter, r *http.Request) {
 	var configs []models.NotificationConfig
 	if err := h.db.Order("channel, created_at DESC").Find(&configs).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load configs", err)
@@ -46,7 +32,7 @@ type createNotificationConfigRequest struct {
 	Remark  string                 `json:"remark"`
 }
 
-func (h *Handler) createNotificationConfig(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreateNotificationConfig(w http.ResponseWriter, r *http.Request) {
 	var req createNotificationConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid payload", err)
@@ -90,7 +76,7 @@ func (h *Handler) createNotificationConfig(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusOK, config)
 }
 
-func (h *Handler) getNotificationConfig(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetNotificationConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var config models.NotificationConfig
 	if err := h.db.First(&config, id).Error; err != nil {
@@ -110,7 +96,7 @@ type updateNotificationConfigRequest struct {
 	Remark  string                 `json:"remark,omitempty"`
 }
 
-func (h *Handler) updateNotificationConfig(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) UpdateNotificationConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var config models.NotificationConfig
 	if err := h.db.First(&config, id).Error; err != nil {
@@ -155,7 +141,7 @@ func (h *Handler) updateNotificationConfig(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusOK, config)
 }
 
-func (h *Handler) deleteNotificationConfig(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) DeleteNotificationConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.db.Delete(&models.NotificationConfig{}, id).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to delete config", err)
@@ -172,7 +158,7 @@ type smtpSendRequest struct {
 	Content string          `json:"content"`
 }
 
-func (h *Handler) sendSMTPNotification(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) SendSMTPNotification(w http.ResponseWriter, r *http.Request) {
 	var req smtpSendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid payload", err)
@@ -209,7 +195,7 @@ type smsSendRequest struct {
 	Template map[string]string `json:"template"`
 }
 
-func (h *Handler) sendSMSNotification(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) SendSMSNotification(w http.ResponseWriter, r *http.Request) {
 	var req smsSendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid payload", err)
@@ -240,7 +226,7 @@ type telegramSendRequest struct {
 	Text   string          `json:"text"`
 }
 
-func (h *Handler) sendTelegramNotification(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) SendTelegramNotification(w http.ResponseWriter, r *http.Request) {
 	var req telegramSendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid payload", err)
@@ -272,7 +258,7 @@ type webhookSendRequest struct {
 	Body    string            `json:"body,omitempty"`
 }
 
-func (h *Handler) sendWebhookNotification(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) SendWebhookNotification(w http.ResponseWriter, r *http.Request) {
 	var req webhookSendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid payload", err)
@@ -300,7 +286,7 @@ type testNotificationRequest struct {
 	Content string          `json:"content"`
 }
 
-func (h *Handler) testNotification(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) TestNotification(w http.ResponseWriter, r *http.Request) {
 	var req testNotificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid payload", err)

@@ -571,9 +571,28 @@ func main() {
 			logsHandler := api.NewLogHandler(db)
 			protectedRouter.Mount("/logs", logsHandler.Routes())
 
-			// Notification routes
-			notificationHandler := api.NewNotificationHandler(db)
-			protectedRouter.Mount("/notifications", notificationHandler.Routes())
+			// Notification routes - 推送历史、已读标记、配置管理
+			protectedRouter.Route("/notifications", func(notifRouter chi.Router) {
+				// 推送历史与已读标记
+				notificationHandler := api.NewNotificationHandler(db)
+				notifRouter.Get("/", notificationHandler.ListNotifications)
+				notifRouter.Get("/unread-count", notificationHandler.GetUnreadCount)
+				notifRouter.Put("/{id}/read", notificationHandler.MarkAsRead)
+				notifRouter.Put("/read-all", notificationHandler.MarkAllAsRead)
+
+				// 通知配置 CRUD 与测试
+				notifRouter.Get("/configs", handler.ListNotificationConfigs)
+				notifRouter.Post("/configs", handler.CreateNotificationConfig)
+				notifRouter.Get("/configs/{id}", handler.GetNotificationConfig)
+				notifRouter.Put("/configs/{id}", handler.UpdateNotificationConfig)
+				notifRouter.Delete("/configs/{id}", handler.DeleteNotificationConfig)
+
+				notifRouter.Post("/smtp/send", handler.SendSMTPNotification)
+				notifRouter.Post("/sms/send", handler.SendSMSNotification)
+				notifRouter.Post("/telegram/send", handler.SendTelegramNotification)
+				notifRouter.Post("/webhook/send", handler.SendWebhookNotification)
+				notifRouter.Post("/test", handler.TestNotification)
+			})
 
 			// Protected monitoring routes
 			monitoringHandler.RegisterProtectedMonitoringRoutes(protectedRouter)

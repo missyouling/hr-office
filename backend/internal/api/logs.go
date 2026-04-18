@@ -193,7 +193,11 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 			query = query.Where("user_id = ?", userID)
 		}
 		if status != "" {
-			query = query.Where("status = ?", status)
+			if status == "FAILED" {
+				query = query.Where("status IN ?", []string{"FAILED", "ERROR"})
+			} else {
+				query = query.Where("status = ?", status)
+			}
 		}
 		if keyword != "" {
 			query = query.Where("path ILIKE ? OR ip_address ILIKE ?", "%"+keyword+"%", "%"+keyword+"%")
@@ -230,7 +234,11 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 			query = query.Where("user_id = ?", userID)
 		}
 		if status != "" {
-			query = query.Where("status = ?", status)
+			if status == "FAILED" {
+				query = query.Where("status IN ?", []string{"FAILED", "ERROR"})
+			} else {
+				query = query.Where("status = ?", status)
+			}
 		}
 		if keyword != "" {
 			query = query.Where("path ILIKE ? OR resource ILIKE ?", "%"+keyword+"%", "%"+keyword+"%")
@@ -356,7 +364,11 @@ func (h *LogHandler) ExportLogs(w http.ResponseWriter, r *http.Request) {
 			query = query.Where("user_id = ?", userID)
 		}
 		if status != "" {
-			query = query.Where("status = ?", status)
+			if status == "FAILED" {
+				query = query.Where("status IN ?", []string{"FAILED", "ERROR"})
+			} else {
+				query = query.Where("status = ?", status)
+			}
 		}
 		if keyword != "" {
 			query = query.Where("path ILIKE ? OR ip_address ILIKE ?", "%"+keyword+"%", "%"+keyword+"%")
@@ -416,7 +428,11 @@ func (h *LogHandler) ExportLogs(w http.ResponseWriter, r *http.Request) {
 			query = query.Where("user_id = ?", userID)
 		}
 		if status != "" {
-			query = query.Where("status = ?", status)
+			if status == "FAILED" {
+				query = query.Where("status IN ?", []string{"FAILED", "ERROR"})
+			} else {
+				query = query.Where("status = ?", status)
+			}
 		}
 		if keyword != "" {
 			query = query.Where("path ILIKE ? OR resource ILIKE ?", "%"+keyword+"%", "%"+keyword+"%")

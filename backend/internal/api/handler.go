@@ -392,6 +392,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		mr.Post("/", h.CreateModelConfig)
 		mr.Get("/providers", h.ListBuiltInProviders)
 		mr.Get("/fetch-models", h.FetchModelsByEndpoint)
+		mr.Get("/usage", h.GetModelUsageStats)
+		mr.Get("/usage/trend", h.GetModelUsageTrend)
+		mr.Get("/usage/by-model", h.GetModelUsageByModel)
+		mr.Delete("/usage/cleanup", h.CleanupOldUsageLogs)
 		mr.Put("/{configId}", h.UpdateModelConfig)
 		mr.Delete("/{configId}", h.DeleteModelConfig)
 		mr.Post("/{configId}/test", h.TestModelConfig)
@@ -450,7 +454,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		sr.Put("/rules/{id}", h.updateStorageRule)
 		sr.Delete("/rules/{id}", h.deleteStorageRule)
 	})
-	r.Route("/notifications", h.registerNotificationRoutes)
+	// /notifications moved to main.go
 	r.Route("/periods/{periodID}", func(pr chi.Router) {
 		pr.Get("/", h.getPeriod)
 		pr.Delete("/", h.deletePeriod)
