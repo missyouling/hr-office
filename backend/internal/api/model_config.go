@@ -278,7 +278,7 @@ func (h *Handler) CreateModelConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	config := models.ModelConfig{
-		UserID:        userID,
+		UserID:        &userID,
 		ConfigType:    req.ConfigType,
 		Provider:      req.Provider,
 		ModelName:     req.ModelName,

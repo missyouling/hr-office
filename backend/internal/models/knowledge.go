@@ -35,7 +35,7 @@ type DocumentEmbedding struct {
 // ModelConfig 模型配置（OCR/LLM/向量/重排）
 type ModelConfig struct {
 	ID            uint           `json:"id" gorm:"primaryKey"`
-	UserID        uint           `json:"user_id" gorm:"index"`
+	UserID        *uint          `json:"user_id" gorm:"index"`                  // 可空：NULL 表示全局配置，所有用户可用
 	User          *User          `json:"-" gorm:"foreignKey:UserID"`
 	ConfigType    string         `json:"config_type" gorm:"size:20;index"`      // ocr/llm/embedding/rerank
 	Provider      string         `json:"provider" gorm:"size:100"`              // 服务商名称

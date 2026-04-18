@@ -180,7 +180,7 @@ func seedModelConfigs(db *gorm.DB) error {
 	}
 
 	for _, m := range builtInModels {
-		m.UserID = adminUserID
+		m.UserID = &adminUserID
 		if err := db.Create(&m).Error; err != nil {
 			log.Printf("创建内置模型失败 %s/%s: %v", m.ConfigType, m.ModelName, err)
 		}
