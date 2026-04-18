@@ -2759,6 +2759,11 @@ export interface ModelConfig {
 export interface SystemLog {
   id: number;
   user_id?: number;
+  user?: {
+    id: number;
+    username: string;
+    full_name?: string;
+  };
   action: string;
   resource?: string;
   resource_id?: string;

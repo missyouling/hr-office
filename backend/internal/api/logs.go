@@ -214,13 +214,12 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := query.Order("created_at DESC").Offset(offset).Limit(size).Find(&auditLogs).Error; err != nil {
+		if err := query.Preload("User").Order("created_at DESC").Offset(offset).Limit(size).Find(&auditLogs).Error; err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to fetch login logs", err)
 			return
 		}
 
 		for _, log := range auditLogs {
-			log.IPAddress = maskIP(log.IPAddress)
 			logs = append(logs, log)
 		}
 	} else {
@@ -255,13 +254,12 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := query.Order("created_at DESC").Offset(offset).Limit(size).Find(&auditLogs).Error; err != nil {
+		if err := query.Preload("User").Order("created_at DESC").Offset(offset).Limit(size).Find(&auditLogs).Error; err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to fetch operation logs", err)
 			return
 		}
 
 		for _, log := range auditLogs {
-			log.IPAddress = maskIP(log.IPAddress)
 			logs = append(logs, log)
 		}
 	}
