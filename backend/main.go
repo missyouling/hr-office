@@ -404,6 +404,33 @@ func main() {
 	auditHandler := api.NewAuditHandler(db, auditService)
 	monitoringHandler := api.NewMonitoringHandler(db, monitoringService)
 
+	// Auto-cleanup scheduler for logs older than 30 days
+	runLogCleanup := func(db *gorm.DB) {
+		thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+		auditResult := db.Where("created_at < ?", thirtyDaysAgo).Delete(&models.AuditLog{})
+		systemResult := db.Where("created_at < ?", thirtyDaysAgo).Delete(&api.SystemLog{})
+		totalDeleted := auditResult.RowsAffected + systemResult.RowsAffected
+		log.Printf("auto-cleanup completed: deleted %d logs older than 30 days", totalDeleted)
+	}
+
+	// Run cleanup on startup, then daily
+	runCleanupTask := func() {
+		time.Sleep(10 * time.Second)
+		runLogCleanup(db)
+		for {
+			now := time.Now()
+			next := time.Date(now.Year(), now.Month(), now.Day()+1, 2, 0, 0, 0, now.Location())
+			if now.Hour() >= 2 {
+				next = next.AddDate(0, 0, 1)
+			}
+			duration := next.Sub(now)
+			log.Printf("log auto-cleanup scheduled in %v hours", duration.Hours())
+			time.Sleep(duration)
+			runLogCleanup(db)
+		}
+	}
+	go runCleanupTask()
+
 	// Log system startup
 	dbType := os.Getenv("SIAPP_DATABASE_TYPE")
 	if dbType == "" {

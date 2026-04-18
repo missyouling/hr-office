@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -23,6 +24,35 @@ type LogHandler struct {
 
 func NewLogHandler(db *gorm.DB) *LogHandler {
 	return &LogHandler{db: db}
+}
+
+// maskIP partially redacts IP address for privacy
+func maskIP(ip string) string {
+	if ip == "" {
+		return ip
+	}
+	parts := strings.Split(ip, ".")
+	if len(parts) == 4 {
+		return parts[0] + ".xxx.xxx." + parts[3]
+	}
+	if len(parts) > 2 {
+		return parts[0] + ".xxx.xxx"
+	}
+	return "xxx.xxx.xxx"
+}
+
+// maskEmail partially redacts email address
+func maskEmail(email string) string {
+	if email == "" {
+		return email
+	}
+	if at := strings.Index(email, "@"); at > 2 {
+		return email[:2] + "***" + email[at:]
+	}
+	if len(email) > 4 {
+		return email[:2] + "***" + email[len(email)-2:]
+	}
+	return "***"
 }
 
 // SystemLog represents a system log entry
@@ -186,10 +216,10 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, log := range auditLogs {
+			log.IPAddress = maskIP(log.IPAddress)
 			logs = append(logs, log)
 		}
 	} else {
-		// Default: Query audit_logs WHERE action NOT LIKE 'LOGIN%' (operation logs)
 		var auditLogs []models.AuditLog
 		query := h.db.Model(&models.AuditLog{}).Where("action NOT LIKE ?", "LOGIN%")
 
@@ -223,6 +253,7 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, log := range auditLogs {
+			log.IPAddress = maskIP(log.IPAddress)
 			logs = append(logs, log)
 		}
 	}
