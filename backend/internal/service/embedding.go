@@ -37,6 +37,8 @@ func NewEmbeddingService(db *gorm.DB) *EmbeddingService {
 // 请求体: { "input": text, "model": modelName }
 // 返回 []float64
 func (s *EmbeddingService) GenerateEmbedding(userID uint, text string) ([]float64, error) {
+	startTime := time.Now()
+
 	if strings.TrimSpace(text) == "" {
 		return []float64{}, fmt.Errorf("text cannot be empty")
 	}
@@ -77,7 +79,11 @@ func (s *EmbeddingService) GenerateEmbedding(userID uint, text string) ([]float6
 	}
 
 	resp, err := s.httpClient.Do(req)
+	elapsed := time.Since(startTime)
+
 	if err != nil {
+		// Log failed call
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
 		log.Printf("[embedding] API call failed: %v", err)
 		return generatePlaceholderEmbedding(768), nil
 	}
@@ -85,6 +91,7 @@ func (s *EmbeddingService) GenerateEmbedding(userID uint, text string) ([]float6
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), fmt.Sprintf("HTTP %d", resp.StatusCode))
 		log.Printf("[embedding] API returned %d: %s", resp.StatusCode, string(body))
 		return generatePlaceholderEmbedding(768), nil
 	}
@@ -92,27 +99,63 @@ func (s *EmbeddingService) GenerateEmbedding(userID uint, text string) ([]float6
 	// 解析响应
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
 		log.Printf("[embedding] failed to decode response: %v", err)
 		return generatePlaceholderEmbedding(768), nil
 	}
 
+	// Extract token usage from response
+	inputTokens := 0
+	if usage, ok := result["usage"].(map[string]interface{}); ok {
+		if pt, ok := usage["prompt_tokens"].(float64); ok {
+			inputTokens = int(pt)
+		}
+	}
+
 	// 提取向量（假设响应格式为 { "data": [{ "embedding": [...] }] }）
+	vec := []float64{}
 	if data, ok := result["data"].([]interface{}); ok && len(data) > 0 {
 		if item, ok := data[0].(map[string]interface{}); ok {
 			if embedding, ok := item["embedding"].([]interface{}); ok {
-				vec := make([]float64, len(embedding))
+				vec = make([]float64, len(embedding))
 				for i, v := range embedding {
 					if f, ok := v.(float64); ok {
 						vec[i] = f
 					}
 				}
+				// Record successful usage
+				go s.recordUsage(userID, config, "success", inputTokens, 0, int(elapsed.Milliseconds()), "")
 				return vec, nil
 			}
 		}
 	}
 
+	// Record failed usage (no embedding extracted)
+	go s.recordUsage(userID, config, "failed", inputTokens, 0, int(elapsed.Milliseconds()), "no embedding in response")
+
 	// 占位响应
 	return generatePlaceholderEmbedding(768), nil
+}
+
+// recordUsage records model usage asynchronously
+func (s *EmbeddingService) recordUsage(userID uint, config *models.ModelConfig, status string, inputTokens, outputTokens, durationMs int, errMsg string) {
+	usageLog := &models.ModelUsageLog{
+		UserID:       userID,
+		ConfigID:     config.ID,
+		ModelName:    config.ModelName,
+		Provider:     config.Provider,
+		ConfigType:   "embedding",
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		Status:       status,
+		ErrorMsg:     errMsg,
+		DurationMs:   durationMs,
+	}
+	usageLog.CostUSD = usageLog.CalculateCost()
+	if err := s.db.Create(usageLog).Error; err != nil {
+		log.Printf("[embedding] failed to record usage: %v", err)
+	}
 }
 
 // IngestDocument 将文档内容分块并生成向量存入 document_embeddings 表

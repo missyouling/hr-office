@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"siapp/internal/api"
@@ -32,107 +31,100 @@ import (
 func connectDatabase() (*gorm.DB, error) {
 	dbType := os.Getenv("SIAPP_DATABASE_TYPE")
 	if dbType == "" {
-		dbType = "sqlite" // Default to SQLite
+		// SQLite is disabled. PostgreSQL is required.
+		return nil, fmt.Errorf("SIAPP_DATABASE_TYPE environment variable is required and must be set to 'postgres' or 'postgresql'. SQLite is no longer supported. Example: export SIAPP_DATABASE_TYPE=postgres")
+	}
+
+	// Only allow PostgreSQL
+	if dbType != "postgres" && dbType != "postgresql" {
+		return nil, fmt.Errorf("unsupported database type: %s. Only 'postgres' and 'postgresql' are supported. SQLite has been disabled. (SIAPP_DATABASE_TYPE=%s)", dbType, dbType)
 	}
 
 	var db *gorm.DB
 	var err error
 
-	switch dbType {
-	case "postgres", "postgresql":
-		// PostgreSQL connection
-		dbHost := os.Getenv("SIAPP_DB_HOST")
-		if dbHost == "" {
-			dbHost = "localhost"
-		}
-
-		dbPort := os.Getenv("SIAPP_DB_PORT")
-		if dbPort == "" {
-			dbPort = "5432"
-		}
-
-		dbUser := os.Getenv("SIAPP_DB_USER")
-		if dbUser == "" {
-			dbUser = "siapp"
-		}
-
-		dbPassword := os.Getenv("SIAPP_DB_PASSWORD")
-		if dbPassword == "" {
-			return nil, fmt.Errorf("SIAPP_DB_PASSWORD environment variable is required for PostgreSQL")
-		}
-
-		dbName := os.Getenv("SIAPP_DB_NAME")
-		if dbName == "" {
-			dbName = "siapp"
-		}
-
-		sslMode := os.Getenv("SIAPP_DB_SSLMODE")
-		if sslMode == "" {
-			sslMode = "require"
-		}
-
-		// 创建自定义拨号器，优先尝试 IPv4，失败时回退到默认拨号逻辑
-		connConfig, err := pgx.ParseConfig(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
-			dbHost, dbUser, dbPassword, dbName, dbPort, sslMode))
-		if err != nil {
-			return nil, fmt.Errorf("parse postgres config: %v", err)
-		}
-
-		// 优先尝试解析 IPv4 地址，若不可用则回退到原始地址（允许 IPv6）
-		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-
-			dialer := &net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}
-
-			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
-			if err == nil && len(ips) > 0 {
-				ipv4Addr := net.JoinHostPort(ips[0].String(), port)
-				log.Printf("Resolved %s to IPv4: %s", host, ipv4Addr)
-
-				if conn, dialErr := dialer.DialContext(ctx, "tcp", ipv4Addr); dialErr == nil {
-					return conn, nil
-				} else {
-					log.Printf("Failed to dial IPv4 %s: %v, falling back to %s", ipv4Addr, dialErr, addr)
-				}
-			} else if err != nil {
-				log.Printf("IPv4 lookup failed for %s: %v, falling back to %s", host, err, addr)
-			} else {
-				log.Printf("No IPv4 address found for %s, falling back to %s", host, addr)
-			}
-
-			return dialer.DialContext(ctx, network, addr)
-		}
-
-		connStr := stdlib.RegisterConnConfig(connConfig)
-		log.Printf("Connecting to PostgreSQL database: host=%s dbname=%s", dbHost, dbName)
-		db, err = gorm.Open(postgres.New(postgres.Config{
-			DriverName: "pgx",
-			DSN:        connStr,
-		}), &gorm.Config{})
-
-	case "sqlite":
-		// SQLite connection (default)
-		dbPath := os.Getenv("SIAPP_DATABASE_PATH")
-		if dbPath == "" {
-			dbPath = "./data/siapp.db"
-		}
-
-		if err := os.MkdirAll("./data", 0o755); err != nil {
-			return nil, fmt.Errorf("create data directory: %v", err)
-		}
-
-		log.Printf("Connecting to SQLite database: %s", dbPath)
-		db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-
-	default:
-		return nil, fmt.Errorf("unsupported database type: %s (supported: sqlite, postgres)", dbType)
+	// PostgreSQL connection (only supported option)
+	dbHost := os.Getenv("SIAPP_DB_HOST")
+	if dbHost == "" {
+		dbHost = "localhost"
 	}
+
+	dbPort := os.Getenv("SIAPP_DB_PORT")
+	if dbPort == "" {
+		dbPort = "5432"
+	}
+
+	dbUser := os.Getenv("SIAPP_DB_USER")
+	if dbUser == "" {
+		dbUser = "siapp"
+	}
+
+	dbPassword := os.Getenv("SIAPP_DB_PASSWORD")
+	if dbPassword == "" {
+		return nil, fmt.Errorf("SIAPP_DB_PASSWORD environment variable is required for PostgreSQL")
+	}
+
+	dbName := os.Getenv("SIAPP_DB_NAME")
+	if dbName == "" {
+		dbName = "siapp"
+	}
+
+	sslMode := os.Getenv("SIAPP_DB_SSLMODE")
+	if sslMode == "" {
+		sslMode = "require"
+	}
+
+	// Parse PostgreSQL connection config
+	connConfig, err := pgx.ParseConfig(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		dbHost, dbUser, dbPassword, dbName, dbPort, sslMode))
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres config: %v", err)
+	}
+
+	// PostgreSQL connection strategy: prefer IPv4, allow IPv6 if IPv4 unavailable
+	connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+
+		dialer := &net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
+
+		// Try IPv4 first
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+		if err == nil && len(ips) > 0 {
+			ipv4Addr := net.JoinHostPort(ips[0].String(), port)
+			log.Printf("Resolved %s to IPv4: %s", host, ipv4Addr)
+			if conn, dialErr := dialer.DialContext(ctx, "tcp", ipv4Addr); dialErr == nil {
+				return conn, nil
+			}
+			log.Printf("IPv4 connection failed for %s, attempting IPv6 fallback", host)
+		}
+
+		// Fallback to IPv6 if IPv4 fails or unavailable
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip6", host)
+		if err == nil && len(ips) > 0 {
+			ipv6Addr := net.JoinHostPort(ips[0].String(), port)
+			log.Printf("Resolved %s to IPv6: %s", host, ipv6Addr)
+			if conn, dialErr := dialer.DialContext(ctx, "tcp", ipv6Addr); dialErr == nil {
+				return conn, nil
+			}
+		}
+
+		// Last resort: use host directly (PostgreSQL driver will handle DNS resolution)
+		log.Printf("IPv4/IPv6 lookup failed, using default connection to %s", addr)
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	connStr := stdlib.RegisterConnConfig(connConfig)
+	log.Printf("Connecting to PostgreSQL database: host=%s port=%s dbname=%s user=%s sslmode=%s", dbHost, dbPort, dbName, dbUser, sslMode)
+	db, err = gorm.Open(postgres.New(postgres.Config{
+		DriverName: "pgx",
+		DSN:        connStr,
+	}), &gorm.Config{})
 
 	return db, err
 }
@@ -275,6 +267,36 @@ func ensureUserPreferenceIndex(db *gorm.DB) {
 	}
 }
 
+func ensureModelUsageLogsTable(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	// Check if table exists
+	if !db.Migrator().HasTable(&models.ModelUsageLog{}) {
+		if err := db.Migrator().CreateTable(&models.ModelUsageLog{}); err != nil {
+			log.Printf("failed to create model_usage_logs table: %v", err)
+			return
+		}
+		log.Printf("created model_usage_logs table")
+	}
+	// Create indexes
+	if err := db.Migrator().CreateIndex(&models.ModelUsageLog{}, "user_id"); err != nil {
+		log.Printf("failed to create user_id index: %v", err)
+	}
+	if err := db.Migrator().CreateIndex(&models.ModelUsageLog{}, "config_id"); err != nil {
+		log.Printf("failed to create config_id index: %v", err)
+	}
+	if err := db.Migrator().CreateIndex(&models.ModelUsageLog{}, "config_type"); err != nil {
+		log.Printf("failed to create config_type index: %v", err)
+	}
+	if err := db.Migrator().CreateIndex(&models.ModelUsageLog{}, "status"); err != nil {
+		log.Printf("failed to create status index: %v", err)
+	}
+	if err := db.Migrator().CreateIndex(&models.ModelUsageLog{}, "created_at"); err != nil {
+		log.Printf("failed to create created_at index: %v", err)
+	}
+}
+
 func main() {
 	db, err := connectDatabase()
 	if err != nil {
@@ -345,10 +367,12 @@ func main() {
 		&models.TypeDefaultColumn{},
 		&models.OCRJob{},
 		&models.ChatMessage{},
+		&models.ModelUsageLog{},
 	); err != nil {
-		log.Fatalf("auto migrate: %v", err)
+		log.Printf("auto migrate warning: %v", err)
 	}
 	ensureUserPreferenceIndex(db)
+	ensureModelUsageLogsTable(db)
 	relaxSocialInsuranceConstraints(db)
 
 	// Seed document categories
@@ -403,6 +427,48 @@ func main() {
 	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailVerificationService, emailService)
 	auditHandler := api.NewAuditHandler(db, auditService)
 	monitoringHandler := api.NewMonitoringHandler(db, monitoringService)
+
+	// Auto-cleanup scheduler for logs older than 30 days
+	runLogCleanup := func(db *gorm.DB) {
+		thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+		auditResult := db.Where("created_at < ?", thirtyDaysAgo).Delete(&models.AuditLog{})
+		systemResult := db.Where("created_at < ?", thirtyDaysAgo).Delete(&api.SystemLog{})
+		totalDeleted := auditResult.RowsAffected + systemResult.RowsAffected
+		log.Printf("auto-cleanup completed: deleted %d logs older than 30 days", totalDeleted)
+	}
+
+	// Run cleanup on startup, then daily
+	runCleanupTask := func() {
+		time.Sleep(10 * time.Second)
+		runLogCleanup(db)
+		for {
+			now := time.Now()
+			next := time.Date(now.Year(), now.Month(), now.Day()+1, 2, 0, 0, 0, now.Location())
+			if now.Hour() >= 2 {
+				next = next.AddDate(0, 0, 1)
+			}
+			duration := next.Sub(now)
+			log.Printf("log auto-cleanup scheduled in %v hours", duration.Hours())
+			time.Sleep(duration)
+			runLogCleanup(db)
+		}
+	}
+	go runCleanupTask()
+
+	// Start usage log cleanup goroutine
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().AddDate(0, 0, -30)
+			result := db.Where("created_at < ?", cutoff).Delete(&models.ModelUsageLog{})
+			if result.Error != nil {
+				log.Printf("[cleanup] failed to clean usage logs: %v", result.Error)
+			} else if result.RowsAffected > 0 {
+				log.Printf("[cleanup] deleted %d old usage logs", result.RowsAffected)
+			}
+		}
+	}()
 
 	// Log system startup
 	dbType := os.Getenv("SIAPP_DATABASE_TYPE")
@@ -500,6 +566,14 @@ func main() {
 
 			// Audit log routes
 			auditHandler.RegisterAuditRoutes(protectedRouter)
+
+			// Log management routes
+			logsHandler := api.NewLogHandler(db)
+			protectedRouter.Mount("/logs", logsHandler.Routes())
+
+			// Notification routes
+			notificationHandler := api.NewNotificationHandler(db)
+			protectedRouter.Mount("/notifications", notificationHandler.Routes())
 
 			// Protected monitoring routes
 			monitoringHandler.RegisterProtectedMonitoringRoutes(protectedRouter)

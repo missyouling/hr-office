@@ -51,6 +51,8 @@ func NewOCRService(db *gorm.DB) *OCRService {
 // 响应: 解析 result.layoutParsingResults[].markdown.text
 // Fallback: 如果 API 返回非 200 或超时(30s)，尝试视觉模型 fallback（记录日志，返回空结果+错误标记）
 func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*OCRResult, error) {
+	startTime := time.Now()
+
 	// 读取文件
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
@@ -115,7 +117,13 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 
 	// 发送请求
 	resp, err := s.httpClient.Do(req)
+	elapsed := time.Since(startTime)
+
 	if err != nil {
+		// Log failed call
+		if config != nil {
+			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		}
 		log.Printf("[OCR] API request failed: %v, attempting fallback", err)
 		return s.fallbackExtract(userID, filePath, fileType)
 	}
@@ -124,12 +132,18 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 	// 读取响应
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if config != nil {
+			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		}
 		log.Printf("[OCR] failed to read response: %v", err)
 		return s.fallbackExtract(userID, filePath, fileType)
 	}
 
 	// 检查状态码
 	if resp.StatusCode != http.StatusOK {
+		if config != nil {
+			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), fmt.Sprintf("HTTP %d", resp.StatusCode))
+		}
 		log.Printf("[OCR] API returned status %d, attempting fallback", resp.StatusCode)
 		return s.fallbackExtract(userID, filePath, fileType)
 	}
@@ -137,6 +151,9 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 	// 解析响应
 	var apiResp map[string]interface{}
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		if config != nil {
+			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		}
 		log.Printf("[OCR] failed to parse response: %v", err)
 		return s.fallbackExtract(userID, filePath, fileType)
 	}
@@ -163,6 +180,8 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 	if config != nil {
 		provider = config.Provider
 		model = config.ModelName
+		// Record successful usage
+		go s.recordUsage(userID, config, "success", 0, 0, int(elapsed.Milliseconds()), "")
 	}
 
 	return &OCRResult{
@@ -173,6 +192,27 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 		Success:   true,
 		RawResult: string(respBody),
 	}, nil
+}
+
+// recordUsage records model usage asynchronously
+func (s *OCRService) recordUsage(userID uint, config *models.ModelConfig, status string, inputTokens, outputTokens, durationMs int, errMsg string) {
+	usageLog := &models.ModelUsageLog{
+		UserID:       userID,
+		ConfigID:     config.ID,
+		ModelName:    config.ModelName,
+		Provider:     config.Provider,
+		ConfigType:   "ocr",
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		Status:       status,
+		ErrorMsg:     errMsg,
+		DurationMs:   durationMs,
+	}
+	usageLog.CostUSD = usageLog.CalculateCost()
+	if err := s.db.Create(usageLog).Error; err != nil {
+		log.Printf("[ocr] failed to record usage: %v", err)
+	}
 }
 
 // ExtractAsync 异步 OCR 提取（大文件，创建 Job）
