@@ -1,11 +1,77 @@
 "use client";
 
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, Fragment, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { fetchRoles, fetchPermissions, fetchRolePermissions, updateRolePermissions, updateRole, deleteRole, type Role, type Permission, fetchAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, type Announcement, fetchDocumentCategories, fetchFieldDefinitions, createFieldDefinition, updateFieldDefinition, deleteFieldDefinition, type ArchiveFieldDefinition, type DocumentCategory, fetchRetentionPeriods, createRetentionPeriod, updateRetentionPeriod, deleteRetentionPeriod, type RetentionPeriod, fetchStorageLocations, createStorageLocation, updateStorageLocation, deleteStorageLocation, type StorageLocation, fetchCodeRules, createCodeRule, updateCodeRule, deleteCodeRule, getCodeRulePreview, type CodeRule, type CodeRulePreview, updateCategoryCode, createCategoryCode, deleteCategory, listStorageConfigs, createStorageConfig, updateStorageConfig, deleteStorageConfig, testStorageConnection, uploadStorageFile, listStorageFiles, deleteStorageFile, getStorageFileDownloadUrl, listNotificationConfigs, createNotificationConfig, updateNotificationConfig, testNotification, type NotificationConfig, fetchModelUsageStats, fetchModelUsageByModel, fetchModelUsageTrend, type ModelUsageStatsResponse, type ModelUsageByModelItem, type ModelUsageTrendItem } from "@/lib/api";
-import type { AuditLog, StorageConfig, SysFile } from "@/lib/types";
+import {
+  fetchRoles,
+  fetchPermissions,
+  fetchRolePermissions,
+  updateRolePermissions,
+  updateRole,
+  deleteRole,
+  type Role,
+  type Permission,
+  fetchAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
+  deleteAnnouncement,
+  type Announcement,
+  fetchDocumentCategories,
+  fetchFieldDefinitions,
+  createFieldDefinition,
+  updateFieldDefinition,
+  deleteFieldDefinition,
+  type ArchiveFieldDefinition,
+  type DocumentCategory,
+  fetchRetentionPeriods,
+  createRetentionPeriod,
+  updateRetentionPeriod,
+  deleteRetentionPeriod,
+  type RetentionPeriod,
+  fetchStorageLocations,
+  createStorageLocation,
+  updateStorageLocation,
+  deleteStorageLocation,
+  type StorageLocation,
+  fetchCodeRules,
+  createCodeRule,
+  updateCodeRule,
+  deleteCodeRule,
+  getCodeRulePreview,
+  type CodeRule,
+  type CodeRulePreview,
+  updateCategoryCode,
+  createCategoryCode,
+  deleteCategory,
+  listStorageConfigs,
+  createStorageConfig,
+  updateStorageConfig,
+  deleteStorageConfig,
+  testStorageConnection,
+  uploadStorageFile,
+  listStorageFiles,
+  deleteStorageFile,
+  getStorageFileDownloadUrl,
+  listNotificationConfigs,
+  createNotificationConfig,
+  updateNotificationConfig,
+  testNotification,
+  type NotificationConfig,
+  fetchModelUsageStats,
+  fetchModelUsageByModel,
+  fetchModelUsageTrend,
+  type ModelUsageStatsResponse,
+  type ModelUsageByModelItem,
+  type ModelUsageTrendItem,
+  listStorageModules,
+  listStorageRulesEnhanced,
+  createStorageRuleEnhanced,
+  updateStorageRuleEnhanced,
+  deleteStorageRuleEnhanced,
+} from "@/lib/api";
+import type { AuditLog, StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 
@@ -22,7 +88,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server } from "lucide-react";
+import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
@@ -80,10 +146,11 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
     ],
   },
   {
-    group: "存储管理",
-    icon: "💾",
+    group: "资源与存储",
+    icon: "📦",
     items: [
       { id: "storage-configs", label: "存储配置" },
+      { id: "storage-rules", label: "存储规则" },
       { id: "storage-files", label: "文件管理" },
     ],
   },
@@ -2188,6 +2255,223 @@ function StorageConfigTab() {
   );
 }
 
+// 存储规则 Tab
+function StorageRuleTab() {
+  const [rules, setRules] = useState<StorageRule[]>([]);
+  const [modules, setModules] = useState<StorageModuleConfig[]>([]);
+  const [configs, setConfigs] = useState<StorageConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingRule, setEditingRule] = useState<StorageRule | null>(null);
+  const [formData, setFormData] = useState({
+    module_code: "",
+    resource_type: "",
+    storage_id: 0,
+    priority: 0,
+    enabled: true,
+    name: "",
+  });
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [rulesData, modulesData, configsData] = await Promise.all([
+        listStorageRulesEnhanced(),
+        listStorageModules(),
+        listStorageConfigs(),
+      ]);
+      setRules(rulesData);
+      setModules(modulesData);
+      setConfigs(configsData);
+    } catch {
+      toast.error("加载存储规则失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleSave = async () => {
+    if (!formData.module_code || !formData.storage_id) {
+      toast.error("请选择模块和存储配置");
+      return;
+    }
+    try {
+      if (editingRule) {
+        await updateStorageRuleEnhanced(editingRule.id, formData);
+        toast.success("存储规则已更新");
+      } else {
+        await createStorageRuleEnhanced(formData);
+        toast.success("存储规则已创建");
+      }
+      setShowDialog(false);
+      setEditingRule(null);
+      loadData();
+    } catch {
+      toast.error("保存存储规则失败");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteStorageRuleEnhanced(id);
+      toast.success("存储规则已删除");
+      loadData();
+    } catch {
+      toast.error("删除存储规则失败");
+    }
+  };
+
+  const openCreate = () => {
+    setEditingRule(null);
+    setFormData({ module_code: "", resource_type: "", storage_id: 0, priority: 0, enabled: true, name: "" });
+    setShowDialog(true);
+  };
+
+  const openEdit = (rule: StorageRule) => {
+    setEditingRule(rule);
+    setFormData({
+      module_code: rule.module_code,
+      resource_type: rule.resource_type,
+      storage_id: rule.storage_id,
+      priority: rule.priority,
+      enabled: rule.enabled,
+      name: rule.name,
+    });
+    setShowDialog(true);
+  };
+
+  const getConfigName = (storageId: number) => {
+    const config = configs.find((c) => c.id === storageId);
+    return config ? config.name : `ID: ${storageId}`;
+  };
+
+  const getModuleName = (moduleCode: string) => {
+    const mod = modules.find((m) => m.module_code === moduleCode);
+    return mod ? mod.module_name : moduleCode;
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-12 text-muted-foreground">加载中...</div>;
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>存储规则</CardTitle>
+          <CardDescription>配置模块和资源类型到存储后端的映射规则</CardDescription>
+        </div>
+        <Button onClick={openCreate} size="sm">
+          <Plus className="h-4 w-4 mr-1" />
+          新增规则
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {rules.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">暂无存储规则，点击&quot;新增规则&quot;开始配置</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>模块</TableHead>
+                <TableHead>资源类型</TableHead>
+                <TableHead>存储配置</TableHead>
+                <TableHead>优先级</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rules.map((rule) => (
+                <TableRow key={rule.id}>
+                  <TableCell className="font-medium">{getModuleName(rule.module_code)}</TableCell>
+                  <TableCell>{rule.resource_type || "（全部）"}</TableCell>
+                  <TableCell>{getConfigName(rule.storage_id)}</TableCell>
+                  <TableCell>{rule.priority}</TableCell>
+                  <TableCell>
+                    <Badge variant={rule.enabled ? "default" : "secondary"}>
+                      {rule.enabled ? "启用" : "禁用"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(rule)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(rule.id)}>
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingRule ? "编辑存储规则" : "新增存储规则"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>规则名称</Label>
+              <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="输入规则名称" />
+            </div>
+            <div className="space-y-2">
+              <Label>模块</Label>
+              <Select value={formData.module_code} onValueChange={(v) => setFormData({ ...formData, module_code: v })}>
+                <SelectTrigger><SelectValue placeholder="选择模块" /></SelectTrigger>
+                <SelectContent>
+                  {modules.map((m) => (
+                    <SelectItem key={m.module_code} value={m.module_code}>{m.module_name}</SelectItem>
+                  ))}
+                  <SelectItem value="archives">档案管理</SelectItem>
+                  <SelectItem value="dormitory">宿舍管理</SelectItem>
+                  <SelectItem value="provident">社保/公积金</SelectItem>
+                  <SelectItem value="knowledge">知识库</SelectItem>
+                  <SelectItem value="audit_logs">系统日志</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>资源类型</Label>
+              <Input value={formData.resource_type} onChange={(e) => setFormData({ ...formData, resource_type: e.target.value })} placeholder="如 employee_photos, contracts（留空表示全部）" />
+            </div>
+            <div className="space-y-2">
+              <Label>存储配置</Label>
+              <Select value={String(formData.storage_id)} onValueChange={(v) => setFormData({ ...formData, storage_id: Number(v) })}>
+                <SelectTrigger><SelectValue placeholder="选择存储配置" /></SelectTrigger>
+                <SelectContent>
+                  {configs.filter((c) => c.enabled).map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name} ({c.type})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>优先级</Label>
+              <Input type="number" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: Number(e.target.value) })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={formData.enabled} onCheckedChange={(v) => setFormData({ ...formData, enabled: v })} />
+              <Label>启用</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>取消</Button>
+            <Button onClick={handleSave}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 // 文件管理 Tab
 function FileManagementTab() {
   const [files, setFiles] = useState<SysFile[]>([]);
@@ -2482,6 +2766,8 @@ export function SystemSettings() {
         return <SystemMaintenanceTab />;
       case "storage-configs":
         return <StorageConfigTab />;
+      case "storage-rules":
+        return <StorageRuleTab />;
       case "storage-files":
         return <FileManagementTab />;
       default:

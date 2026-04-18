@@ -354,6 +354,7 @@ func main() {
 		&models.ArchiveFieldDefinition{},
 		&models.CodeRule{},
 		&models.CodeRulePlaceholder{},
+		&models.StorageModuleConfig{},
 		&models.StorageConfig{},
 		&models.StorageRule{},
 		// SysFile 文件元数据表

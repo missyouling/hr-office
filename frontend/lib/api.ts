@@ -35,6 +35,7 @@ import type {
   StorageRule,
   StorageTestResult,
   SysFile,
+  StorageModuleConfig,
 } from "./types";
 import { getRuntimeConfig } from "./runtime-config";
 
@@ -3026,4 +3027,64 @@ export async function fetchModelUsageByModel(params?: {
   if (params?.model_name) searchParams.append("model_name", params.model_name);
   const qs = searchParams.toString();
   return request<ModelUsageByModelItem[]>(`/settings/models/usage/by-model${qs ? `?${qs}` : ""}`);
+}
+
+// ============ 存储模块配置 API ============
+
+export async function listStorageModules(): Promise<StorageModuleConfig[]> {
+  return request<StorageModuleConfig[]>("/admin/storage/modules");
+}
+
+export async function createStorageModule(data: Partial<StorageModuleConfig>): Promise<StorageModuleConfig> {
+  return request<StorageModuleConfig>("/admin/storage/modules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateStorageModule(id: number, data: Partial<StorageModuleConfig>): Promise<StorageModuleConfig> {
+  return request<StorageModuleConfig>(`/admin/storage/modules/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteStorageModule(id: number): Promise<void> {
+  await request(`/admin/storage/modules/${id}`, {
+    method: "DELETE",
+  }, false);
+}
+
+// ============ 存储规则 API（增强版） ============
+
+export async function listStorageRulesEnhanced(params?: { module_code?: string; resource_type?: string }): Promise<StorageRule[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.module_code) searchParams.set("module_code", params.module_code);
+  if (params?.resource_type) searchParams.set("resource_type", params.resource_type);
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return request<StorageRule[]>(`/admin/storage/rules${query}`);
+}
+
+export async function createStorageRuleEnhanced(data: Partial<StorageRule>): Promise<StorageRule> {
+  return request<StorageRule>("/admin/storage/rules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateStorageRuleEnhanced(id: number, data: Partial<StorageRule>): Promise<StorageRule> {
+  return request<StorageRule>(`/admin/storage/rules/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteStorageRuleEnhanced(id: number): Promise<void> {
+  await request(`/admin/storage/rules/${id}`, {
+    method: "DELETE",
+  }, false);
 }

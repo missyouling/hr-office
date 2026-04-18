@@ -31,12 +31,28 @@ type StorageConfig struct {
 	UpdatedAt           time.Time      `json:"updated_at"`
 }
 
+// StorageModuleConfig 模块与目录映射配置
+type StorageModuleConfig struct {
+	ID            uint      `json:"id" gorm:"primaryKey"`
+	UserID        *uint     `json:"user_id" gorm:"index"`
+	User          *User     `json:"-" gorm:"foreignKey:UserID"`
+	ModuleCode    string    `json:"module_code" gorm:"size:50;index"`
+	ModuleName    string    `json:"module_name" gorm:"size:100"`
+	BaseDirectory string    `json:"base_directory" gorm:"size:255"`
+	Description   string    `json:"description" gorm:"size:500"`
+	Enabled       bool      `json:"enabled" gorm:"default:true"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // StorageRule 存储路由规则
 type StorageRule struct {
 	ID                uint      `json:"id" gorm:"primaryKey"`
 	UserID            *uint     `json:"user_id" gorm:"index"`
 	User              *User     `json:"-" gorm:"foreignKey:UserID"`
 	StorageID         uint      `json:"storage_id" gorm:"index"`
+	ModuleCode        string    `json:"module_code" gorm:"size:50;index"`
+	ResourceType      string    `json:"resource_type" gorm:"size:100;index"`
 	CategoryCode      string    `json:"category_code" gorm:"size:10;index"`
 	Priority          int       `json:"priority" gorm:"default:0"`
 	Enabled           bool      `json:"enabled" gorm:"default:true"`

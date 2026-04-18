@@ -480,6 +480,19 @@ export interface UserPreferences {
   [key: string]: unknown;
 }
 
+// 存储模块配置
+export interface StorageModuleConfig {
+  id: number;
+  user_id: number | null;
+  module_code: string;
+  module_name: string;
+  base_directory: string;
+  description: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // 存储配置
 export interface StorageConfig {
   id: number;
@@ -507,6 +520,8 @@ export interface StorageRule {
   id: number;
   user_id: number;
   storage_id: number;
+  module_code: string;
+  resource_type: string;
   category_code: string;
   priority: number;
   enabled: boolean;

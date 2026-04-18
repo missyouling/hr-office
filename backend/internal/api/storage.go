@@ -386,8 +386,18 @@ func (h *Handler) listStorageRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	query := h.db.Where("user_id = ?", userID)
+
+	if moduleCode := r.URL.Query().Get("module_code"); moduleCode != "" {
+		query = query.Where("module_code = ?", moduleCode)
+	}
+
+	if resourceType := r.URL.Query().Get("resource_type"); resourceType != "" {
+		query = query.Where("resource_type = ?", resourceType)
+	}
+
 	var rules []models.StorageRule
-	if err := h.db.Where("user_id = ?", userID).Order("priority DESC, created_at DESC").Find(&rules).Error; err != nil {
+	if err := query.Order("priority DESC, created_at DESC").Find(&rules).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load storage rules", err)
 		return
 	}
@@ -519,6 +529,8 @@ func (h *Handler) setStoragePrimary(w http.ResponseWriter, r *http.Request) {
 
 type createStorageRuleRequest struct {
 	StorageID         uint   `json:"storage_id"`
+	ModuleCode        string `json:"module_code"`
+	ResourceType      string `json:"resource_type"`
 	CategoryCode      string `json:"category_code"`
 	Priority          int    `json:"priority"`
 	Enabled           bool   `json:"enabled"`
@@ -547,6 +559,8 @@ func (h *Handler) createStorageRule(w http.ResponseWriter, r *http.Request) {
 	rule := models.StorageRule{
 		UserID:            &userID,
 		StorageID:         req.StorageID,
+		ModuleCode:        req.ModuleCode,
+		ResourceType:      req.ResourceType,
 		CategoryCode:      req.CategoryCode,
 		Priority:          req.Priority,
 		Enabled:           req.Enabled,
@@ -595,6 +609,8 @@ func (h *Handler) updateStorageRule(w http.ResponseWriter, r *http.Request) {
 
 	updates := map[string]interface{}{
 		"storage_id":          req.StorageID,
+		"module_code":         req.ModuleCode,
+		"resource_type":       req.ResourceType,
 		"category_code":       req.CategoryCode,
 		"priority":            req.Priority,
 		"enabled":             req.Enabled,
@@ -851,4 +867,137 @@ func (h *Handler) deleteStorageFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "file deleted"})
+}
+
+// listStorageModules GET /api/admin/storage/modules
+func (h *Handler) listStorageModules(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	var modules []models.StorageModuleConfig
+	if err := h.db.Where("user_id = ? OR user_id IS NULL", userID).Order("module_code ASC").Find(&modules).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load storage modules", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, modules)
+}
+
+type createStorageModuleRequest struct {
+	ModuleCode    string `json:"module_code"`
+	ModuleName    string `json:"module_name"`
+	BaseDirectory string `json:"base_directory"`
+	Description   string `json:"description"`
+	Enabled       bool   `json:"enabled"`
+}
+
+// createStorageModule POST /api/admin/storage/modules
+func (h *Handler) createStorageModule(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	var req createStorageModuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+
+	if req.ModuleCode == "" || req.ModuleName == "" {
+		respondError(w, http.StatusBadRequest, "module_code and module_name are required", nil)
+		return
+	}
+
+	module := models.StorageModuleConfig{
+		UserID:        &userID,
+		ModuleCode:    req.ModuleCode,
+		ModuleName:    req.ModuleName,
+		BaseDirectory: req.BaseDirectory,
+		Description:   req.Description,
+		Enabled:       req.Enabled,
+	}
+
+	if err := h.db.Create(&module).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create storage module", err)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, module)
+}
+
+// updateStorageModule PUT /api/admin/storage/modules/{id}
+func (h *Handler) updateStorageModule(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid id", err)
+		return
+	}
+
+	var module models.StorageModuleConfig
+	if err := h.db.Where("id = ? AND user_id = ?", id, userID).First(&module).Error; err != nil {
+		respondError(w, http.StatusNotFound, "storage module not found", err)
+		return
+	}
+
+	var req createStorageModuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+
+	updates := map[string]interface{}{
+		"module_code":    req.ModuleCode,
+		"module_name":    req.ModuleName,
+		"base_directory": req.BaseDirectory,
+		"description":    req.Description,
+		"enabled":        req.Enabled,
+	}
+
+	if err := h.db.Model(&module).Updates(updates).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to update storage module", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, module)
+}
+
+// deleteStorageModule DELETE /api/admin/storage/modules/{id}
+func (h *Handler) deleteStorageModule(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid id", err)
+		return
+	}
+
+	var module models.StorageModuleConfig
+	if err := h.db.Where("id = ? AND user_id = ?", id, userID).First(&module).Error; err != nil {
+		respondError(w, http.StatusNotFound, "storage module not found", err)
+		return
+	}
+
+	if err := h.db.Delete(&module).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to delete storage module", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "storage module deleted"})
 }
