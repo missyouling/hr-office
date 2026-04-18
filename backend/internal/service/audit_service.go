@@ -161,12 +161,11 @@ func (s *AuditService) LogDataExport(ctx context.Context, userID uint, exportTyp
 // LogSystemEvent logs system-level events
 func (s *AuditService) LogSystemEvent(action models.ActionType, message string, details *models.LogDetails) {
 	params := models.CreateAuditLogParams{
-		Action:    action,
-		Resource:  "system",
-		IPAddress: "127.0.0.1",
-		Status:    models.StatusSuccess,
-		ErrorMsg:  message,
-		Details:   details,
+		Action:   action,
+		Resource: "system",
+		Status:   models.StatusSuccess,
+		ErrorMsg: message,
+		Details:  details,
 	}
 
 	if err := s.LogAction(context.Background(), params); err != nil {
