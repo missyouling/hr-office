@@ -98,7 +98,7 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int) 
 
 	// 搜索 documents 表
 	var docs []models.Document
-	if err := s.db.Where("user_id = ? AND (title LIKE ? OR content_text LIKE ?)", userID, searchPattern, searchPattern).
+	if err := s.db.Where("user_id = ? AND (file_name LIKE ? OR content_text LIKE ?)", userID, searchPattern, searchPattern).
 		Limit(limit).
 		Find(&docs).Error; err != nil {
 		return []SearchResult{}, fmt.Errorf("failed to search documents: %v", err)

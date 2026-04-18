@@ -127,9 +127,19 @@ func (s *ChatService) GetChatHistory(userID uint, sessionID string) ([]models.Ch
 }
 
 // GetLLMConfig 获取 LLM 配置
+// 查询策略：优先查询当前用户的配置，如果没有则查询全局配置（user_id为NULL）
 func (s *ChatService) GetLLMConfig(userID uint) (*models.ModelConfig, error) {
 	var config models.ModelConfig
+	
+	// 优先查询当前用户的LLM配置
 	if err := s.db.Where("user_id = ? AND config_type = ? AND enabled = ?", userID, "llm", true).
+		Order("is_default DESC, created_at DESC").
+		First(&config).Error; err == nil {
+		return &config, nil
+	}
+	
+	// 如果用户没有配置，查询全局配置（user_id为NULL）
+	if err := s.db.Where("user_id IS NULL AND config_type = ? AND enabled = ?", "llm", true).
 		Order("is_default DESC, created_at DESC").
 		First(&config).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -142,6 +152,8 @@ func (s *ChatService) GetLLMConfig(userID uint) (*models.ModelConfig, error) {
 
 // callLLM 调用 LLM API
 func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (string, error) {
+	startTime := time.Now()
+
 	config, err := s.GetLLMConfig(userID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get LLM config: %v", err)
@@ -152,7 +164,7 @@ func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (str
 		log.Printf("[chat] no LLM config found for user %d, returning placeholder", userID)
 		return s.generatePlaceholderResponse(userPrompt), nil
 	}
-
+	
 	// 构建请求
 	reqBody := map[string]interface{}{
 		"model": config.ModelName,
@@ -173,8 +185,17 @@ func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (str
 		return "", fmt.Errorf("failed to marshal request: %v", err)
 	}
 
-	// 调用 API
-	req, err := http.NewRequest("POST", config.APIEndpoint, bytes.NewReader(reqBodyJSON))
+	// 调用 API（根据 provider 拼接完整 URL）
+	apiURL := config.APIEndpoint
+	
+	if config.Provider == "siliconflow" {
+		// Siliconflow 需要完整的 chat/completions 路径
+		if !strings.HasSuffix(apiURL, "/chat/completions") {
+			apiURL = strings.TrimSuffix(apiURL, "/") + "/chat/completions"
+		}
+	}
+	
+	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(reqBodyJSON))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %v", err)
 	}
@@ -185,7 +206,11 @@ func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (str
 	}
 
 	resp, err := s.httpClient.Do(req)
+	elapsed := time.Since(startTime)
+
 	if err != nil {
+		// Log failed call
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
 		log.Printf("[chat] API call failed: %v", err)
 		return s.generatePlaceholderResponse(userPrompt), nil
 	}
@@ -193,6 +218,7 @@ func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (str
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), fmt.Sprintf("HTTP %d", resp.StatusCode))
 		log.Printf("[chat] API returned %d: %s", resp.StatusCode, string(body))
 		return s.generatePlaceholderResponse(userPrompt), nil
 	}
@@ -200,23 +226,62 @@ func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (str
 	// 解析响应
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
 		log.Printf("[chat] failed to decode response: %v", err)
 		return s.generatePlaceholderResponse(userPrompt), nil
 	}
 
+	// Extract token usage from response
+	inputTokens, outputTokens := 0, 0
+	if usage, ok := result["usage"].(map[string]interface{}); ok {
+		if pt, ok := usage["prompt_tokens"].(float64); ok {
+			inputTokens = int(pt)
+		}
+		if ct, ok := usage["completion_tokens"].(float64); ok {
+			outputTokens = int(ct)
+		}
+	}
+
 	// 提取答案（假设响应格式为 { "choices": [{ "message": { "content": "..." } }] }）
+	answer := ""
 	if choices, ok := result["choices"].([]interface{}); ok && len(choices) > 0 {
 		if choice, ok := choices[0].(map[string]interface{}); ok {
 			if message, ok := choice["message"].(map[string]interface{}); ok {
 				if content, ok := message["content"].(string); ok {
-					return content, nil
+					answer = content
 				}
 			}
 		}
 	}
 
-	// 占位响应
-	return s.generatePlaceholderResponse(userPrompt), nil
+	// Record successful usage
+	go s.recordUsage(userID, config, "success", inputTokens, outputTokens, int(elapsed.Milliseconds()), "")
+
+	if answer == "" {
+		return s.generatePlaceholderResponse(userPrompt), nil
+	}
+	return answer, nil
+}
+
+// recordUsage records model usage asynchronously
+func (s *ChatService) recordUsage(userID uint, config *models.ModelConfig, status string, inputTokens, outputTokens, durationMs int, errMsg string) {
+	usageLog := &models.ModelUsageLog{
+		UserID:       userID,
+		ConfigID:     config.ID,
+		ModelName:    config.ModelName,
+		Provider:     config.Provider,
+		ConfigType:   "llm",
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		Status:       status,
+		ErrorMsg:     errMsg,
+		DurationMs:   durationMs,
+	}
+	usageLog.CostUSD = usageLog.CalculateCost()
+	if err := s.db.Create(usageLog).Error; err != nil {
+		log.Printf("[chat] failed to record usage: %v", err)
+	}
 }
 
 // generatePlaceholderResponse 生成占位响应
