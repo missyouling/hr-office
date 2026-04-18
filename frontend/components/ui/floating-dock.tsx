@@ -12,6 +12,7 @@ type DockItem = {
   href?: string;
   onClick?: () => void;
   tooltip?: string;
+  badge?: number;
 };
 
 export function FloatingDock({
@@ -67,11 +68,16 @@ const FloatingDockMobile = memo(
                       type="button"
                       onClick={item.onClick}
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow dark:bg-neutral-900",
+                        "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow dark:bg-neutral-900 relative",
                         buttonClassName,
                       )}
                     >
                       {item.icon}
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                          {item.badge > 9 ? "9+" : item.badge}
+                        </span>
+                      )}
                     </button>
                   )}
                 </motion.div>
@@ -116,7 +122,7 @@ const FloatingDockDesktop = memo(({ items, className }: { items: DockItem[]; cla
 });
 FloatingDockDesktop.displayName = "FloatingDockDesktop";
 
-const IconContainer = memo(({ mouseX, title, icon, href, onClick }: DockItem & { mouseX: MotionValue }) => {
+const IconContainer = memo(({ mouseX, title, icon, href, onClick, badge }: DockItem & { mouseX: MotionValue }) => {
   const ref = useRef<HTMLDivElement>(null);
   const distance = useTransform(mouseX, (value) => {
     const bounds = ref.current?.getBoundingClientRect() ?? { x: 0, width: 0 };
@@ -157,19 +163,24 @@ const IconContainer = memo(({ mouseX, title, icon, href, onClick }: DockItem & {
       <motion.div style={{ width: widthIcon, height: heightIcon }} className="flex items-center justify-center">
         {icon}
       </motion.div>
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
     </motion.div>
   );
 
   if (href) {
     return (
-      <a href={href} {...(href.startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {})}>
+      <a href={href} {...(href.startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {})} className="relative">
         {content}
       </a>
     );
   }
 
   return (
-    <button type="button" onClick={onClick}>
+    <button type="button" onClick={onClick} className="relative">
       {content}
     </button>
   );

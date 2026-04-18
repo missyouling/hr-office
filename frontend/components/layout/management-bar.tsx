@@ -6,6 +6,7 @@ import { Bell, MessageCircle, MoonIcon, Home, AlignJustify } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar";
 import { FloatingDock } from "@/components/ui/floating-dock";
 import { useThemeUtils } from "@/hooks/use-theme-utils";
+import { getUnreadNotificationCount } from "@/lib/api";
 
 const iconClass = "h-4 w-4";
 
@@ -13,9 +14,34 @@ export function ManagementBar() {
   const themeUtils = useThemeUtils();
   const { toggleSidebar } = useSidebar();
   const [mounted, setMounted] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     setMounted(true);
+    
+    // Fetch unread notification count periodically
+    const fetchUnread = async () => {
+      try {
+        const result = await getUnreadNotificationCount();
+        setUnreadCount(result.unread || 0);
+      } catch (error) {
+        console.error("Failed to fetch unread count:", error);
+      }
+    };
+    
+    fetchUnread();
+    
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchUnread, 30000);
+    
+    // Listen for notification count refresh events
+    const handleRefresh = () => fetchUnread();
+    window.addEventListener("notification:refresh", handleRefresh);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("notification:refresh", handleRefresh);
+    };
   }, []);
 
   const dockItems = [
@@ -39,6 +65,7 @@ export function ManagementBar() {
     {
       title: "通知中心",
       icon: <Bell className={iconClass} />,
+      badge: unreadCount,
       onClick: () => window.dispatchEvent(new CustomEvent("dock:request-notification")),
     },
     {
