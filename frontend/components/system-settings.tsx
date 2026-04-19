@@ -18,33 +18,6 @@ import {
   updateAnnouncement,
   deleteAnnouncement,
   type Announcement,
-  fetchDocumentCategories,
-  fetchFieldDefinitions,
-  createFieldDefinition,
-  updateFieldDefinition,
-  deleteFieldDefinition,
-  type ArchiveFieldDefinition,
-  type DocumentCategory,
-  fetchRetentionPeriods,
-  createRetentionPeriod,
-  updateRetentionPeriod,
-  deleteRetentionPeriod,
-  type RetentionPeriod,
-  fetchStorageLocations,
-  createStorageLocation,
-  updateStorageLocation,
-  deleteStorageLocation,
-  type StorageLocation,
-  fetchCodeRules,
-  createCodeRule,
-  updateCodeRule,
-  deleteCodeRule,
-  getCodeRulePreview,
-  type CodeRule,
-  type CodeRulePreview,
-  updateCategoryCode,
-  createCategoryCode,
-  deleteCategory,
   listStorageConfigs,
   createStorageConfig,
   updateStorageConfig,
@@ -71,7 +44,7 @@ import {
   updateStorageRuleEnhanced,
   deleteStorageRuleEnhanced,
 } from "@/lib/api";
-import type { AuditLog, StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
+import type { StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 
@@ -88,10 +61,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server, Pencil } from "lucide-react";
+import { RefreshCw, Download, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
+import { ArchiveConfigTab } from "./archive-settings-tab";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 // ============ 方案 A：一级 Tab + 二级侧边栏分组结构 ============
@@ -131,11 +105,7 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
     group: "档案配置",
     icon: "📁",
     items: [
-      { id: "archive-categories", label: "档案分类管理" },
-      { id: "archive-fields", label: "档案字段" },
-      { id: "retention-periods", label: "保管期限" },
-      { id: "storage-locations", label: "存档地点" },
-      { id: "code-rules", label: "编码规则" },
+      { id: "archive-config", label: "档案配置" },
     ],
   },
   {
@@ -156,320 +126,8 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
   },
 ];
 
-// 用于 flat 查找
-const SETTINGS_TABS = SETTINGS_TAB_GROUPS.flatMap((g) => g.items);
 
-// 根据 tab id 查找所属分组
-function getGroupForTab(tabId: string): SettingsTabGroup | undefined {
-  return SETTINGS_TAB_GROUPS.find((g) => g.items.some((item) => item.id === tabId));
-}
 
-// 模型配置 Tab
-function ModelConfigTab() {
-  const [activeTab, setActiveTab] = useState<"chat" | "embedding" | "rerank">("chat");
-  const [testing, setTesting] = useState<Record<string, boolean>>({});
-  const [statuses, setStatuses] = useState<Record<string, "idle" | "success" | "error">>({});
-
-  // 通用大模型配置
-  const [chatConfig, setChatConfig] = useState({
-    provider: "openai",
-    api_key: "",
-    model: "gpt-4o",
-    endpoint: "",
-    enabled: false,
-  });
-
-  // 向量模型配置
-  const [embeddingConfig, setEmbeddingConfig] = useState({
-    provider: "openai",
-    api_key: "",
-    model: "text-embedding-3-small",
-    endpoint: "",
-    enabled: false,
-  });
-
-  // 重排模型配置
-  const [rerankConfig, setRerankConfig] = useState({
-    provider: "cohere",
-    api_key: "",
-    model: "rerank-multilingual-v2.0",
-    endpoint: "",
-    enabled: false,
-  });
-
-  // 测试连接
-  const handleTest = async (type: string, config: Record<string, unknown>) => {
-    setTesting({ ...testing, [type]: true });
-    setStatuses({ ...statuses, [type]: "idle" });
-    try {
-      // TODO: 调用后端 API 测试连接
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setStatuses({ ...statuses, [type]: "success" });
-      toast.success("连接测试成功");
-    } catch (error) {
-      setStatuses({ ...statuses, [type]: "error" });
-      toast.error("连接失败");
-    } finally {
-      setTesting({ ...testing, [type]: false });
-    }
-  };
-
-  // 保存配置
-  const handleSave = () => {
-    toast.success("模型配置已保存");
-  };
-
-  // 状态指示器组件
-  const StatusIndicator = ({ status }: { status: "idle" | "success" | "error" }) => {
-    if (status === "idle") return <span className="text-muted-foreground text-sm">未测试</span>;
-    if (status === "success") return <span className="text-green-600 text-sm flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> 已连接</span>;
-    return <span className="text-red-600 text-sm flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> 连接失败</span>;
-  };
-
-  // 通用配置表单
-  const renderChatConfig = () => (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="chat-enabled"
-          checked={chatConfig.enabled}
-          onCheckedChange={(checked) => setChatConfig({ ...chatConfig, enabled: checked })}
-        />
-        <Label htmlFor="chat-enabled">启用通用大模型</Label>
-        <StatusIndicator status={statuses.chat || "idle"} />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-provider">AI 厂商</Label>
-        <Select value={chatConfig.provider} onValueChange={(v) => setChatConfig({ ...chatConfig, provider: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="azure">Azure OpenAI</SelectItem>
-            <SelectItem value="qwen">阿里 Qwen</SelectItem>
-            <SelectItem value="local">本地模型 (Ollama)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-endpoint">API 地址</Label>
-        <Input
-          id="chat-endpoint"
-          placeholder="https://api.openai.com/v1"
-          value={chatConfig.endpoint}
-          onChange={(e) => setChatConfig({ ...chatConfig, endpoint: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-model">模型</Label>
-        <Input
-          id="chat-model"
-          placeholder="gpt-4o"
-          value={chatConfig.model}
-          onChange={(e) => setChatConfig({ ...chatConfig, model: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-key">API Key</Label>
-        <Input
-          id="chat-key"
-          type="password"
-          placeholder="sk-..."
-          value={chatConfig.api_key}
-          onChange={(e) => setChatConfig({ ...chatConfig, api_key: e.target.value })}
-        />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => handleTest("chat", chatConfig)} disabled={testing.chat}>
-          {testing.chat ? "测试中..." : "测试连接"}
-        </Button>
-        <Button onClick={handleSave}>保存配置</Button>
-      </div>
-    </div>
-  );
-
-  // 向量模型配置表单
-  const renderEmbeddingConfig = () => (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="embedding-enabled"
-          checked={embeddingConfig.enabled}
-          onCheckedChange={(checked) => setEmbeddingConfig({ ...embeddingConfig, enabled: checked })}
-        />
-        <Label htmlFor="embedding-enabled">启用向量模型</Label>
-        <StatusIndicator status={statuses.embedding || "idle"} />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-provider">向量模型厂商</Label>
-        <Select value={embeddingConfig.provider} onValueChange={(v) => setEmbeddingConfig({ ...embeddingConfig, provider: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="azure">Azure OpenAI</SelectItem>
-            <SelectItem value="qwen">阿里 Qwen</SelectItem>
-            <SelectItem value="zhipuai">智谱 AI</SelectItem>
-            <SelectItem value="local">本地模型</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-endpoint">API 地址</Label>
-        <Input
-          id="embedding-endpoint"
-          placeholder="https://api.openai.com/v1"
-          value={embeddingConfig.endpoint}
-          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, endpoint: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-model">向量模型</Label>
-        <Input
-          id="embedding-model"
-          placeholder="text-embedding-3-small"
-          value={embeddingConfig.model}
-          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, model: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-key">API Key</Label>
-        <Input
-          id="embedding-key"
-          type="password"
-          placeholder="sk-..."
-          value={embeddingConfig.api_key}
-          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, api_key: e.target.value })}
-        />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => handleTest("embedding", embeddingConfig)} disabled={testing.embedding}>
-          {testing.embedding ? "测试中..." : "测试连接"}
-        </Button>
-        <Button onClick={handleSave}>保存配置</Button>
-      </div>
-    </div>
-  );
-
-  // 重排模型配置表单
-  const renderRerankConfig = () => (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="rerank-enabled"
-          checked={rerankConfig.enabled}
-          onCheckedChange={(checked) => setRerankConfig({ ...rerankConfig, enabled: checked })}
-        />
-        <Label htmlFor="rerank-enabled">启重视排模型</Label>
-        <StatusIndicator status={statuses.rerank || "idle"} />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-provider">重排模型厂商</Label>
-        <Select value={rerankConfig.provider} onValueChange={(v) => setRerankConfig({ ...rerankConfig, provider: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="cohere">Cohere</SelectItem>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="qwen">阿里 Qwen</SelectItem>
-            <SelectItem value="local">本地模型</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-endpoint">API 地址</Label>
-        <Input
-          id="rerank-endpoint"
-          placeholder="https://api.cohere.ai/v1"
-          value={rerankConfig.endpoint}
-          onChange={(e) => setRerankConfig({ ...rerankConfig, endpoint: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-model">重排模型</Label>
-        <Input
-          id="rerank-model"
-          placeholder="rerank-multilingual-v2.0"
-          value={rerankConfig.model}
-          onChange={(e) => setRerankConfig({ ...rerankConfig, model: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-key">API Key</Label>
-        <Input
-          id="rerank-key"
-          type="password"
-          placeholder="..."
-          value={rerankConfig.api_key}
-          onChange={(e) => setRerankConfig({ ...rerankConfig, api_key: e.target.value })}
-        />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => handleTest("rerank", rerankConfig)} disabled={testing.rerank}>
-          {testing.rerank ? "测试中..." : "测试连接"}
-        </Button>
-        <Button onClick={handleSave}>保存配置</Button>
-      </div>
-    </div>
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>模型配置</CardTitle>
-        <CardDescription>配置通用大模型、向量模型和重排模型</CardDescription>
-      </CardHeader>
-        <CardContent className="space-y-6">
-          {/* 按钮式标签栏 */}
-          <div className="flex gap-2">
-            <Button
-              variant={activeTab === "chat" ? "default" : "ghost"}
-              onClick={() => setActiveTab("chat")}
-            >
-              通用大模型
-            </Button>
-            <Button
-              variant={activeTab === "embedding" ? "default" : "ghost"}
-              onClick={() => setActiveTab("embedding")}
-            >
-              向量模型
-            </Button>
-            <Button
-              variant={activeTab === "rerank" ? "default" : "ghost"}
-              onClick={() => setActiveTab("rerank")}
-            >
-              重排模型
-            </Button>
-          </div>
-
-          {/* 内容区域 */}
-          <div className="mt-4 space-y-4">
-            {activeTab === "chat" && renderChatConfig()}
-            {activeTab === "embedding" && renderEmbeddingConfig()}
-            {activeTab === "rerank" && renderRerankConfig()}
-          </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ============ SMTP 配置 Tab ============
 function SMTPConfigTab() {
@@ -525,8 +183,10 @@ function SMTPConfigTab() {
         if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
         if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
       });
-    } catch (e) { console.error("加载配置失败:", e); }
-    finally { setLoading(false); }
+    } catch {
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSave = async (channel: string) => {
@@ -539,8 +199,11 @@ function SMTPConfigTab() {
       else { await createNotificationConfig(payload); }
       toast.success(channel.toUpperCase() + " 配置已保存");
       loadConfigs();
-    } catch (error) { console.error("保存失败:", error); toast.error("保存失败"); }
-    finally { setSaving(false); }
+    } catch {
+      toast.error("保存失败");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleTest = async (channel: string) => {
@@ -549,8 +212,11 @@ function SMTPConfigTab() {
       const configData = channel === "smtp" ? smtpConfig : channel === "sms" ? smsConfig : channel === "telegram" ? telegramConfig : webhookConfig;
       await testNotification(channel, channel === "smtp" ? smtpConfig.from : channel === "sms" ? "13800138000" : channel === "telegram" ? telegramConfig.chat_id : "", configData);
       toast.success("测试消息发送成功");
-    } catch (error) { console.error("测试失败:", error); toast.error("测试发送失败"); }
-    finally { setTesting(false); }
+    } catch {
+      toast.error("测试发送失败");
+    } finally {
+      setTesting(false);
+    }
   };
 
   if (loading) return <div className="p-4">加载中...</div>;
@@ -659,7 +325,7 @@ function ModelUsageTab() {
   const [selectedConfigType, setSelectedConfigType] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params: { start_date?: string; end_date?: string; config_type?: string } = {};
@@ -714,11 +380,11 @@ function ModelUsageTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange, customFrom, customTo, selectedConfigType, selectedModel]);
 
   useEffect(() => {
     loadData();
-  }, [timeRange, customFrom, customTo, selectedConfigType, selectedModel]);
+  }, [loadData]);
 
   const handleRefresh = () => {
     loadData();
@@ -946,7 +612,7 @@ function RolePermissionTab() {
       const [rolesData, permsData] = await Promise.all([fetchRoles(), fetchPermissions()]);
       setRoles(rolesData);
       setPermissions(permsData);
-    } catch (error) {
+    } catch {
       console.error("加载数据失败:", error);
       toast.error("加载数据失败");
     } finally {
@@ -960,7 +626,7 @@ function RolePermissionTab() {
     try {
       const perms = await fetchRolePermissions(role.id);
       setSelectedPermissions(perms.map((p) => p.id) as number[]);
-    } catch (error) {
+    } catch {
       console.error("加载权限失败:", error);
     }
     setShowDialog(true);
@@ -978,7 +644,7 @@ function RolePermissionTab() {
       toast.success("角色已更新");
       setShowDialog(false);
       loadData();
-    } catch (error) {
+    } catch {
       console.error("保存失败:", error);
       toast.error("保存失败");
     }
@@ -990,7 +656,7 @@ function RolePermissionTab() {
         await deleteRole(roleId);
         toast.success("角色已删除");
         loadData();
-      } catch (error) {
+      } catch {
         console.error("删除失败:", error);
         toast.error("删除失败");
       }
@@ -1098,8 +764,7 @@ function AnnouncementTab() {
     try {
       const data = await fetchAnnouncements();
       setAnnouncements(data);
-    } catch (error) {
-      console.error("加载公告失败:", error);
+    } catch {
       toast.error("加载公告失败");
     } finally {
       setLoading(false);
@@ -1124,8 +789,7 @@ function AnnouncementTab() {
       setTitle("");
       setContent("");
       loadAnnouncements();
-    } catch (error) {
-      console.error("保存失败:", error);
+    } catch {
       toast.error("保存失败");
     }
   };
@@ -1136,8 +800,7 @@ function AnnouncementTab() {
         await deleteAnnouncement(id);
         toast.success("公告已删除");
         loadAnnouncements();
-      } catch (error) {
-        console.error("删除失败:", error);
+      } catch {
         toast.error("删除失败");
       }
     }
@@ -1262,742 +925,6 @@ function SystemMaintenanceTab() {
 
 
 
-// ============ 档案分类管理 Tab ============
-function ArchiveCategoriesTab() {
-  const [categories, setCategories] = useState<DocumentCategory[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<DocumentCategory | null>(null);
-  const [categoryName, setCategoryName] = useState("");
-  const [categoryCode, setCategoryCode] = useState("");
-
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  const loadCategories = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchDocumentCategories();
-      setCategories(data);
-    } catch (error) {
-      console.error("加载分类失败:", error);
-      toast.error("加载分类失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!categoryName.trim() || !categoryCode.trim()) {
-      toast.error("分类名称和代码不能为空");
-      return;
-    }
-
-    try {
-      if (editingCategory) {
-        await updateCategoryCode(editingCategory.id, { name: categoryName, code: categoryCode });
-        toast.success("分类已更新");
-      } else {
-        await createCategoryCode({ name: categoryName, code: categoryCode });
-        toast.success("分类已创建");
-      }
-      setShowDialog(false);
-      setCategoryName("");
-      setCategoryCode("");
-      loadCategories();
-    } catch (error) {
-      console.error("保存失败:", error);
-      toast.error("保存失败");
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    if (confirm("确定要删除此分类吗？")) {
-      try {
-        await deleteCategory(id);
-        toast.success("分类已删除");
-        loadCategories();
-      } catch (error) {
-        console.error("删除失败:", error);
-        toast.error("删除失败");
-      }
-    }
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>档案分类管理</CardTitle>
-            <CardDescription>管理档案分类和编码</CardDescription>
-          </div>
-          <Button onClick={() => { setEditingCategory(null); setCategoryName(""); setCategoryCode(""); setShowDialog(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            新增分类
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>分类名称</TableHead>
-                  <TableHead>代码</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {categories.map((cat) => (
-                  <TableRow key={cat.id}>
-                    <TableCell>{cat.name}</TableCell>
-                    <TableCell>{cat.code}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => { setEditingCategory(cat); setCategoryName(cat.name); setCategoryCode(cat.code); setShowDialog(true); }}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleDelete(cat.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingCategory ? "编辑分类" : "新增分类"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="cat-name">分类名称</Label>
-              <Input id="cat-name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="cat-code">代码</Label>
-              <Input id="cat-code" value={categoryCode} onChange={(e) => setCategoryCode(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSave}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
-
-// ============ 档案字段管理 Tab ============
-function ArchiveFieldsTab() {
-  const [fields, setFields] = useState<ArchiveFieldDefinition[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingField, setEditingField] = useState<ArchiveFieldDefinition | null>(null);
-  const [fieldName, setFieldName] = useState("");
-  const [fieldType, setFieldType] = useState("text");
-
-  useEffect(() => {
-    loadFields();
-  }, []);
-
-  const loadFields = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchFieldDefinitions();
-      setFields(data);
-    } catch (error) {
-      console.error("加载字段失败:", error);
-      toast.error("加载字段失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-   const handleSave = async () => {
-     if (!fieldName.trim()) {
-       toast.error("字段名称不能为空");
-       return;
-     }
-
-     try {
-       if (editingField) {
-         await updateFieldDefinition(editingField.id, { field_name: fieldName, field_type: fieldType as "text" | "textarea" | "number" | "date" | "select" | "multiselect" | "checkbox" });
-         toast.success("字段已更新");
-       } else {
-         await createFieldDefinition({ field_name: fieldName, field_type: fieldType as "text" | "textarea" | "number" | "date" | "select" | "multiselect" | "checkbox" });
-         toast.success("字段已创建");
-       }
-       setShowDialog(false);
-       setFieldName("");
-       setFieldType("text");
-       loadFields();
-     } catch (error) {
-       console.error("保存失败:", error);
-       toast.error("保存失败");
-     }
-   };
-
-   const handleDelete = async (id: number) => {
-     if (confirm("确定要删除此字段吗？")) {
-       try {
-         await deleteFieldDefinition(id);
-         toast.success("字段已删除");
-         loadFields();
-       } catch (error) {
-         console.error("删除失败:", error);
-         toast.error("删除失败");
-       }
-     }
-   };
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>档案字段</CardTitle>
-            <CardDescription>管理档案字段定义</CardDescription>
-          </div>
-          <Button onClick={() => { setEditingField(null); setFieldName(""); setFieldType("text"); setShowDialog(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            新增字段
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>字段名称</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-               <TableBody>
-                 {fields.map((field) => (
-                   <TableRow key={field.id}>
-                     <TableCell>{field.field_label}</TableCell>
-                     <TableCell>{field.field_type}</TableCell>
-                     <TableCell>
-                       <div className="flex gap-2">
-                         <Button variant="outline" size="sm" onClick={() => { setEditingField(field); setFieldName(field.field_label); setFieldType(field.field_type); setShowDialog(true); }}>
-                           <Edit className="w-4 h-4" />
-                         </Button>
-                         <Button variant="outline" size="sm" onClick={() => handleDelete(field.id)}>
-                           <Trash2 className="w-4 h-4" />
-                         </Button>
-                       </div>
-                     </TableCell>
-                   </TableRow>
-                 ))}
-               </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingField ? "编辑字段" : "新增字段"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="field-name">字段名称</Label>
-              <Input id="field-name" value={fieldName} onChange={(e) => setFieldName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="field-type">类型</Label>
-              <Select value={fieldType} onValueChange={setFieldType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="text">文本</SelectItem>
-                  <SelectItem value="number">数字</SelectItem>
-                  <SelectItem value="date">日期</SelectItem>
-                  <SelectItem value="select">下拉选择</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSave}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
-
-// ============ 保管期限管理 Tab ============
-function RetentionPeriodsTab() {
-  const [periods, setPeriods] = useState<RetentionPeriod[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingPeriod, setEditingPeriod] = useState<RetentionPeriod | null>(null);
-  const [periodName, setPeriodName] = useState("");
-  const [periodYears, setPeriodYears] = useState("1");
-
-  useEffect(() => {
-    loadPeriods();
-  }, []);
-
-  const loadPeriods = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchRetentionPeriods();
-      setPeriods(data);
-    } catch (error) {
-      console.error("加载期限失败:", error);
-      toast.error("加载期限失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!periodName.trim() || !periodYears.trim()) {
-      toast.error("期限名称和年数不能为空");
-      return;
-    }
-
-    try {
-      if (editingPeriod) {
-        await updateRetentionPeriod(editingPeriod.id, { name: periodName, years: parseInt(periodYears) });
-        toast.success("期限已更新");
-      } else {
-        await createRetentionPeriod({ name: periodName, years: parseInt(periodYears) });
-        toast.success("期限已创建");
-      }
-      setShowDialog(false);
-      setPeriodName("");
-      setPeriodYears("1");
-      loadPeriods();
-    } catch (error) {
-      console.error("保存失败:", error);
-      toast.error("保存失败");
-    }
-  };
-
-   const handleDelete = async (id: number) => {
-     if (confirm("确定要删除此期限吗？")) {
-       try {
-         await deleteRetentionPeriod(id);
-         toast.success("期限已删除");
-         loadPeriods();
-       } catch (error) {
-         console.error("删除失败:", error);
-         toast.error("删除失败");
-       }
-     }
-   };
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>保管期限</CardTitle>
-            <CardDescription>管理档案保管期限</CardDescription>
-          </div>
-          <Button onClick={() => { setEditingPeriod(null); setPeriodName(""); setPeriodYears("1"); setShowDialog(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            新增期限
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>期限名称</TableHead>
-                  <TableHead>年数</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {periods.map((period) => (
-                  <TableRow key={period.id}>
-                    <TableCell>{period.name}</TableCell>
-                    <TableCell>{period.years} 年</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => { setEditingPeriod(period); setPeriodName(period.name); setPeriodYears(String(period.years)); setShowDialog(true); }}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleDelete(period.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingPeriod ? "编辑期限" : "新增期限"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="period-name">期限名称</Label>
-              <Input id="period-name" value={periodName} onChange={(e) => setPeriodName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="period-years">年数</Label>
-              <Input id="period-years" type="number" value={periodYears} onChange={(e) => setPeriodYears(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSave}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
-
-// ============ 存档地点管理 Tab ============
-function StorageLocationsTab() {
-  const [locations, setLocations] = useState<StorageLocation[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingLocation, setEditingLocation] = useState<StorageLocation | null>(null);
-  const [locationName, setLocationName] = useState("");
-  const [locationAddress, setLocationAddress] = useState("");
-
-  useEffect(() => {
-    loadLocations();
-  }, []);
-
-  const loadLocations = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchStorageLocations();
-      setLocations(data);
-    } catch (error) {
-      console.error("加载地点失败:", error);
-      toast.error("加载地点失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-   const handleSave = async () => {
-     if (!locationName.trim() || !locationAddress.trim()) {
-       toast.error("地点名称和地址不能为空");
-       return;
-     }
-
-     try {
-       if (editingLocation) {
-         await updateStorageLocation(editingLocation.id, { name: locationName, description: locationAddress });
-         toast.success("地点已更新");
-       } else {
-         await createStorageLocation({ name: locationName, description: locationAddress });
-         toast.success("地点已创建");
-       }
-       setShowDialog(false);
-       setLocationName("");
-       setLocationAddress("");
-       loadLocations();
-     } catch (error) {
-       console.error("保存失败:", error);
-       toast.error("保存失败");
-     }
-   };
-
-   const handleDelete = async (id: number) => {
-     if (confirm("确定要删除此地点吗？")) {
-       try {
-         await deleteStorageLocation(id);
-         toast.success("地点已删除");
-         loadLocations();
-       } catch (error) {
-         console.error("删除失败:", error);
-         toast.error("删除失败");
-       }
-     }
-   };
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>存档地点</CardTitle>
-            <CardDescription>管理档案存档地点</CardDescription>
-          </div>
-          <Button onClick={() => { setEditingLocation(null); setLocationName(""); setLocationAddress(""); setShowDialog(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            新增地点
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>地点名称</TableHead>
-                  <TableHead>地址</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-               <TableBody>
-                 {locations.map((loc) => (
-                   <TableRow key={loc.id}>
-                     <TableCell>{loc.name}</TableCell>
-                     <TableCell>{loc.description}</TableCell>
-                     <TableCell>
-                       <div className="flex gap-2">
-                         <Button variant="outline" size="sm" onClick={() => { setEditingLocation(loc); setLocationName(loc.name); setLocationAddress(loc.description || ""); setShowDialog(true); }}>
-                           <Edit className="w-4 h-4" />
-                         </Button>
-                         <Button variant="outline" size="sm" onClick={() => handleDelete(loc.id)}>
-                           <Trash2 className="w-4 h-4" />
-                         </Button>
-                       </div>
-                     </TableCell>
-                   </TableRow>
-                 ))}
-               </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingLocation ? "编辑地点" : "新增地点"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="loc-name">地点名称</Label>
-              <Input id="loc-name" value={locationName} onChange={(e) => setLocationName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="loc-address">地址</Label>
-              <Input id="loc-address" value={locationAddress} onChange={(e) => setLocationAddress(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSave}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
-
-// ============ 编码规则管理 Tab ============
-function CodeRulesTab() {
-  const [rules, setRules] = useState<CodeRule[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingRule, setEditingRule] = useState<CodeRule | null>(null);
-  const [ruleName, setRuleName] = useState("");
-  const [rulePattern, setRulePattern] = useState("");
-  const [preview, setPreview] = useState<CodeRulePreview | null>(null);
-
-  useEffect(() => {
-    loadRules();
-  }, []);
-
-  const loadRules = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchCodeRules();
-      setRules(data);
-    } catch (error) {
-      console.error("加载规则失败:", error);
-      toast.error("加载规则失败");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-   const handlePreview = async () => {
-     if (!rulePattern.trim()) {
-       toast.error("规则不能为空");
-       return;
-     }
-
-     try {
-       const result = await getCodeRulePreview("", "", new Date().getFullYear());
-       setPreview(result);
-     } catch (error) {
-       console.error("预览失败:", error);
-       toast.error("预览失败");
-     }
-   };
-
-  const handleSave = async () => {
-    if (!ruleName.trim() || !rulePattern.trim()) {
-      toast.error("规则名称和规则不能为空");
-      return;
-    }
-
-    try {
-      if (editingRule) {
-        await updateCodeRule(editingRule.id, { name: ruleName, pattern: rulePattern });
-        toast.success("规则已更新");
-      } else {
-        await createCodeRule({ name: ruleName, pattern: rulePattern });
-        toast.success("规则已创建");
-      }
-      setShowDialog(false);
-      setRuleName("");
-      setRulePattern("");
-      setPreview(null);
-      loadRules();
-    } catch (error) {
-      console.error("保存失败:", error);
-      toast.error("保存失败");
-    }
-  };
-
-   const handleDelete = async (id: number) => {
-     if (confirm("确定要删除此规则吗？")) {
-       try {
-         await deleteCodeRule(id);
-         toast.success("规则已删除");
-         loadRules();
-       } catch (error) {
-         console.error("删除失败:", error);
-         toast.error("删除失败");
-       }
-     }
-   };
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>编码规则</CardTitle>
-            <CardDescription>管理档案编码生成规则</CardDescription>
-          </div>
-          <Button onClick={() => { setEditingRule(null); setRuleName(""); setRulePattern(""); setPreview(null); setShowDialog(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            新增规则
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>规则名称</TableHead>
-                  <TableHead>规则模式</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.id}>
-                    <TableCell>{rule.name}</TableCell>
-                    <TableCell className="font-mono text-sm">{rule.pattern}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => { setEditingRule(rule); setRuleName(rule.name); setRulePattern(rule.pattern); setShowDialog(true); }}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleDelete(rule.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{editingRule ? "编辑规则" : "新增规则"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="rule-name">规则名称</Label>
-              <Input id="rule-name" value={ruleName} onChange={(e) => setRuleName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="rule-pattern">规则模式</Label>
-              <Textarea id="rule-pattern" value={rulePattern} onChange={(e) => setRulePattern(e.target.value)} placeholder="例如: {YYYY}{MM}{DD}-{SEQ:4}" rows={3} />
-            </div>
-             {preview && (
-               <div className="border rounded-lg p-3 bg-muted">
-                 <p className="text-sm font-medium mb-2">预览示例：</p>
-                 <p className="font-mono text-sm">{preview.sample_code}</p>
-               </div>
-             )}
-            <Button variant="outline" onClick={handlePreview} className="w-full">
-              <Eye className="w-4 h-4 mr-2" />
-              预览
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSave}>保存</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
 
 // 存储配置 Tab
 function StorageConfigTab() {
@@ -2016,16 +943,16 @@ function StorageConfigTab() {
 
   useEffect(() => {
     const load = async () => {
-      setLoading(true);
-      try {
-        const data = await listStorageConfigs();
-        setConfigs(data);
-      } catch (error) {
-        toast.error("加载存储配置失败");
-      } finally {
-        setLoading(false);
-      }
-    };
+    setLoading(true);
+    try {
+      const data = await listStorageConfigs();
+      setConfigs(data);
+    } catch {
+      toast.error("加载存储配置失败");
+    } finally {
+      setLoading(false);
+    }
+  };
     load();
   }, []);
 
@@ -2063,7 +990,7 @@ function StorageConfigTab() {
       setShowCreateDialog(false);
       const data = await listStorageConfigs();
       setConfigs(data);
-    } catch (error) {
+    } catch {
       toast.error("保存失败");
     }
   };
@@ -2074,7 +1001,7 @@ function StorageConfigTab() {
       toast.success("存储配置已删除");
       const data = await listStorageConfigs();
       setConfigs(data);
-    } catch (error) {
+    } catch {
       toast.error("删除失败");
     }
   };
@@ -2091,7 +1018,7 @@ function StorageConfigTab() {
       } else {
         toast.error(`连接失败: ${result.message}`);
       }
-    } catch (error) {
+    } catch {
       toast.error("测试连接失败");
     } finally {
       setTestingId(null);
@@ -2493,7 +1420,7 @@ function FileManagementTab() {
         if (data.length > 0 && selectedConfigId === null) {
           setSelectedConfigId(data[0].id);
         }
-      } catch (error) {
+      } catch {
         toast.error("加载存储配置失败");
       }
     };
@@ -2511,7 +1438,7 @@ function FileManagementTab() {
         });
         setFiles(response.files);
         setTotal(response.total);
-      } catch (error) {
+      } catch {
         toast.error("加载文件列表失败");
       } finally {
         setLoading(false);
@@ -2532,7 +1459,7 @@ function FileManagementTab() {
       await uploadStorageFile(file, selectedConfigId);
       toast.success("文件上传成功");
       setPage(0);
-    } catch (error) {
+    } catch {
       toast.error("文件上传失败");
     } finally {
       setUploading(false);
@@ -2541,8 +1468,6 @@ function FileManagementTab() {
 
   const handleDownload = (fileId: number) => {
     const url = getStorageFileDownloadUrl(fileId);
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
     window.open(url, "_blank");
   };
 
@@ -2551,7 +1476,7 @@ function FileManagementTab() {
       await deleteStorageFile(fileId);
       toast.success("文件已删除");
       setPage(0);
-    } catch (error) {
+    } catch {
       toast.error("删除失败");
     } finally {
       setDeleteConfirmId(null);
@@ -2717,7 +1642,6 @@ function FileManagementTab() {
 export function SystemSettings() {
   const { user } = useAuth();
   const router = useRouter();
-  const [activeGroup, setActiveGroup] = useState("基础配置");
   const [activeSubTab, setActiveSubTab] = useState("announcements");
 
   // 权限校验
@@ -2729,6 +1653,7 @@ export function SystemSettings() {
   }, [user, router]);
 
   // 切换一级分组时，自动选中该分组的第一个子 tab
+  /*
   const handleGroupChange = (group: string) => {
     setActiveGroup(group);
     const groupData = SETTINGS_TAB_GROUPS.find((g) => g.group === group);
@@ -2736,6 +1661,7 @@ export function SystemSettings() {
       setActiveSubTab(groupData.items[0].id);
     }
   };
+  */
 
   // 渲染对应的 Tab 内容
   const renderTabContent = () => {
@@ -2746,16 +1672,8 @@ export function SystemSettings() {
         return <SMTPConfigTab />;
       case "model-usage":
         return <ModelUsageTab />;
-      case "archive-categories":
-        return <ArchiveCategoriesTab />;
-      case "archive-fields":
-        return <ArchiveFieldsTab />;
-      case "retention-periods":
-        return <RetentionPeriodsTab />;
-      case "storage-locations":
-        return <StorageLocationsTab />;
-      case "code-rules":
-        return <CodeRulesTab />;
+      case "archive-config":
+        return <ArchiveConfigTab />;
       case "roles":
         return <RolePermissionTab />;
       case "announcements":
@@ -2800,7 +1718,6 @@ export function SystemSettings() {
                   <button
                     key={item.id}
                     onClick={() => {
-                      setActiveGroup(group.group);
                       setActiveSubTab(item.id);
                     }}
                     className={cn(
