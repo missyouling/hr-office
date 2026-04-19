@@ -32,6 +32,7 @@ type DocumentSubCategory struct {
 	CategoryCode string            `json:"category_code" gorm:"size:10;index"`   // 01/02/03/04
 	FieldGroupID *uint             `json:"field_group_id" gorm:"index"`          // 关联专用字段组
 	SortOrder    int               `json:"sort_order" gorm:"default:0"`
+	Fields       []ArchiveFieldDefinition `json:"fields,omitempty" gorm:"foreignKey:SubCategoryID;constraint:OnDelete:CASCADE"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
