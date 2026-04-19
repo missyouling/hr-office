@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Search, Download, Upload, Printer, Eye, Trash2, Edit, FileText,
+  Search, Download, Upload, Printer, FileText,
   X, File, Image, Video, FileUp, Share2, Link2,
   Copy, Check, Loader2, Trash, RefreshCw, Save, ChevronLeft, ChevronRight,
   Settings
@@ -13,43 +13,36 @@ import {
   fetchDocumentCategories, fetchDocuments, createDocument, updateDocument,
   deleteDocument, uploadDocumentFile, uploadWithOCR,
   batchDownloadDocuments, generateShareLink,
-  fetchStorageLocations, fetchCodeRules,
-  fetchSharedFields, fetchFieldsBySubCategory,
+  fetchStorageLocations,
+  fetchFieldsBySubCategory,
   fetchColumnConfig, saveColumnConfig,
-  type Document, type DocumentCategory, type DocumentSubCategory, type StorageLocation, type CodeRule,
-  type ArchiveSharedField, type ArchiveFieldDefinition, type SubCategoryFieldsResponse,
+  type Document, type DocumentCategory, type DocumentSubCategory, type StorageLocation,
   type OCRExtractResult
 } from "@/lib/api";
 import { createReportPdf } from "@/lib/pdf";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
-import { Switch } from "@/components/ui/switch";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+
+import { ArchiveFormRenderer } from "./archive-form-renderer";
+import { ArchiveTableRenderer } from "./archive-table-renderer";
+import { generateFormSchema, generateTableSchema, type FormFieldSchema, type TableColumnSchema } from "@/lib/archive-schema";
 
 const RETENTION_OPTIONS = [
   { value: "永久", label: "永久" },
   { value: "30年", label: "30年" },
   { value: "10年", label: "10年" },
   { value: "5年", label: "5年" },
-];
-
-const PAYMENT_PROGRESS_OPTIONS = [
-  { value: "未付款", label: "未付款" },
-  { value: "部分付款", label: "部分付款" },
-  { value: "已完成", label: "已完成" },
 ];
 
 const SUPPORTED_FILE_TYPES = {
@@ -75,7 +68,6 @@ export function ArchivesManagement() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [total, setTotal] = useState(0);
   const [storageLocations, setStorageLocations] = useState<StorageLocation[]>([]);
-  const [codeRules, setCodeRules] = useState<CodeRule[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(false);
@@ -93,7 +85,6 @@ export function ArchivesManagement() {
   // 字段显隐状态
   const [isColumnsDialogOpen, setIsColumnsDialogOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  const draggingColumnKeyRef = useRef<string | null>(null);
 
   // 所有二级分类（用于档案类型显示）
   const [allSubCategories, setAllSubCategories] = useState<DocumentSubCategory[]>([]);
@@ -175,8 +166,6 @@ export function ArchivesManagement() {
 
   // 动态加载的分类和字段
   const [categoryTabs, setCategoryTabs] = useState<{ code: string; name: string }[]>([]);
-  const [sharedFields, setSharedFields] = useState<ArchiveSharedField[]>([]);
-  const [proprietaryFields, setProprietaryFields] = useState<ArchiveFieldDefinition[]>([]);
   const [printTitle, setPrintTitle] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("archive-print-settings");
@@ -209,13 +198,30 @@ export function ArchivesManagement() {
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
 
+  const [fieldSchema, setFieldSchema] = useState<FormFieldSchema[]>([]);
+  const [tableSchema, setTableSchema] = useState<TableColumnSchema[]>([]);
+
   // 加载分类数据
   useEffect(() => {
     loadCategories();
     loadStorageLocations();
-    loadCodeRules();
-    loadSharedFields();
   }, []);
+
+  // 动态生成表单和表格架构
+  useEffect(() => {
+    if (selectedSubCategory) {
+      fetchFieldsBySubCategory(Number(selectedSubCategory))
+        .then((res) => {
+          setFieldSchema(generateFormSchema(res.fields));
+          setTableSchema(generateTableSchema(res.fields));
+        })
+        .catch((err) => {
+          console.error("加载字段架构失败:", err);
+          setFieldSchema([]);
+          setTableSchema([]);
+        });
+    }
+  }, [selectedSubCategory]);
 
   // 加载文档列表
   useEffect(() => {
@@ -248,24 +254,8 @@ export function ArchivesManagement() {
       const data = await fetchDocumentCategories();
       setCategories(data);
       setCategoryTabs(data.map(c => ({ code: c.code, name: c.name })));
-      const allSubs: DocumentSubCategory[] = [];
-      data.forEach(cat => {
-        if (cat.sub_categories) {
-          allSubs.push(...cat.sub_categories);
-        }
-      });
-      setAllSubCategories(allSubs);
     } catch (error) {
       console.error("加载分类失败:", error);
-    }
-  };
-
-  const loadSharedFields = async () => {
-    try {
-      const data = await fetchSharedFields();
-      setSharedFields(data);
-    } catch (error) {
-      console.error("加载共用字段失败:", error);
     }
   };
 
@@ -275,15 +265,6 @@ export function ArchivesManagement() {
       setStorageLocations(data);
     } catch (error) {
       console.error("加载存储地点失败:", error);
-    }
-  };
-
-  const loadCodeRules = async () => {
-    try {
-      const data = await fetchCodeRules();
-      setCodeRules(data);
-    } catch (error) {
-      console.error("加载编码规则失败:", error);
     }
   };
 
@@ -369,25 +350,22 @@ export function ArchivesManagement() {
           parsedTags = [];
         }
       }
-      setFormData({
+      
+      const newFormData: Record<string, string> = {
         file_name: doc.file_name || "",
-        summary: doc.summary || "",
         tags: parsedTags as unknown as string,
-        signed_date: doc.signed_date || "",
-        expiration_date: doc.expiration_date || "",
-        retention_period: doc.retention_period || "",
-        storage_location: doc.storage_location || "",
-        party_a: doc.party_a || "",
-        party_b: doc.party_b || "",
-        amount: String(doc.amount || ""),
-        payment_progress: doc.payment_progress || "",
-        project_name: doc.project_name || "",
-        design_unit: doc.design_unit || "",
-        designer: doc.designer || "",
-        content_description: doc.content_description || "",
-        carrier_type: doc.carrier_type || "",
         remarks: doc.remarks || "",
+      };
+      
+      // 动态填充 schema 中定义的字段
+      fieldSchema.forEach(field => {
+        const value = (doc as unknown as Record<string, unknown>)[field.field_name];
+        if (value !== undefined && value !== null) {
+          newFormData[field.field_name] = String(value);
+        }
       });
+      
+      setFormData(newFormData);
       setSelectedSubCategory(doc.sub_category_code);
       const cat = categories.find(c => c.code === doc.category_code);
       if (cat?.sub_categories) {
@@ -934,209 +912,14 @@ export function ArchivesManagement() {
   };
 
   // 获取表格列配置
-  const getColumns = (categoryCode: string, subCategoryCode: string) => {
-    const defaultFields = ["document_code", "sub_type", "file_name", "file_format", "storage_location", "created_at", "retention_period", "summary", "status"];
-    const allFields = [...defaultFields, "signed_date", "expiration_date", "party_a", "party_b", "amount", "remarks"];
-    
-    const fields = categoryCode === "all" 
-      ? allFields
-      : defaultFields;
+  const columns = tableSchema;
 
-    const columnMap: Record<string, { label: string; key: string; render?: (doc: Document) => React.ReactNode }> = {
-      document_code: { label: "档案编号", key: "document_code" },
-      sub_type: { label: "档案类型", key: "sub_type", render: (doc) => {
-        // 优先使用 sub_type 字段，否则通过 sub_category_code 查找名称
-        if (doc.sub_type) return doc.sub_type;
-        const sub = allSubCategories.find(s => s.code === doc.sub_category_code);
-        return sub?.name || doc.sub_category_code || "-";
-      }},
-      file_name: {
-        label: "文件名",
-        key: "file_name",
-        render: (doc) => (
-          <span className="truncate max-w-[200px]" title={doc.file_name}>{doc.file_name || "-"}</span>
-        )
-      },
-      file_format: {
-        label: "文件类型",
-        key: "file_format",
-        render: (doc) => doc.file_format ? (
-          <Badge variant="outline" className="text-xs uppercase">{doc.file_format}</Badge>
-        ) : "-"
-      },
-      summary: {
-        label: "摘要",
-        key: "summary",
-        render: (doc) => {
-          // summary 字段可能存储为 JSON 数组字符串或普通文本
-          const summary = doc.summary;
-          if (!summary) return "-";
-          
-          // 尝试解析为 JSON 数组
-          try {
-            const parsed = JSON.parse(summary as unknown as string);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              return (
-                <div className="flex flex-wrap gap-1">
-                  {parsed.slice(0, 3).map((tag, i) => (
-                    <Badge key={i} variant="secondary" className="text-xs">{tag}</Badge>
-                  ))}
-                  {parsed.length > 3 && (
-                    <Badge variant="outline" className="text-xs">+{parsed.length - 3}</Badge>
-                  )}
-                </div>
-              );
-            }
-          } catch {
-            // 如果不是 JSON，当作普通文本处理
-          }
-          
-          // 普通文本显示
-          const text = String(summary);
-          if (!text.trim()) return "-";
-          return (
-            <span className="truncate max-w-[200px]" title={text}>
-              {text}
-            </span>
-          );
-        }
-      },
-      status: {
-        label: "状态",
-        key: "status",
-        render: (doc) => {
-          // 状态判断逻辑：正常/已归档/已到期
-          const status = doc.status || "active";
-          let label = "正常";
-          let variant: "default" | "secondary" | "destructive" = "default";
-          
-          if (status === "archived") {
-            label = "已归档";
-            variant = "secondary";
-          } else if (status === "expired") {
-            label = "已到期";
-            variant = "destructive";
-          }
-          
-          return <Badge variant={variant}>{label}</Badge>;
-        }
-      },
-      signed_date: { label: "签署日期", key: "signed_date" },
-      expiration_date: { label: "到期日期", key: "expiration_date", render: (doc) => doc.expiration_date ? <Badge variant={new Date(doc.expiration_date) < new Date() ? "destructive" : "default"}>{doc.expiration_date?.slice(0, 10)}</Badge> : "-" },
-      party_a: { label: "甲方", key: "party_a" },
-      party_b: { label: "乙方", key: "party_b" },
-      amount: { label: "金额", key: "amount", render: (doc) => doc.amount ? `¥${doc.amount.toLocaleString()}` : "-" },
-      payment_progress: { label: "付款进度", key: "payment_progress", render: (doc) => doc.payment_progress ? <Badge variant={doc.payment_progress === "已完成" ? "default" : "secondary"}>{doc.payment_progress}</Badge> : "-" },
-      project_name: { label: "项目名称", key: "project_name" },
-      design_unit: { label: "设计单位", key: "design_unit" },
-      designer: { label: "设计人员", key: "designer" },
-      project_leader: { label: "项目负责人", key: "project_leader" },
-      equipment_name: { label: "设备名称", key: "equipment_name" },
-      equipment_model: { label: "设备型号", key: "equipment_model" },
-      purchase_date: { label: "采购日期", key: "purchase_date" },
-      content_description: { label: "内容描述", key: "content_description" },
-      capture_date: { label: "拍摄日期", key: "capture_date" },
-      capturer: { label: "拍摄人", key: "capturer" },
-      activity_name: { label: "活动名称", key: "activity_name" },
-      carrier_type: { label: "载体类型", key: "carrier_type" },
-      storage_location: { label: "档案地点", key: "storage_location" },
-      petitioner: { label: "信访人", key: "petitioner" },
-      respondent: { label: "被信访人", key: "respondent" },
-      audit_unit: { label: "审计单位", key: "audit_unit" },
-      audit_period: { label: "审计期间", key: "audit_period" },
-      counterparty: { label: "对方单位", key: "counterparty" },
-      lawyer: { label: "律师", key: "lawyer" },
-      winner: { label: "中标单位", key: "winner" },
-      start_date: { label: "开始日期", key: "start_date" },
-      completion_date: { label: "完成日期", key: "completion_date" },
-      retention_period: { label: "保存期限", key: "retention_period" },
-      remarks: { label: "备注", key: "remarks" },
-      created_at: { label: "上传日期", key: "created_at", render: (doc) => doc.created_at?.slice(0, 10) || "-" },
-      actions: { label: "操作", key: "actions" },
-    };
-
-    return fields.map(f => columnMap[f] || { label: f, key: f }).filter(c => c.label !== "操作");
-  };
-
-  const columns = useMemo(() => getColumns(activeTab, "01"), [activeTab]);
   const defaultVisibleColumns = useMemo(() => {
     const defaultFields = ["document_code", "sub_type", "file_name", "file_format", "storage_location", "created_at", "retention_period", "summary", "status"];
     const defaultSet = new Set(defaultFields);
     const filtered = columns.filter((column) => defaultSet.has(column.key)).map((column) => column.key);
     return filtered.length > 0 ? filtered : columns.map((column) => column.key);
   }, [columns]);
-  const columnMap = useMemo(() => new Map(columns.map((column) => [column.key, column])), [columns]);
-  const visibleColumnDefs = useMemo(() => {
-    const ordered = visibleColumns
-      .map((key) => columnMap.get(key))
-      .filter((column): column is { label: string; key: string; render?: (doc: Document) => React.ReactNode } => Boolean(column));
-    if (ordered.length > 0) {
-      return ordered;
-    }
-    return columns;
-  }, [columnMap, columns, visibleColumns]);
-
-  const moveColumn = useCallback((sourceKey: string, targetKey: string) => {
-    setVisibleColumns((prev) => {
-      const sourceIndex = prev.indexOf(sourceKey);
-      const targetIndex = prev.indexOf(targetKey);
-      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
-        return prev;
-      }
-      const next = [...prev];
-      const [source] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, source);
-      return next;
-    });
-  }, []);
-
-  const handleColumnDragOver = useCallback((event: React.DragEvent<HTMLTableCellElement>) => {
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "move";
-    }
-  }, []);
-
-  const handleColumnDragStart = useCallback((event: React.DragEvent<HTMLTableCellElement>, columnKey: string) => {
-    draggingColumnKeyRef.current = columnKey;
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", columnKey);
-    }
-  }, []);
-
-  const handleColumnDragEnd = useCallback(() => {
-    draggingColumnKeyRef.current = null;
-  }, []);
-
-  const handleColumnDrop = useCallback((event: React.DragEvent<HTMLTableCellElement>, targetKey: string) => {
-    event.preventDefault();
-    const sourceKey = draggingColumnKeyRef.current;
-    if (!sourceKey || sourceKey === targetKey) {
-      draggingColumnKeyRef.current = null;
-      return;
-    }
-    moveColumn(sourceKey, targetKey);
-    draggingColumnKeyRef.current = null;
-  }, [moveColumn]);
-
-  const handleColumnSortClick = useCallback((columnKey: string) => {
-    if (draggingColumnKeyRef.current) {
-      return;
-    }
-    setPage(1);
-    if (sortField === columnKey) {
-      if (sortDirection === "asc") {
-        setSortDirection("desc");
-      } else {
-        setSortField("");
-        setSortDirection("desc");
-      }
-      return;
-    }
-    setSortField(columnKey);
-    setSortDirection("asc");
-  }, [sortDirection, sortField]);
 
   // 初始化可见列（仅在首次挂载时）- 使用 ref 确保只执行一次
   const initRef = useRef(false);
@@ -1339,94 +1122,18 @@ export function ArchivesManagement() {
         </div>
 
       {/* 表格 */}
-      <div className="rounded-md border">
-        <ScrollArea className="w-full" style={{ height: "60vh" }}>
-          <Table className="min-w-full table-auto">
-            <TableHeader>
-              <TableRow className="text-muted-foreground">
-                <TableHead className="w-12">
-                  <Checkbox
-                    checked={selectAll}
-                    onCheckedChange={toggleSelectAll}
-                  />
-                </TableHead>
-                <TableHead className="w-12 text-center">序号</TableHead>
-                {visibleColumnDefs.map((col) => (
-                    <TableHead
-                      key={col.key}
-                      className="cursor-move select-none text-left min-w-[100px] whitespace-nowrap"
-                      draggable
-                      onDragStart={(event) => handleColumnDragStart(event, col.key)}
-                      onDragOver={handleColumnDragOver}
-                      onDrop={(event) => handleColumnDrop(event, col.key)}
-                      onDragEnd={handleColumnDragEnd}
-                      onClick={() => handleColumnSortClick(col.key)}
-                    >
-                      <span className="flex items-center gap-1">
-                        {col.label}
-                        {sortField === col.key && (
-                          <span className="text-xs text-muted-foreground">{sortDirection === "asc" ? "↑" : "↓"}</span>
-                        )}
-                      </span>
-                    </TableHead>
-                  ))}
-                <TableHead className="w-20 text-center min-w-[80px]">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={visibleColumns.length + 3} className="text-center">
-                    加载中...
-                  </TableCell>
-                </TableRow>
-              ) : documents.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={visibleColumns.length + 3} className="text-center py-8 text-muted-foreground">
-                    暂无数据
-                  </TableCell>
-                </TableRow>
-              ) : (
-                documents.map((doc, index) => (
-                  <TableRow
-                    key={doc.id}
-                    className={`cursor-pointer hover:bg-muted/60 ${selectedIds.has(doc.id) ? 'bg-muted/50' : ''}`}
-                    onClick={() => toggleSelect(doc.id)}
-                  >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selectedIds.has(doc.id)}
-                        onCheckedChange={() => toggleSelect(doc.id)}
-                      />
-                    </TableCell>
-                    <TableCell className="text-center">{(page - 1) * pageSize + index + 1}</TableCell>
-                    {visibleColumnDefs.map((col) => (
-                        <TableCell key={col.key} className="text-left min-w-[100px] whitespace-nowrap" onDoubleClick={() => doc.file_path && handlePreview(doc)}>
-                        {col.render ? col.render(doc) : (doc as unknown as Record<string, unknown>)[col.key] as string || "-"}
-                      </TableCell>
-                    ))}
-                  <TableCell onClick={(e) => e.stopPropagation()} className="min-w-[120px]">
-                    <div className="flex items-center justify-center gap-1">
-                      {doc.file_path && (
-                        <Button variant="ghost" size="icon" onClick={() => handlePreview(doc)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="icon" onClick={() => handleOpenForm(doc)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(doc.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        </ScrollArea>
-      </div>
+      <ArchiveTableRenderer
+        schema={tableSchema}
+        data={documents}
+        visibleColumns={visibleColumns}
+        onEdit={handleOpenForm}
+        onDelete={handleDelete}
+        onView={handlePreview}
+        selectedIds={selectedIds}
+        onSelect={toggleSelect}
+        onSelectAll={toggleSelectAll}
+        selectAll={selectAll}
+      />
 
       {/* 分页 */}
       <div className="flex items-center justify-between">
@@ -1459,443 +1166,14 @@ export function ArchivesManagement() {
           <DialogHeader>
             <DialogTitle>{editingDoc ? "编辑档案" : "新增档案"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
-            {/* 档案编号 */}
-            <div>
-              <Label>档案编号</Label>
-              <Input
-                value={formData.document_code || ""}
-                onChange={(e) => setFormData({ ...formData, document_code: e.target.value })}
-                placeholder="自动生成或手动输入"
-              />
-            </div>
-            {/* 档案类型（只读） */}
-            <div>
-              <Label>档案类型</Label>
-              <Input
-                value={formData.sub_type || subCategories.find(s => s.code === selectedSubCategory)?.name || ""}
-                disabled
-                className="bg-muted"
-              />
-            </div>
-            {/* 文件名 */}
-            <div className="col-span-2">
-              <Label>文件名/标题</Label>
-              <Input
-                value={formData.file_name || ""}
-                onChange={(e) => setFormData({ ...formData, file_name: e.target.value })}
-                placeholder="请输入文件名或标题"
-              />
-            </div>
-            {/* 文件类型 */}
-            <div>
-              <Label>文件类型</Label>
-              <Input
-                value={formData.file_format || ""}
-                onChange={(e) => setFormData({ ...formData, file_format: e.target.value })}
-                placeholder="如：PDF、DOC、XLS"
-              />
-            </div>
-            {/* 上传日期 */}
-            <div>
-              <Label>上传日期</Label>
-              <Input
-                type="date"
-                value={formData.created_at?.slice(0, 10) || ""}
-                onChange={(e) => setFormData({ ...formData, created_at: e.target.value })}
-              />
-            </div>
-
-            {/* 文书档案-合同特有字段 (WS-03) */}
-            {activeTab === "WS" && selectedSubCategory === "03" && (
-              <>
-                <div>
-                  <Label>甲方</Label>
-                  <Input
-                    value={formData.party_a || ""}
-                    onChange={(e) => setFormData({ ...formData, party_a: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>乙方</Label>
-                  <Input
-                    value={formData.party_b || ""}
-                    onChange={(e) => setFormData({ ...formData, party_b: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>金额</Label>
-                  <Input
-                    type="number"
-                    value={formData.amount || ""}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>付款进度</Label>
-                  <Select
-                    value={formData.payment_progress || ""}
-                    onValueChange={(v) => setFormData({ ...formData, payment_progress: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="请选择" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PAYMENT_PROGRESS_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>签署日期</Label>
-                  <Input
-                    type="date"
-                    value={formData.signed_date || ""}
-                    onChange={(e) => setFormData({ ...formData, signed_date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>到期日期</Label>
-                  <Input
-                    type="date"
-                    value={formData.expiration_date || ""}
-                    onChange={(e) => setFormData({ ...formData, expiration_date: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 科技档案-项目设计 (KJ-01) */}
-            {activeTab === "KJ" && selectedSubCategory === "01" && (
-              <>
-                <div className="col-span-2">
-                  <Label>项目名称</Label>
-                  <Input
-                    value={formData.project_name || ""}
-                    onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label>设计单位</Label>
-                  <Input
-                    value={formData.design_unit || ""}
-                    onChange={(e) => setFormData({ ...formData, design_unit: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 科技档案-工程设计 (KJ-02) */}
-            {activeTab === "KJ" && selectedSubCategory === "02" && (
-              <>
-                <div className="col-span-2">
-                  <Label>项目名称</Label>
-                  <Input
-                    value={formData.project_name || ""}
-                    onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label>设计人员</Label>
-                  <Input
-                    value={formData.designer || ""}
-                    onChange={(e) => setFormData({ ...formData, designer: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 科技档案-项目管理 (KJ-03) */}
-            {activeTab === "KJ" && selectedSubCategory === "03" && (
-              <>
-                <div className="col-span-2">
-                  <Label>项目名称</Label>
-                  <Input
-                    value={formData.project_name || ""}
-                    onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label>项目负责人</Label>
-                  <Input
-                    value={formData.project_leader || ""}
-                    onChange={(e) => setFormData({ ...formData, project_leader: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 科技档案-设备仪器 (KJ-04) */}
-            {activeTab === "KJ" && selectedSubCategory === "04" && (
-              <>
-                <div>
-                  <Label>设备名称</Label>
-                  <Input
-                    value={formData.equipment_name || ""}
-                    onChange={(e) => setFormData({ ...formData, equipment_name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>设备型号</Label>
-                  <Input
-                    value={formData.equipment_model || ""}
-                    onChange={(e) => setFormData({ ...formData, equipment_model: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 电子档案-声像档案 (DZ-01) */}
-            {activeTab === "DZ" && selectedSubCategory === "01" && (
-              <>
-                <div className="col-span-2">
-                  <Label>内容描述</Label>
-                  <Textarea
-                    value={formData.content_description || ""}
-                    onChange={(e) => setFormData({ ...formData, content_description: e.target.value })}
-                    rows={2}
-                  />
-                </div>
-                <div>
-                  <Label>拍摄日期</Label>
-                  <Input
-                    type="date"
-                    value={formData.capture_date || ""}
-                    onChange={(e) => setFormData({ ...formData, capture_date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>拍摄人</Label>
-                  <Input
-                    value={formData.capturer || ""}
-                    onChange={(e) => setFormData({ ...formData, capturer: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 电子档案-磁盘、光盘 (DZ-02, DZ-03, DZ-04) */}
-            {activeTab === "DZ" && ["02", "03", "04"].includes(selectedSubCategory) && (
-              <>
-                <div className="col-span-2">
-                  <Label>内容描述</Label>
-                  <Textarea
-                    value={formData.content_description || ""}
-                    onChange={(e) => setFormData({ ...formData, content_description: e.target.value })}
-                    rows={2}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label>载体类型</Label>
-                  <Input
-                    value={formData.carrier_type || ""}
-                    onChange={(e) => setFormData({ ...formData, carrier_type: e.target.value })}
-                    placeholder="如：硬盘、光盘、U盘"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 电子档案-电子公文 (DZ-05) */}
-            {activeTab === "DZ" && selectedSubCategory === "05" && (
-              <div className="col-span-2">
-                <Label>内容描述</Label>
-                <Textarea
-                  value={formData.content_description || ""}
-                  onChange={(e) => setFormData({ ...formData, content_description: e.target.value })}
-                  rows={2}
-                />
-              </div>
-            )}
-
-            {/* 专门档案-信访档案 (ZM-01) */}
-            {activeTab === "ZM" && selectedSubCategory === "01" && (
-              <>
-                <div>
-                  <Label>信访人</Label>
-                  <Input
-                    value={formData.petitioner || ""}
-                    onChange={(e) => setFormData({ ...formData, petitioner: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>被信访人</Label>
-                  <Input
-                    value={formData.respondent || ""}
-                    onChange={(e) => setFormData({ ...formData, respondent: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 专门档案-审计档案 (ZM-02) */}
-            {activeTab === "ZM" && selectedSubCategory === "02" && (
-              <>
-                <div>
-                  <Label>审计单位</Label>
-                  <Input
-                    value={formData.audit_unit || ""}
-                    onChange={(e) => setFormData({ ...formData, audit_unit: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>审计期间</Label>
-                  <Input
-                    value={formData.audit_period || ""}
-                    onChange={(e) => setFormData({ ...formData, audit_period: e.target.value })}
-                    placeholder="如：2024年度"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 专门档案-法律档案 (ZM-03) */}
-            {activeTab === "ZM" && selectedSubCategory === "03" && (
-              <>
-                <div>
-                  <Label>对方单位</Label>
-                  <Input
-                    value={formData.counterparty || ""}
-                    onChange={(e) => setFormData({ ...formData, counterparty: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>律师</Label>
-                  <Input
-                    value={formData.lawyer || ""}
-                    onChange={(e) => setFormData({ ...formData, lawyer: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 专门档案-招投标档案 (ZM-04) */}
-            {activeTab === "ZM" && selectedSubCategory === "04" && (
-              <>
-                <div className="col-span-2">
-                  <Label>项目名称</Label>
-                  <Input
-                    value={formData.project_name || ""}
-                    onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label>中标单位</Label>
-                  <Input
-                    value={formData.winner || ""}
-                    onChange={(e) => setFormData({ ...formData, winner: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 专门档案-科研档案 (ZM-05) */}
-            {activeTab === "ZM" && selectedSubCategory === "05" && (
-              <>
-                <div className="col-span-2">
-                  <Label>项目名称</Label>
-                  <Input
-                    value={formData.project_name || ""}
-                    onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>开始日期</Label>
-                  <Input
-                    type="date"
-                    value={formData.start_date || ""}
-                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>完成日期</Label>
-                  <Input
-                    type="date"
-                    value={formData.completion_date || ""}
-                    onChange={(e) => setFormData({ ...formData, completion_date: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 通用字段：保管期限 */}
-            <div>
-              <Label>保管期限</Label>
-              <Select
-                value={formData.retention_period || ""}
-                onValueChange={(v) => setFormData({ ...formData, retention_period: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="请选择" />
-                </SelectTrigger>
-                <SelectContent>
-                  {RETENTION_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* 档案地点 */}
-            <div>
-              <Label>档案地点</Label>
-              <Select
-                value={formData.storage_location || ""}
-                onValueChange={(v) => setFormData({ ...formData, storage_location: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="选择档案地点" />
-                </SelectTrigger>
-                <SelectContent>
-                  {storageLocations.map((loc) => (
-                    <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* 标签/摘要 */}
-            <div className="col-span-2">
-              <Label>摘要（标签）</Label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {(formData.tags as unknown as string[])?.map((tag: string, i: number) => (
-                  <Badge key={i} variant="secondary" className="text-xs">
-                    {tag}
-                    <button
-                      type="button"
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        const newTags = (formData.tags as unknown as string[] || []).filter((_: string, idx: number) => idx !== i);
-                        setFormData({ ...formData, tags: newTags as unknown as string });
-                      }}
-                    >
-                      ×
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-              <Input
-                value={formData.tagInput || ""}
-                onChange={(e) => setFormData({ ...formData, tagInput: e.target.value })}
-                placeholder="输入标签后按回车添加"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && formData.tagInput?.trim()) {
-                    e.preventDefault();
-                    const newTags = [...((formData.tags as unknown as string[]) || []), formData.tagInput.trim()];
-                    setFormData({ ...formData, tags: newTags as unknown as string, tagInput: "" });
-                  }
-                }}
-              />
-            </div>
-            {/* 备注 */}
-            <div className="col-span-2">
-              <Label>备注</Label>
-              <Textarea
-                value={formData.remarks || ""}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                placeholder="请输入备注"
-                rows={2}
-              />
-            </div>
+          <div className="py-4">
+            <ArchiveFormRenderer
+              schema={fieldSchema}
+              data={formData as unknown as Document}
+              onChange={(data) => setFormData(data as unknown as Record<string, string>)}
+              storageLocations={storageLocations}
+              retentionPeriods={RETENTION_OPTIONS.map(opt => ({ name: opt.value }))}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsFormOpen(false)}>取消</Button>
