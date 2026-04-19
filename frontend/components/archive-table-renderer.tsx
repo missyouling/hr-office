@@ -72,7 +72,7 @@ export function ArchiveTableRenderer({
                 <TableCell className="text-center">{index + 1}</TableCell>
                 {columns.map((col) => (
                   <TableCell key={col.key}>
-                    {col.render ? col.render((row as Record<string, unknown>)[col.key], row) : String((row as Record<string, unknown>)[col.key] || '')}
+                    {col.render ? col.render(((row as unknown) as Record<string, unknown>)[col.key], row) : String(((row as unknown) as Record<string, unknown>)[col.key] || '')}
                   </TableCell>
                 ))}
                 <TableCell className="text-right">
@@ -105,7 +105,7 @@ export function ArchiveTableRenderer({
             ))
           ) : (
             <TableRow>
-              <TableCell colSpan={columns.length + (onSelect ? 2 : 1)} className="h-24 text-center">
+              <TableCell colSpan={columns.length + (onSelect ? 2 : 1) + 1} className="h-24 text-center">
                 暂无数据
               </TableCell>
             </TableRow>

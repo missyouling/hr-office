@@ -178,12 +178,13 @@ function SMTPConfigTab() {
       const data = await listNotificationConfigs();
       setConfigs(data);
       data.forEach(c => {
-        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", reply_to: c.config?.reply_to || "", encryption: c.config?.encryption || "ssl", server_name: c.config?.server_name || "" });
-        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: c.config?.access_key_id || "", access_key_secret: c.config?.access_key_secret || "", sign_name: c.config?.sign_name || "", template_code: c.config?.template_code || "" });
-        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
-        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
+        const conf = (c.config || {}) as Record<string, string>;
+        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: conf.host || "", port: conf.port || "587", username: conf.username || "", password: conf.password || "", from: conf.from || "", from_name: conf.from_name || "人事系统", reply_to: conf.reply_to || "", encryption: conf.encryption || "ssl", server_name: conf.server_name || "" });
+        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: conf.access_key_id || "", access_key_secret: conf.access_key_secret || "", sign_name: conf.sign_name || "", template_code: conf.template_code || "" });
+        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: conf.bot_token || "", chat_id: conf.chat_id || "" });
+        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: conf.url || "", method: conf.method || "POST", auth: conf.auth || "" });
       });
-    } catch {
+    } catch (error) {
     } finally {
       setLoading(false);
     }
@@ -199,7 +200,7 @@ function SMTPConfigTab() {
       else { await createNotificationConfig(payload); }
       toast.success(channel.toUpperCase() + " 配置已保存");
       loadConfigs();
-    } catch {
+    } catch (error) {
       toast.error("保存失败");
     } finally {
       setSaving(false);
@@ -212,7 +213,7 @@ function SMTPConfigTab() {
       const configData = channel === "smtp" ? smtpConfig : channel === "sms" ? smsConfig : channel === "telegram" ? telegramConfig : webhookConfig;
       await testNotification(channel, channel === "smtp" ? smtpConfig.from : channel === "sms" ? "13800138000" : channel === "telegram" ? telegramConfig.chat_id : "", configData);
       toast.success("测试消息发送成功");
-    } catch {
+    } catch (error) {
       toast.error("测试发送失败");
     } finally {
       setTesting(false);
@@ -612,7 +613,7 @@ function RolePermissionTab() {
       const [rolesData, permsData] = await Promise.all([fetchRoles(), fetchPermissions()]);
       setRoles(rolesData);
       setPermissions(permsData);
-    } catch {
+    } catch (error) {
       console.error("加载数据失败:", error);
       toast.error("加载数据失败");
     } finally {
@@ -626,7 +627,7 @@ function RolePermissionTab() {
     try {
       const perms = await fetchRolePermissions(role.id);
       setSelectedPermissions(perms.map((p) => p.id) as number[]);
-    } catch {
+    } catch (error) {
       console.error("加载权限失败:", error);
     }
     setShowDialog(true);
@@ -644,7 +645,7 @@ function RolePermissionTab() {
       toast.success("角色已更新");
       setShowDialog(false);
       loadData();
-    } catch {
+    } catch (error) {
       console.error("保存失败:", error);
       toast.error("保存失败");
     }
@@ -656,7 +657,7 @@ function RolePermissionTab() {
         await deleteRole(roleId);
         toast.success("角色已删除");
         loadData();
-      } catch {
+      } catch (error) {
         console.error("删除失败:", error);
         toast.error("删除失败");
       }
@@ -764,7 +765,7 @@ function AnnouncementTab() {
     try {
       const data = await fetchAnnouncements();
       setAnnouncements(data);
-    } catch {
+    } catch (error) {
       toast.error("加载公告失败");
     } finally {
       setLoading(false);
@@ -789,7 +790,7 @@ function AnnouncementTab() {
       setTitle("");
       setContent("");
       loadAnnouncements();
-    } catch {
+    } catch (error) {
       toast.error("保存失败");
     }
   };
@@ -800,7 +801,7 @@ function AnnouncementTab() {
         await deleteAnnouncement(id);
         toast.success("公告已删除");
         loadAnnouncements();
-      } catch {
+      } catch (error) {
         toast.error("删除失败");
       }
     }
@@ -947,7 +948,7 @@ function StorageConfigTab() {
     try {
       const data = await listStorageConfigs();
       setConfigs(data);
-    } catch {
+    } catch (error) {
       toast.error("加载存储配置失败");
     } finally {
       setLoading(false);
@@ -990,7 +991,7 @@ function StorageConfigTab() {
       setShowCreateDialog(false);
       const data = await listStorageConfigs();
       setConfigs(data);
-    } catch {
+    } catch (error) {
       toast.error("保存失败");
     }
   };
@@ -1001,7 +1002,7 @@ function StorageConfigTab() {
       toast.success("存储配置已删除");
       const data = await listStorageConfigs();
       setConfigs(data);
-    } catch {
+    } catch (error) {
       toast.error("删除失败");
     }
   };
@@ -1018,7 +1019,7 @@ function StorageConfigTab() {
       } else {
         toast.error(`连接失败: ${result.message}`);
       }
-    } catch {
+    } catch (error) {
       toast.error("测试连接失败");
     } finally {
       setTestingId(null);
@@ -1161,7 +1162,7 @@ function StorageConfigTab() {
                 onChange={(e) => {
                   try {
                     setFormData({ ...formData, config: JSON.parse(e.target.value) });
-                  } catch {
+                  } catch (error) {
                     // 保持原值
                   }
                 }}
@@ -1210,7 +1211,7 @@ function StorageRuleTab() {
       setRules(rulesData);
       setModules(modulesData);
       setConfigs(configsData);
-    } catch {
+    } catch (error) {
       toast.error("加载存储规则失败");
     } finally {
       setLoading(false);
@@ -1237,7 +1238,7 @@ function StorageRuleTab() {
       setShowDialog(false);
       setEditingRule(null);
       loadData();
-    } catch {
+    } catch (error) {
       toast.error("保存存储规则失败");
     }
   };
@@ -1247,7 +1248,7 @@ function StorageRuleTab() {
       await deleteStorageRuleEnhanced(id);
       toast.success("存储规则已删除");
       loadData();
-    } catch {
+    } catch (error) {
       toast.error("删除存储规则失败");
     }
   };
@@ -1420,7 +1421,7 @@ function FileManagementTab() {
         if (data.length > 0 && selectedConfigId === null) {
           setSelectedConfigId(data[0].id);
         }
-      } catch {
+      } catch (error) {
         toast.error("加载存储配置失败");
       }
     };
@@ -1438,7 +1439,7 @@ function FileManagementTab() {
         });
         setFiles(response.files);
         setTotal(response.total);
-      } catch {
+      } catch (error) {
         toast.error("加载文件列表失败");
       } finally {
         setLoading(false);
@@ -1459,7 +1460,7 @@ function FileManagementTab() {
       await uploadStorageFile(file, selectedConfigId);
       toast.success("文件上传成功");
       setPage(0);
-    } catch {
+    } catch (error) {
       toast.error("文件上传失败");
     } finally {
       setUploading(false);
@@ -1476,7 +1477,7 @@ function FileManagementTab() {
       await deleteStorageFile(fileId);
       toast.success("文件已删除");
       setPage(0);
-    } catch {
+    } catch (error) {
       toast.error("删除失败");
     } finally {
       setDeleteConfirmId(null);

@@ -241,7 +241,7 @@ export function SystemLogs() {
       const dateStr = log.created_at ? format(new Date(log.created_at), "yyyy-MM-dd HH:mm:ss") : "-";
       
       if (activeTab === "system") {
-        const levelDisplay = getLevelLabel(log.level);
+        const levelDisplay = getLevelLabel(log.level || '');
         const isError = log.level === "ERROR";
         const isWarn = log.level === "WARN" || log.level === "WARNING";
         return (

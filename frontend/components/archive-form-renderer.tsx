@@ -19,8 +19,8 @@ interface ArchiveFormRendererProps {
   schema: FormFieldSchema[];
   data: Document;
   onChange: (data: Document) => void;
-  storageLocations?: Array<{ name: string; [key: string]: unknown }>;
-  retentionPeriods?: Array<{ name: string; [key: string]: unknown }>;
+  storageLocations?: Array<Record<string, unknown>>;
+  retentionPeriods?: Array<Record<string, unknown>>;
 }
 
 export function ArchiveFormRenderer({
@@ -51,8 +51,9 @@ export function ArchiveFormRenderer({
             {field.required && <span className="text-destructive ml-1">*</span>}
           </Label>
           <DynamicFormField
+            key={field.field_name}
             field={field}
-            value={(data as Record<string, unknown>)[field.field_name]}
+            value={((data as unknown) as Record<string, unknown>)[field.field_name]}
             onChange={(val) => handleFieldChange(field.field_name, val)}
             storageLocations={storageLocations}
             retentionPeriods={retentionPeriods}
@@ -67,8 +68,8 @@ interface DynamicFormFieldProps {
   field: FormFieldSchema;
   value: unknown;
   onChange: (value: unknown) => void;
-  storageLocations?: Array<{ name: string; [key: string]: unknown }>;
-  retentionPeriods?: Array<{ name: string; [key: string]: unknown }>;
+  storageLocations?: Array<Record<string, unknown>>;
+  retentionPeriods?: Array<Record<string, unknown>>;
 }
 
 function DynamicFormField({
@@ -116,9 +117,9 @@ function DynamicFormField({
       let options = field.options || [];
       
       if (field.field_name === 'storage_location' && storageLocations) {
-        options = storageLocations.map(loc => loc.name);
+        options = storageLocations.map(loc => loc.name as string);
       } else if (field.field_name === 'retention_period' && retentionPeriods) {
-        options = retentionPeriods.map(p => p.name);
+        options = retentionPeriods.map(p => p.name as string);
       }
 
       return (

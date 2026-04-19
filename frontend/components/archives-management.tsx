@@ -86,9 +86,6 @@ export function ArchivesManagement() {
   const [isColumnsDialogOpen, setIsColumnsDialogOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
 
-  // 所有二级分类（用于档案类型显示）
-  const [allSubCategories, setAllSubCategories] = useState<DocumentSubCategory[]>([]);
-
   // 多选相关
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
@@ -137,7 +134,6 @@ export function ArchivesManagement() {
   const [singleRetentionPeriod, setSingleRetentionPeriod] = useState("永久");
   const [singleSummary, setSingleSummary] = useState("");
   const [singleTags, setSingleTags] = useState<string[]>([]);
-  const [singleTagInput, setSingleTagInput] = useState("");
   const [singleStorageLocation, setSingleStorageLocation] = useState("");
   const [singleRemarks, setSingleRemarks] = useState("");
   const [uploadedDocId, setUploadedDocId] = useState<number | null>(null);
@@ -153,7 +149,6 @@ export function ArchivesManagement() {
     newFile: File;
     newFileName: string;
   } | null>(null);
-  const [pendingUploadFiles, setPendingUploadFiles] = useState<PendingFile[]>([]);
 
   // 分享相关
   const [shareLinks, setShareLinks] = useState<{ id: number; file_name: string; link: string; copied: boolean }[]>([]);
@@ -169,14 +164,26 @@ export function ArchivesManagement() {
   const [printTitle, setPrintTitle] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("archive-print-settings");
-      return saved ? JSON.parse(saved).title ?? "" : "";
+      if (saved) {
+        try {
+          return JSON.parse(saved).title ?? "";
+        } catch {
+          return "";
+        }
+      }
     }
     return "";
   });
   const [printWatermark, setPrintWatermark] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("archive-print-settings");
-      return saved ? JSON.parse(saved).watermark ?? "内部资料 请勿外传" : "内部资料 请勿外传";
+      if (saved) {
+        try {
+          return JSON.parse(saved).watermark ?? "内部资料 请勿外传";
+        } catch {
+          return "内部资料 请勿外传";
+        }
+      }
     }
     return "内部资料 请勿外传";
   });
@@ -212,8 +219,9 @@ export function ArchivesManagement() {
     if (selectedSubCategory) {
       fetchFieldsBySubCategory(Number(selectedSubCategory))
         .then((res) => {
-          setFieldSchema(generateFormSchema(res.fields));
-          setTableSchema(generateTableSchema(res.fields));
+          const allFields = [...(res.groups || []).flatMap(g => g.fields || []), ...(res.ungrouped || [])];
+          setFieldSchema(generateFormSchema(allFields));
+          setTableSchema(generateTableSchema(allFields));
         })
         .catch((err) => {
           console.error("加载字段架构失败:", err);
@@ -226,7 +234,7 @@ export function ArchivesManagement() {
   // 加载文档列表
   useEffect(() => {
     loadDocuments();
-  }, [page, activeTab, searchKeyword, filterRetentionPeriod, filterStatus, sortField, sortDirection]);
+  }, [page, activeTab, filterRetentionPeriod, filterStatus, sortField, sortDirection]);
 
   // 全选逻辑
   useEffect(() => {
@@ -357,13 +365,23 @@ export function ArchivesManagement() {
         remarks: doc.remarks || "",
       };
       
-      // 动态填充 schema 中定义的字段
       fieldSchema.forEach(field => {
         const value = (doc as unknown as Record<string, unknown>)[field.field_name];
         if (value !== undefined && value !== null) {
           newFormData[field.field_name] = String(value);
         }
       });
+
+      if (doc.summary) {
+        try {
+          const parsed = JSON.parse(doc.summary as unknown as string);
+          if (Array.isArray(parsed)) {
+            newFormData.summary = parsed as unknown as string;
+          }
+        } catch (e) {
+          console.debug("Non-JSON summary", e);
+        }
+      }
       
       setFormData(newFormData);
       setSelectedSubCategory(doc.sub_category_code);
@@ -594,7 +612,6 @@ export function ArchivesManagement() {
           newFile: newFile,
           newFileName: fileNameWithoutExt(newFile),
         });
-        setPendingUploadFiles(validFiles);
         setDuplicateDialogOpen(true);
         // 清空 input
         if (fileInputRef.current) {
@@ -846,7 +863,6 @@ export function ArchivesManagement() {
     setSingleRetentionPeriod("永久");
     setSingleSummary("");
     setSingleTags([]);
-    setSingleTagInput("");
     setSingleStorageLocation("");
     setSingleRemarks("");
     setUploadedDocId(null);
@@ -1171,7 +1187,7 @@ export function ArchivesManagement() {
               schema={fieldSchema}
               data={formData as unknown as Document}
               onChange={(data) => setFormData(data as unknown as Record<string, string>)}
-              storageLocations={storageLocations}
+              storageLocations={storageLocations as unknown as Record<string, unknown>[]}
               retentionPeriods={RETENTION_OPTIONS.map(opt => ({ name: opt.value }))}
             />
           </div>
@@ -1215,6 +1231,7 @@ export function ArchivesManagement() {
                     src={previewUrl}
                     className="w-full h-full"
                     title="PDF预览"
+                    sandbox="allow-scripts allow-same-origin"
                   />
                 )}
                 {/* 视频预览 */}
@@ -1577,103 +1594,37 @@ export function ArchivesManagement() {
                   </div>
                 )}
 
-                {singleUploadStatus === 'editing' && (
-                  <div className="space-y-4 rounded-lg border border-green-500/50 bg-green-50/50 p-4">
-                    <div className="flex items-center gap-2 text-green-600">
-                      <Check className="h-5 w-5" />
-                      <span className="font-medium">文件上传成功，请完善档案信息</span>
-                    </div>
-
-                    {/* 保管期限 */}
-                    <div>
-                      <Label className="mb-2 block">保管期限</Label>
-                      <Select value={singleRetentionPeriod} onValueChange={setSingleRetentionPeriod}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择保管期限" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="永久">永久</SelectItem>
-                          <SelectItem value="10年">10年</SelectItem>
-                          <SelectItem value="30年">30年</SelectItem>
-                          <SelectItem value="5年">5年</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* 档案地点 */}
-                    <div>
-                      <Label className="mb-2 block">档案地点</Label>
-                      <Select value={singleStorageLocation} onValueChange={setSingleStorageLocation}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择档案地点" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {storageLocations.map((loc) => (
-                            <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* 标签 */}
-                    <div>
-                      <Label className="mb-2 block">标签</Label>
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {singleTags.map((tag, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs">
-                            {tag}
-                            <button
-                              className="ml-1 text-muted-foreground hover:text-foreground"
-                              onClick={() => setSingleTags(singleTags.filter((_, idx) => idx !== i))}
-                            >
-                              ×
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex gap-2">
-                        <Input
-                          value={singleTagInput}
-                          onChange={(e) => setSingleTagInput(e.target.value)}
-                          placeholder="输入标签后按回车添加"
-                          className="h-8 text-sm"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && singleTagInput.trim()) {
-                              e.preventDefault();
-                              if (!singleTags.includes(singleTagInput.trim())) {
-                                setSingleTags([...singleTags, singleTagInput.trim()]);
-                              }
-                              setSingleTagInput("");
-                            }
-                          }}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (singleTagInput.trim() && !singleTags.includes(singleTagInput.trim())) {
-                              setSingleTags([...singleTags, singleTagInput.trim()]);
-                              setSingleTagInput("");
-                            }
-                          }}
-                        >
-                          添加
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* 备注 */}
-                    <div>
-                      <Label className="mb-2 block">备注</Label>
-                      <Textarea
-                        value={singleRemarks}
-                        onChange={(e) => setSingleRemarks(e.target.value)}
-                        placeholder="请输入备注信息（可选）"
-                        className="min-h-[60px]"
-                      />
-                    </div>
-                  </div>
-                )}
+      {singleUploadStatus === 'editing' && (
+        <div className="mt-4 p-4 border rounded-md bg-muted/30">
+          <h4 className="font-medium mb-3">完善档案信息</h4>
+          <ArchiveFormRenderer
+            schema={fieldSchema}
+            data={{
+              ...formData,
+              file_name: singleFileName,
+              retention_period: singleRetentionPeriod,
+              storage_location: singleStorageLocation,
+              summary: singleSummary,
+              remarks: singleRemarks,
+              tags: singleTags as unknown as string,
+            } as unknown as Document}
+            onChange={(data) => {
+              const d = data as unknown as Record<string, unknown>;
+              setSingleFileName(String(d.file_name || ""));
+              setSingleRetentionPeriod(String(d.retention_period || "永久"));
+              setSingleStorageLocation(String(d.storage_location || ""));
+              setSingleSummary(String(d.summary || ""));
+              setSingleRemarks(String(d.remarks || ""));
+              if (Array.isArray(d.tags)) setSingleTags(d.tags);
+            }}
+            storageLocations={storageLocations as unknown as Record<string, unknown>[]}
+            retentionPeriods={RETENTION_OPTIONS.map(opt => ({ name: opt.value }))}
+          />
+          <div className="flex justify-end mt-4">
+            <Button onClick={handleSaveSingleFileMeta}>保存档案信息</Button>
+          </div>
+        </div>
+      )}
 
                 {singleUploadStatus === 'success' && (
                   <div className="text-center text-green-600">
