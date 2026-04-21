@@ -24,6 +24,10 @@ func NewAuditService(db *gorm.DB) *AuditService {
 
 // LogAction logs an audit entry for a user action
 func (s *AuditService) LogAction(ctx context.Context, params models.CreateAuditLogParams) error {
+	if params.UserID != nil && *params.UserID == 0 {
+		params.UserID = nil
+	}
+
 	auditLog := models.CreateAuditLog(params)
 
 	// Save to database

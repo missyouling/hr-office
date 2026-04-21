@@ -2189,6 +2189,11 @@ func (h *Handler) deleteSubCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.db.Where("sub_category_id = ?", subCategoryID).Delete(&models.ArchiveFieldDefinition{}).Error; err != nil {
+		http.Error(w, fmt.Sprintf("级联删除关联字段失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	if err := h.db.Delete(&subCategory).Error; err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

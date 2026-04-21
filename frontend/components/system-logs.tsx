@@ -83,6 +83,9 @@ export function SystemLogs() {
   const [endDate, setEndDate] = useState("");
   const [action, setAction] = useState("all");
   const [status, setStatus] = useState("all");
+  const [knownStatuses, setKnownStatuses] = useState<string[]>([]);
+  const [knownActions, setKnownActions] = useState<string[]>([]);
+  const [knownLevels, setKnownLevels] = useState<string[]>([]);
   const [level, setLevel] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -122,8 +125,36 @@ export function SystemLogs() {
   }, [activeTab, startDate, endDate, action, status, level, search]);
 
   useEffect(() => {
+    setStatus("all");
+    setAction("all");
+    setLevel("all");
+    setKnownStatuses([]);
+    setKnownActions([]);
+    setKnownLevels([]);
+    setStartDate("");
+    setEndDate("");
+    setSearch("");
+  }, [activeTab]);
+
+  useEffect(() => {
     loadLogs(1);
-  }, [activeTab, loadLogs]);
+  }, [activeTab, action, status, level, startDate, endDate, search, loadLogs]);
+
+  useEffect(() => {
+    if (logs && logs.length > 0) {
+      const statuses = new Set<string>();
+      const actions = new Set<string>();
+      const levels = new Set<string>();
+      logs.forEach(log => {
+        if (log.status) statuses.add(log.status);
+        if (log.action) actions.add(log.action);
+        if ((log.level as string)) levels.add(log.level as string);
+      });
+      setKnownStatuses(Array.from(statuses));
+      setKnownActions(Array.from(actions));
+      setKnownLevels(Array.from(levels));
+    }
+  }, [logs]);
 
   const handleFilter = () => {
     loadLogs(1);
@@ -139,6 +170,7 @@ export function SystemLogs() {
   };
 
   const handleExport = async () => {
+    if (!logs || logs.length === 0) { toast.warning("没有日志数据", { description: "当前暂无可导出的系统日志数据" }); return; }
     setExporting(true);
     try {
       const params: SystemLogParams = {
@@ -191,34 +223,34 @@ export function SystemLogs() {
     if (activeTab === "system") {
       return (
         <TableRow>
-          <TableHead>时间</TableHead>
-          <TableHead>级别</TableHead>
-          <TableHead>来源</TableHead>
-          <TableHead>消息</TableHead>
-          <TableHead>Trace ID</TableHead>
+          <TableHead className="text-center">时间</TableHead>
+          <TableHead className="text-center">级别</TableHead>
+          <TableHead className="text-center">来源</TableHead>
+          <TableHead className="text-center">消息</TableHead>
+          <TableHead className="text-center">Trace ID</TableHead>
         </TableRow>
       );
     }
     if (activeTab === "login") {
       return (
         <TableRow>
-          <TableHead>时间</TableHead>
-          <TableHead>操作人</TableHead>
-          <TableHead>操作</TableHead>
-          <TableHead>IP</TableHead>
-          <TableHead>状态</TableHead>
-          <TableHead>状态码</TableHead>
+          <TableHead className="text-center">时间</TableHead>
+          <TableHead className="text-center">操作人</TableHead>
+          <TableHead className="text-center">操作</TableHead>
+          <TableHead className="text-center">IP</TableHead>
+          <TableHead className="text-center">状态</TableHead>
+          <TableHead className="text-center">状态码</TableHead>
         </TableRow>
       );
     }
     return (
       <TableRow>
-        <TableHead>时间</TableHead>
-        <TableHead>操作人</TableHead>
-        <TableHead>操作类型</TableHead>
-        <TableHead>目标</TableHead>
-        <TableHead>状态</TableHead>
-        <TableHead>IP</TableHead>
+        <TableHead className="text-center">时间</TableHead>
+        <TableHead className="text-center">操作人</TableHead>
+        <TableHead className="text-center">操作类型</TableHead>
+        <TableHead className="text-center">目标</TableHead>
+        <TableHead className="text-center">状态</TableHead>
+        <TableHead className="text-center">IP</TableHead>
       </TableRow>
     );
   };
@@ -237,7 +269,7 @@ export function SystemLogs() {
       return null;
     }
 
-    return logs.map((log) => {
+    return logs.map((log, index) => {
       const dateStr = log.created_at ? format(new Date(log.created_at), "yyyy-MM-dd HH:mm:ss") : "-";
       
       if (activeTab === "system") {
@@ -245,41 +277,41 @@ export function SystemLogs() {
         const isError = log.level === "ERROR";
         const isWarn = log.level === "WARN" || log.level === "WARNING";
         return (
-          <TableRow key={log.id}>
-            <TableCell className="whitespace-nowrap">{dateStr}</TableCell>
-            <TableCell>
+          <TableRow key={`${log.id}-${index}`}>
+            <TableCell className="whitespace-nowrap text-center">{dateStr}</TableCell>
+            <TableCell className="text-center">
               <Badge variant={isError ? "destructive" : isWarn ? "secondary" : "outline"}>
                 {levelDisplay}
               </Badge>
             </TableCell>
-            <TableCell className="truncate">{log.source}</TableCell>
-            <TableCell className="truncate" title={log.message}>{log.message}</TableCell>
-            <TableCell className="font-mono text-xs truncate">{log.trace_id}</TableCell>
+            <TableCell className="truncate text-center">{log.source}</TableCell>
+            <TableCell className="truncate text-center" title={log.message}>{log.message}</TableCell>
+            <TableCell className="font-mono text-xs truncate text-center">{log.trace_id}</TableCell>
           </TableRow>
         );
       }
 
        if (activeTab === "login") {
          return (
-           <TableRow key={log.id}>
-             <TableCell className="whitespace-nowrap">{dateStr}</TableCell>
-             <TableCell className="truncate">{log.user?.username || log.user_id || "系统"}</TableCell>
-             <TableCell className="truncate">{log.action}</TableCell>
-             <TableCell className="truncate">{log.ip_address || "-"}</TableCell>
-             <TableCell>{renderStatusBadge(log.status)}</TableCell>
-             <TableCell>{log.status_code}</TableCell>
+           <TableRow key={`${log.id}-${index}`}>
+             <TableCell className="whitespace-nowrap text-center">{dateStr}</TableCell>
+             <TableCell className="truncate text-center">{log.user?.username || log.user_id || "系统"}</TableCell>
+             <TableCell className="truncate text-center">{log.action}</TableCell>
+             <TableCell className="truncate text-center">{log.ip_address || "-"}</TableCell>
+             <TableCell className="text-center">{renderStatusBadge(log.status)}</TableCell>
+             <TableCell className="text-center">{log.status_code}</TableCell>
            </TableRow>
          );
        }
 
        return (
-         <TableRow key={log.id}>
-           <TableCell className="whitespace-nowrap">{dateStr}</TableCell>
-           <TableCell className="truncate">{log.user?.username || log.user_id || "系统"}</TableCell>
-           <TableCell className="truncate">{log.action}</TableCell>
-           <TableCell className="truncate">{log.resource}</TableCell>
-           <TableCell>{renderStatusBadge(log.status)}</TableCell>
-           <TableCell className="truncate">{log.ip_address || "-"}</TableCell>
+         <TableRow key={`${log.id}-${index}`}>
+           <TableCell className="whitespace-nowrap text-center">{dateStr}</TableCell>
+           <TableCell className="truncate text-center">{log.user?.username || log.user_id || "系统"}</TableCell>
+           <TableCell className="truncate text-center">{log.action}</TableCell>
+           <TableCell className="truncate text-center">{log.resource}</TableCell>
+           <TableCell className="text-center">{renderStatusBadge(log.status)}</TableCell>
+           <TableCell className="truncate text-center">{log.ip_address || "-"}</TableCell>
          </TableRow>
        );
     });
@@ -303,7 +335,7 @@ export function SystemLogs() {
             <Button variant="outline" onClick={handleExport} disabled={exporting}>
               {exporting ? "导出中..." : "导出"}
             </Button>
-            <Button variant="outline" onClick={() => setShowBackupDialog(true)}>备份管理</Button>
+            <Button variant="outline" onClick={() => setShowBackupDialog(true)}>备份设置</Button>
             <Button variant="outline" onClick={() => setShowAlertDialog(true)}>告警设置</Button>
           </div>
         </div>
@@ -349,10 +381,7 @@ export function SystemLogs() {
                 <SelectValue placeholder="所有状态" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">所有状态</SelectItem>
-                <SelectItem value="SUCCESS">成功</SelectItem>
-                <SelectItem value="FAILED">失败</SelectItem>
-                <SelectItem value="ERROR">错误</SelectItem>
+                <SelectItem value="all">所有状态</SelectItem>{knownStatuses.map(s => <SelectItem key={s} value={s}>{getStatusLabel(s)}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -365,23 +394,22 @@ export function SystemLogs() {
                   <SelectValue placeholder="级别" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">所有级别</SelectItem>
-                  <SelectItem value="INFO">信息</SelectItem>
-                  <SelectItem value="WARN">警告</SelectItem>
-                  <SelectItem value="ERROR">错误</SelectItem>
-                  <SelectItem value="DEBUG">调试</SelectItem>
+                  <SelectItem value="all">所有级别</SelectItem>{knownLevels.map(l => <SelectItem key={l} value={l}>{getLevelLabel(l)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           ) : (
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">操作类型</label>
-              <Input 
-                placeholder="搜索操作..." 
-                className="w-40" 
-                value={action === "all" ? "" : action} 
-                onChange={(e) => setAction(e.target.value || "all")} 
-              />
+              <Select value={action} onValueChange={setAction}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="所有操作" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有操作</SelectItem>
+                  {knownActions.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

@@ -27,7 +27,7 @@ func (h *Handler) listStorageConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var configs []models.StorageConfig
-	if err := h.db.Where("user_id = ?", userID).Order("priority DESC, created_at DESC").Find(&configs).Error; err != nil {
+	if err := h.db.Where("user_id = ? OR (is_default = ? AND type = ?)", userID, true, "local").Order("is_default DESC, priority DESC, created_at DESC").Find(&configs).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load storage configs", err)
 		return
 	}
@@ -255,6 +255,46 @@ type testStorageConnectionResponse struct {
 	LatencyMs int64  `json:"latency_ms"`
 }
 
+func (h *Handler) listStorageDirectories(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type   string                 `json:"type"`
+		Config map[string]interface{} `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+
+	configBytes, err := json.Marshal(req.Config)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid config", err)
+		return
+	}
+
+	driver, err := storage.DefaultRegistry.Create(req.Type, configBytes)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "failed to initialize driver", err)
+		return
+	}
+
+	files, err := driver.List(r.Context(), "")
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list directories", err)
+		return
+	}
+
+	dirs := make([]string, 0)
+	for _, f := range files {
+		if f.IsDir {
+			dirs = append(dirs, f.Path)
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"directories": dirs,
+	})
+}
+
 // testStorageConnectionNew POST /api/admin/storage/test
 func (h *Handler) testStorageConnectionNew(w http.ResponseWriter, r *http.Request) {
 	_, err := auth.GetUserIDFromContext(r.Context())
@@ -280,9 +320,12 @@ func (h *Handler) testStorageConnectionNew(w http.ResponseWriter, r *http.Reques
 
 	switch req.Type {
 	case "local":
-		path, ok := req.Config["path"].(string)
+		path, ok := req.Config["root_path"].(string)
 		if !ok || path == "" {
-			respondError(w, http.StatusBadRequest, "missing path for local storage", nil)
+			path, ok = req.Config["path"].(string)
+		}
+		if !ok || path == "" {
+			respondError(w, http.StatusBadRequest, "missing root_path for local storage", nil)
 			return
 		}
 		_, err := os.Stat(path)
@@ -660,11 +703,6 @@ func (h *Handler) deleteStorageRule(w http.ResponseWriter, r *http.Request) {
 }
 
 // listStorageDirectories GET /api/storage/directories
-func (h *Handler) listStorageDirectories(w http.ResponseWriter, r *http.Request) {
-	dirs := storage.GetStorageDirectories()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dirs)
-}
 
 // getStorageCapacity GET /api/admin/storage/{id}/capacity
 func (h *Handler) getStorageCapacity(w http.ResponseWriter, r *http.Request) {

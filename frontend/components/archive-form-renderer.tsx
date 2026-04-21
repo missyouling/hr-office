@@ -1,181 +1,198 @@
 "use client";
 
-import React from 'react';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import React from "react";
+import { FormFieldSchema } from "@/lib/archive-schema";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { FormFieldSchema, shouldShowField } from '@/lib/archive-schema';
-import type { Document } from '@/lib/api';
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 interface ArchiveFormRendererProps {
   schema: FormFieldSchema[];
-  data: Document;
-  onChange: (data: Document) => void;
-  storageLocations?: Array<Record<string, unknown>>;
-  retentionPeriods?: Array<Record<string, unknown>>;
+  data: Record<string, unknown>;
+  onChange: (data: Record<string, unknown>) => void;
+  storageLocations?: unknown[];
+  retentionPeriods?: unknown[];
 }
 
-export function ArchiveFormRenderer({
+export const ArchiveFormRenderer: React.FC<ArchiveFormRendererProps> = ({
   schema,
   data,
   onChange,
-  storageLocations,
-  retentionPeriods,
-}: ArchiveFormRendererProps) {
-  const visibleSchema = schema.filter(field => shouldShowField(field, data));
-
-  const handleFieldChange = (fieldName: string, value: unknown) => {
+  storageLocations = [],
+  retentionPeriods = [],
+}) => {
+  const handleFieldChange = (name: string, value: unknown) => {
     onChange({
       ...data,
-      [fieldName]: value,
+      [name]: value,
     });
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {visibleSchema.map((field) => (
-        <div
-          key={field.field_name}
-          className={field.field_type === 'textarea' ? 'col-span-1 md:col-span-2' : ''}
-        >
-          <Label className="mb-1 block">
-            {field.field_label}
-            {field.required && <span className="text-destructive ml-1">*</span>}
-          </Label>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {schema
+        .filter((field) => field.visible)
+        .map((field) => (
           <DynamicFormField
-            key={field.field_name}
+            key={field.name}
             field={field}
-            value={((data as unknown) as Record<string, unknown>)[field.field_name]}
-            onChange={(val) => handleFieldChange(field.field_name, val)}
-            storageLocations={storageLocations}
-            retentionPeriods={retentionPeriods}
+            value={data[field.name]}
+            onChange={(val) => handleFieldChange(field.name, val)}
+            storageLocations={storageLocations.map(loc => typeof loc === 'string' ? loc : (loc as { name?: string; value?: string }).name || (loc as { name?: string; value?: string }).value || "")}
+            retentionPeriods={retentionPeriods.map(rp => typeof rp === 'string' ? rp : (rp as { name?: string; value?: string }).name || (rp as { name?: string; value?: string }).value || "")}
           />
-        </div>
-      ))}
+        ))}
     </div>
   );
-}
+};
 
 interface DynamicFormFieldProps {
   field: FormFieldSchema;
   value: unknown;
   onChange: (value: unknown) => void;
-  storageLocations?: Array<Record<string, unknown>>;
-  retentionPeriods?: Array<Record<string, unknown>>;
+  storageLocations: string[];
+  retentionPeriods: string[];
 }
 
-function DynamicFormField({
+const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
   field,
   value,
   onChange,
   storageLocations,
   retentionPeriods,
-}: DynamicFormFieldProps) {
-  const placeholder = field.placeholder || `请输入${field.field_label}`;
-  const defaultValue = value !== undefined && value !== null ? String(value) : (field.default_value || "");
+}) => {
+  const id = `field-${field.name}`;
 
-  switch (field.field_type) {
-    case 'textarea':
-      return (
-        <Textarea
-          value={defaultValue}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          disabled={!field.editable}
-          rows={3}
-        />
-      );
-    case 'number':
-      return (
-        <Input
-          type="number"
-          value={defaultValue}
-          onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-          placeholder={placeholder}
-          disabled={!field.editable}
-        />
-      );
-    case 'date':
-      return (
-        <Input
-          type="date"
-          value={defaultValue}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          disabled={!field.editable}
-        />
-      );
-    case 'select':
-      let options = field.options || [];
-      
-      if (field.field_name === 'storage_location' && storageLocations) {
-        options = storageLocations.map(loc => loc.name as string);
-      } else if (field.field_name === 'retention_period' && retentionPeriods) {
-        options = retentionPeriods.map(p => p.name as string);
-      }
+  const renderInput = () => {
+    // Special handling for predefined system lists if applicable
+    let options = field.options;
+    if (field.name === "storage_location" && storageLocations.length > 0) {
+      options = storageLocations;
+    } else if (field.name === "retention_period" && retentionPeriods.length > 0) {
+      options = retentionPeriods;
+    }
 
-      return (
-        <Select
-          value={defaultValue}
-          onValueChange={onChange}
-          disabled={!field.editable}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={placeholder} />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((opt) => (
-              <SelectItem key={opt} value={opt}>
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      );
-    case 'checkbox':
-      return (
-        <div className="flex items-center space-x-2 pt-2">
-          <Checkbox
-            id={field.field_name}
-            checked={Boolean(value)}
-            onCheckedChange={onChange}
+    switch (field.type) {
+      case "textarea":
+        return (
+          <Textarea
+            id={id}
+            placeholder={field.placeholder}
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={!field.editable}
+            className="min-h-[100px]"
+          />
+        );
+
+      case "number":
+        return (
+          <Input
+            id={id}
+            type="number"
+            placeholder={field.placeholder}
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
             disabled={!field.editable}
           />
-          <label
-            htmlFor={field.field_name}
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+        );
+
+      case "date":
+        return (
+          <Input
+            id={id}
+            type="date"
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={!field.editable}
+          />
+        );
+
+      case "select":
+        return (
+          <Select
+            value={value || ""}
+            onValueChange={onChange}
+            disabled={!field.editable}
           >
-            {field.field_label}
-          </label>
-        </div>
-      );
-    case 'multiselect':
-      return (
-        <Input
-          value={Array.isArray(value) ? value.join(', ') : (value ? String(value) : "")}
-          onChange={(e) => onChange(e.target.value.split(',').map(s => s.trim()))}
-          placeholder={`${placeholder} (用逗号分隔)`}
-          disabled={!field.editable}
-        />
-      );
-    default:
-      return (
-        <Input
-          value={defaultValue}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          disabled={!field.editable}
-        />
-      );
-  }
-}
+            <SelectTrigger id={id}>
+              <SelectValue placeholder={field.placeholder || "请选择"} />
+            </SelectTrigger>
+            <SelectContent>
+              {options?.map((opt) => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
 
+      case "checkbox":
+        return (
+          <div className="flex items-center space-x-2 pt-2">
+            <Checkbox
+              id={id}
+              checked={!!value}
+              onCheckedChange={onChange}
+              disabled={!field.editable}
+            />
+            <label
+              htmlFor={id}
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            >
+              {field.label}
+            </label>
+          </div>
+        );
 
+      case "multiselect":
+        return (
+          <Input
+            id={id}
+            placeholder={field.placeholder || "多个选项以逗号分隔"}
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={!field.editable}
+          />
+        );
+
+      case "text":
+      default:
+        return (
+          <Input
+            id={id}
+            type="text"
+            placeholder={field.placeholder}
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={!field.editable}
+          />
+        );
+    }
+  };
+
+  return (
+    <div className={cn("space-y-2", field.type === "textarea" ? "md:col-span-2" : "md:col-span-1")}>
+      {field.type !== "checkbox" && (
+        <Label htmlFor={id} className="text-sm font-semibold">
+          {field.label}
+          {field.required && <span className="text-destructive ml-1">*</span>}
+        </Label>
+      )}
+      {renderInput()}
+      {field.helpText && (
+        <p className="text-xs text-muted-foreground">{field.helpText}</p>
+      )}
+    </div>
+  );
+};

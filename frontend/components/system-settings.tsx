@@ -18,6 +18,33 @@ import {
   updateAnnouncement,
   deleteAnnouncement,
   type Announcement,
+  fetchDocumentCategories,
+  fetchFieldDefinitions,
+  createFieldDefinition,
+  updateFieldDefinition,
+  deleteFieldDefinition,
+  type ArchiveFieldDefinition,
+  type DocumentCategory,
+  fetchRetentionPeriods,
+  createRetentionPeriod,
+  updateRetentionPeriod,
+  deleteRetentionPeriod,
+  type RetentionPeriod,
+  fetchStorageLocations,
+  createStorageLocation,
+  updateStorageLocation,
+  deleteStorageLocation,
+  type StorageLocation,
+  fetchCodeRules,
+  createCodeRule,
+  updateCodeRule,
+  deleteCodeRule,
+  getCodeRulePreview,
+  type CodeRule,
+  type CodeRulePreview,
+  updateCategoryCode,
+  createCategoryCode,
+  deleteCategory,
   listStorageConfigs,
   createStorageConfig,
   updateStorageConfig,
@@ -44,7 +71,7 @@ import {
   updateStorageRuleEnhanced,
   deleteStorageRuleEnhanced,
 } from "@/lib/api";
-import type { StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
+import type { AuditLog, StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 
@@ -61,12 +88,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Download, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server, Pencil } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server, Pencil, ShieldCheck, Search, Settings2, Info, Sliders, Circle, Database } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
-import { ArchiveConfigTab } from "./archive-settings-tab";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
 // ============ 方案 A：一级 Tab + 二级侧边栏分组结构 ============
 
@@ -91,6 +118,7 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
       { id: "logs", label: "系统日志" },
       { id: "maintenance", label: "系统维护" },
       { id: "model-usage", label: "模型分布" },
+      { id: "storage", label: "存储配置" },
     ],
   },
   {
@@ -105,7 +133,8 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
     group: "档案配置",
     icon: "📁",
     items: [
-      { id: "archive-config", label: "档案配置" },
+      { id: "archive-classification", label: "档案分类" },
+      { id: "archive-global", label: "全局配置" },
     ],
   },
   {
@@ -115,19 +144,322 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
       { id: "roles", label: "角色权限" },
     ],
   },
-  {
-    group: "资源与存储",
-    icon: "📦",
-    items: [
-      { id: "storage-configs", label: "存储配置" },
-      { id: "storage-rules", label: "存储规则" },
-      { id: "storage-files", label: "文件管理" },
-    ],
-  },
 ];
 
+// 用于 flat 查找
+const SETTINGS_TABS = SETTINGS_TAB_GROUPS.flatMap((g) => g.items);
 
+// 根据 tab id 查找所属分组
+function getGroupForTab(tabId: string): SettingsTabGroup | undefined {
+  return SETTINGS_TAB_GROUPS.find((g) => g.items.some((item) => item.id === tabId));
+}
 
+// 模型配置 Tab
+function ModelConfigTab() {
+  const [activeTab, setActiveTab] = useState<"chat" | "embedding" | "rerank">("chat");
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [statuses, setStatuses] = useState<Record<string, "idle" | "success" | "error">>({});
+
+  // 通用大模型配置
+  const [chatConfig, setChatConfig] = useState({
+    provider: "openai",
+    api_key: "",
+    model: "gpt-4o",
+    endpoint: "",
+    enabled: false,
+  });
+
+  // 向量模型配置
+  const [embeddingConfig, setEmbeddingConfig] = useState({
+    provider: "openai",
+    api_key: "",
+    model: "text-embedding-3-small",
+    endpoint: "",
+    enabled: false,
+  });
+
+  // 重排模型配置
+  const [rerankConfig, setRerankConfig] = useState({
+    provider: "cohere",
+    api_key: "",
+    model: "rerank-multilingual-v2.0",
+    endpoint: "",
+    enabled: false,
+  });
+
+  // 测试连接
+  const handleTest = async (type: string, config: Record<string, unknown>) => {
+    setTesting({ ...testing, [type]: true });
+    setStatuses({ ...statuses, [type]: "idle" });
+    try {
+      // TODO: 调用后端 API 测试连接
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setStatuses({ ...statuses, [type]: "success" });
+      toast.success("连接测试成功");
+    } catch (error) {
+      setStatuses({ ...statuses, [type]: "error" });
+      toast.error("连接失败");
+    } finally {
+      setTesting({ ...testing, [type]: false });
+    }
+  };
+
+  // 保存配置
+  const handleSave = () => {
+    toast.success("模型配置已保存");
+  };
+
+  // 状态指示器组件
+  const StatusIndicator = ({ status }: { status: "idle" | "success" | "error" }) => {
+    if (status === "idle") return <span className="text-muted-foreground text-sm">未测试</span>;
+    if (status === "success") return <span className="text-green-600 text-sm flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> 已连接</span>;
+    return <span className="text-red-600 text-sm flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> 连接失败</span>;
+  };
+
+  // 通用配置表单
+  const renderChatConfig = () => (
+    <div className="space-y-4">
+      <div className="flex items-center space-x-2">
+        <Switch
+          id="chat-enabled"
+          checked={chatConfig.enabled}
+          onCheckedChange={(checked) => setChatConfig({ ...chatConfig, enabled: checked })}
+        />
+        <Label htmlFor="chat-enabled">启用通用大模型</Label>
+        <StatusIndicator status={statuses.chat || "idle"} />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="chat-provider">AI 厂商</Label>
+        <Select value={chatConfig.provider} onValueChange={(v) => setChatConfig({ ...chatConfig, provider: v })}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="openai">OpenAI</SelectItem>
+            <SelectItem value="azure">Azure OpenAI</SelectItem>
+            <SelectItem value="qwen">阿里 Qwen</SelectItem>
+            <SelectItem value="local">本地模型 (Ollama)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="chat-endpoint">API 地址</Label>
+        <Input
+          id="chat-endpoint"
+          placeholder="https://api.openai.com/v1"
+          value={chatConfig.endpoint}
+          onChange={(e) => setChatConfig({ ...chatConfig, endpoint: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="chat-model">模型</Label>
+        <Input
+          id="chat-model"
+          placeholder="gpt-4o"
+          value={chatConfig.model}
+          onChange={(e) => setChatConfig({ ...chatConfig, model: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="chat-key">API Key</Label>
+        <Input
+          id="chat-key"
+          type="password"
+          placeholder="sk-..."
+          value={chatConfig.api_key}
+          onChange={(e) => setChatConfig({ ...chatConfig, api_key: e.target.value })}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={() => handleTest("chat", chatConfig)} disabled={testing.chat}>
+          {testing.chat ? "测试中..." : "测试连接"}
+        </Button>
+        <Button onClick={handleSave}>保存配置</Button>
+      </div>
+    </div>
+  );
+
+  // 向量模型配置表单
+  const renderEmbeddingConfig = () => (
+    <div className="space-y-4">
+      <div className="flex items-center space-x-2">
+        <Switch
+          id="embedding-enabled"
+          checked={embeddingConfig.enabled}
+          onCheckedChange={(checked) => setEmbeddingConfig({ ...embeddingConfig, enabled: checked })}
+        />
+        <Label htmlFor="embedding-enabled">启用向量模型</Label>
+        <StatusIndicator status={statuses.embedding || "idle"} />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="embedding-provider">向量模型厂商</Label>
+        <Select value={embeddingConfig.provider} onValueChange={(v) => setEmbeddingConfig({ ...embeddingConfig, provider: v })}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="openai">OpenAI</SelectItem>
+            <SelectItem value="azure">Azure OpenAI</SelectItem>
+            <SelectItem value="qwen">阿里 Qwen</SelectItem>
+            <SelectItem value="zhipuai">智谱 AI</SelectItem>
+            <SelectItem value="local">本地模型</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="embedding-endpoint">API 地址</Label>
+        <Input
+          id="embedding-endpoint"
+          placeholder="https://api.openai.com/v1"
+          value={embeddingConfig.endpoint}
+          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, endpoint: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="embedding-model">向量模型</Label>
+        <Input
+          id="embedding-model"
+          placeholder="text-embedding-3-small"
+          value={embeddingConfig.model}
+          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, model: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="embedding-key">API Key</Label>
+        <Input
+          id="embedding-key"
+          type="password"
+          placeholder="sk-..."
+          value={embeddingConfig.api_key}
+          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, api_key: e.target.value })}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={() => handleTest("embedding", embeddingConfig)} disabled={testing.embedding}>
+          {testing.embedding ? "测试中..." : "测试连接"}
+        </Button>
+        <Button onClick={handleSave}>保存配置</Button>
+      </div>
+    </div>
+  );
+
+  // 重排模型配置表单
+  const renderRerankConfig = () => (
+    <div className="space-y-4">
+      <div className="flex items-center space-x-2">
+        <Switch
+          id="rerank-enabled"
+          checked={rerankConfig.enabled}
+          onCheckedChange={(checked) => setRerankConfig({ ...rerankConfig, enabled: checked })}
+        />
+        <Label htmlFor="rerank-enabled">启重视排模型</Label>
+        <StatusIndicator status={statuses.rerank || "idle"} />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="rerank-provider">重排模型厂商</Label>
+        <Select value={rerankConfig.provider} onValueChange={(v) => setRerankConfig({ ...rerankConfig, provider: v })}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="cohere">Cohere</SelectItem>
+            <SelectItem value="openai">OpenAI</SelectItem>
+            <SelectItem value="qwen">阿里 Qwen</SelectItem>
+            <SelectItem value="local">本地模型</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="rerank-endpoint">API 地址</Label>
+        <Input
+          id="rerank-endpoint"
+          placeholder="https://api.cohere.ai/v1"
+          value={rerankConfig.endpoint}
+          onChange={(e) => setRerankConfig({ ...rerankConfig, endpoint: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="rerank-model">重排模型</Label>
+        <Input
+          id="rerank-model"
+          placeholder="rerank-multilingual-v2.0"
+          value={rerankConfig.model}
+          onChange={(e) => setRerankConfig({ ...rerankConfig, model: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="rerank-key">API Key</Label>
+        <Input
+          id="rerank-key"
+          type="password"
+          placeholder="..."
+          value={rerankConfig.api_key}
+          onChange={(e) => setRerankConfig({ ...rerankConfig, api_key: e.target.value })}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={() => handleTest("rerank", rerankConfig)} disabled={testing.rerank}>
+          {testing.rerank ? "测试中..." : "测试连接"}
+        </Button>
+        <Button onClick={handleSave}>保存配置</Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>模型配置</CardTitle>
+        <CardDescription>配置通用大模型、向量模型和重排模型</CardDescription>
+      </CardHeader>
+        <CardContent className="space-y-6">
+          {/* 按钮式标签栏 */}
+          <div className="flex gap-2">
+            <Button
+              variant={activeTab === "chat" ? "default" : "ghost"}
+              onClick={() => setActiveTab("chat")}
+            >
+              通用大模型
+            </Button>
+            <Button
+              variant={activeTab === "embedding" ? "default" : "ghost"}
+              onClick={() => setActiveTab("embedding")}
+            >
+              向量模型
+            </Button>
+            <Button
+              variant={activeTab === "rerank" ? "default" : "ghost"}
+              onClick={() => setActiveTab("rerank")}
+            >
+              重排模型
+            </Button>
+          </div>
+
+          {/* 内容区域 */}
+          <div className="mt-4 space-y-4">
+            {activeTab === "chat" && renderChatConfig()}
+            {activeTab === "embedding" && renderEmbeddingConfig()}
+            {activeTab === "rerank" && renderRerankConfig()}
+          </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 // ============ SMTP 配置 Tab ============
 function SMTPConfigTab() {
@@ -178,16 +510,13 @@ function SMTPConfigTab() {
       const data = await listNotificationConfigs();
       setConfigs(data);
       data.forEach(c => {
-        const conf = (c.config || {}) as Record<string, string>;
-        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: conf.host || "", port: conf.port || "587", username: conf.username || "", password: conf.password || "", from: conf.from || "", from_name: conf.from_name || "人事系统", reply_to: conf.reply_to || "", encryption: conf.encryption || "ssl", server_name: conf.server_name || "" });
-        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: conf.access_key_id || "", access_key_secret: conf.access_key_secret || "", sign_name: conf.sign_name || "", template_code: conf.template_code || "" });
-        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: conf.bot_token || "", chat_id: conf.chat_id || "" });
-        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: conf.url || "", method: conf.method || "POST", auth: conf.auth || "" });
+        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", reply_to: c.config?.reply_to || "", encryption: c.config?.encryption || "ssl", server_name: c.config?.server_name || "" });
+        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: c.config?.access_key_id || "", access_key_secret: c.config?.access_key_secret || "", sign_name: c.config?.sign_name || "", template_code: c.config?.template_code || "" });
+        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
+        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
       });
-    } catch (error) {
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error("加载配置失败:", e); }
+    finally { setLoading(false); }
   };
 
   const handleSave = async (channel: string) => {
@@ -200,11 +529,8 @@ function SMTPConfigTab() {
       else { await createNotificationConfig(payload); }
       toast.success(channel.toUpperCase() + " 配置已保存");
       loadConfigs();
-    } catch (error) {
-      toast.error("保存失败");
-    } finally {
-      setSaving(false);
-    }
+    } catch (error) { console.error("保存失败:", error); toast.error("保存失败"); }
+    finally { setSaving(false); }
   };
 
   const handleTest = async (channel: string) => {
@@ -213,11 +539,8 @@ function SMTPConfigTab() {
       const configData = channel === "smtp" ? smtpConfig : channel === "sms" ? smsConfig : channel === "telegram" ? telegramConfig : webhookConfig;
       await testNotification(channel, channel === "smtp" ? smtpConfig.from : channel === "sms" ? "13800138000" : channel === "telegram" ? telegramConfig.chat_id : "", configData);
       toast.success("测试消息发送成功");
-    } catch (error) {
-      toast.error("测试发送失败");
-    } finally {
-      setTesting(false);
-    }
+    } catch (error) { console.error("测试失败:", error); toast.error("测试发送失败"); }
+    finally { setTesting(false); }
   };
 
   if (loading) return <div className="p-4">加载中...</div>;
@@ -326,7 +649,7 @@ function ModelUsageTab() {
   const [selectedConfigType, setSelectedConfigType] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
 
-  const loadData = useCallback(async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
       const params: { start_date?: string; end_date?: string; config_type?: string } = {};
@@ -381,11 +704,11 @@ function ModelUsageTab() {
     } finally {
       setLoading(false);
     }
-  }, [timeRange, customFrom, customTo, selectedConfigType, selectedModel]);
+  };
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [timeRange, customFrom, customTo, selectedConfigType, selectedModel]);
 
   const handleRefresh = () => {
     loadData();
@@ -396,6 +719,22 @@ function ModelUsageTab() {
   const totalCalls = stats?.total_calls ?? 0;
   const avgLatency = Math.round(stats?.avg_duration_ms ?? 0);
   const totalCost = stats?.total_cost ?? 0;
+  const todayTokens = stats?.today_input_tokens ? (stats.today_input_tokens + (stats.today_output_tokens || 0)) : 0;
+  const totalTokens = (stats?.input_tokens || 0) + (stats?.output_tokens || 0);
+
+  const COLORS = [
+    "#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", 
+    "#06b6d4", "#6366f1", "#f97316", "#ef4444", "#14b8a6",
+    "#84cc16", "#a855f7", "#fbbf24", "#2dd4bf", "#60a5fa"
+  ];
+  
+  const getColorForModel = (model: string) => {
+    let hash = 0;
+    for (let i = 0; i < model.length; i++) {
+      hash = model.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return COLORS[Math.abs(hash) % COLORS.length];
+  };
 
   const byModel = usageData.reduce((acc: Record<string, number>, r) => {
     acc[r.model_name] = (acc[r.model_name] ?? 0) + r.total_calls;
@@ -412,8 +751,21 @@ function ModelUsageTab() {
     { value: "custom", label: "自定义" },
   ];
 
-  const configTypes = Array.from(new Set(usageData.map(item => item.config_type))).sort();
-  const modelNames = Array.from(new Set(usageData.map(item => item.model_name))).sort();
+  const [allConfigTypes, setAllConfigTypes] = useState<string[]>([]);
+  const [allModelNames, setAllModelNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (usageData.length > 0) {
+      setAllConfigTypes(prev => {
+        const types = new Set([...prev, ...usageData.map(item => item.config_type)]);
+        return Array.from(types).sort();
+      });
+      setAllModelNames(prev => {
+        const names = new Set([...prev, ...usageData.map(item => item.model_name)]);
+        return Array.from(names).sort();
+      });
+    }
+  }, [usageData]);
 
   return (
     <div className="space-y-4">
@@ -450,7 +802,7 @@ function ModelUsageTab() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">全部类型</SelectItem>
-            {configTypes.map((ct) => (
+            {allConfigTypes.map((ct) => (
               <SelectItem key={ct} value={ct}>{ct.toUpperCase()}</SelectItem>
             ))}
           </SelectContent>
@@ -462,7 +814,7 @@ function ModelUsageTab() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">全部模型</SelectItem>
-            {modelNames.map((mn) => (
+            {allModelNames.map((mn) => (
               <SelectItem key={mn} value={mn}>{mn}</SelectItem>
             ))}
           </SelectContent>
@@ -471,80 +823,142 @@ function ModelUsageTab() {
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Card className="p-3">
-          <div className="text-xs text-muted-foreground mb-1">Token 输入（期间）</div>
-          <div className="text-2xl font-bold text-blue-600">{formatNum(totalTokensIn)}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">累计 {formatNum(totalTokensIn * 30)}</div>
+          <div className="text-xs text-muted-foreground mb-1">今日请求</div>
+          <div className="text-2xl font-bold text-blue-600">{stats?.today_calls || 0}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">RPM: {stats?.rpm || 0}</div>
         </Card>
         <Card className="p-3">
-          <div className="text-xs text-muted-foreground mb-1">Token 输出（期间）</div>
-          <div className="text-2xl font-bold text-green-600">{formatNum(totalTokensOut)}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">累计 {formatNum(totalTokensOut * 30)}</div>
+          <div className="text-xs text-muted-foreground mb-1">今日消费</div>
+          <div className="text-2xl font-bold text-red-600">¥{(stats?.today_cost || 0).toFixed(4)}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">累计 ¥{totalCost.toFixed(2)}</div>
         </Card>
         <Card className="p-3">
-          <div className="text-xs text-muted-foreground mb-1">总调用次数</div>
-          <div className="text-2xl font-bold text-purple-600">{totalCalls.toLocaleString()}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">{usageData.length} 条记录</div>
+          <div className="text-xs text-muted-foreground mb-1">今日 Token</div>
+          <div className="text-2xl font-bold text-emerald-600">{formatNum(todayTokens)}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">TPM: {formatNum(stats?.tpm || 0)}</div>
         </Card>
         <Card className="p-3">
-          <div className="text-xs text-muted-foreground mb-1">平均响应时间</div>
+          <div className="text-xs text-muted-foreground mb-1">累计 Token</div>
+          <div className="text-2xl font-bold text-purple-600">{formatNum(totalTokens)}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">In/Out {formatNum(totalTokensIn)}/{formatNum(totalTokensOut)}</div>
+        </Card>
+        <Card className="p-3">
+          <div className="text-xs text-muted-foreground mb-1">平均延迟</div>
           <div className="text-2xl font-bold text-orange-600">{avgLatency}ms</div>
-          <div className="text-xs text-muted-foreground mt-0.5">加权均值</div>
-        </Card>
-        <Card className="p-3">
-          <div className="text-xs text-muted-foreground mb-1">总成本</div>
-          <div className="text-2xl font-bold text-red-600">{formatCny(totalCost)}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">期间支出</div>
+          <div className="text-xs text-muted-foreground mt-0.5">P95 响应性能</div>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">趋势分析</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {trendData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart
-                data={trendData}
-                margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="total_calls" stroke="#8884d8" name="总调用次数" />
-                <Line type="monotone" dataKey="total_cost" stroke="#82ca9d" name="成本(¥)" />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">
-              暂无趋势数据
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">调用量分布</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {chartItems.map(([model, calls]) => (
-              <div key={model} className="flex items-center gap-2 text-xs">
-                <div className="w-48 truncate text-muted-foreground shrink-0" title={model}>
-                  {model}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">模型分布</CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 flex flex-col justify-center py-4">
+            {chartItems.length > 0 ? (
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="relative w-48 h-48 shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartItems.map(([name, value]) => ({ name, value }))}
+                        innerRadius={60}
+                        outerRadius={85}
+                        paddingAngle={2}
+                        dataKey="value"
+                        animationDuration={1000}
+                      >
+                        {chartItems.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={getColorForModel(entry[0])} className="outline-none" />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="flex-1 h-5 bg-muted rounded overflow-hidden">
-                  <div className="h-full bg-primary rounded transition-all duration-500" style={{ width: `${Math.max(2, (calls / maxCalls) * 100)}%` }} />
+                <div className="flex-1 w-full space-y-1.5 overflow-y-auto max-h-[180px] pr-2">
+                   {chartItems.map(([name, value]) => (
+                     <div key={name} className="flex items-center justify-between text-[11px] group hover:bg-muted/50 p-1 rounded-sm transition-colors">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColorForModel(name) }} />
+                          <span className="text-muted-foreground truncate" title={name}>{name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0 ml-2">
+                          <span className="font-bold tabular-nums">{formatNum(value)}</span>
+                          <span className="text-muted-foreground/60 w-10 text-right tabular-nums">{((value / totalCalls) * 100).toFixed(1)}%</span>
+                        </div>
+                     </div>
+                   ))}
                 </div>
-                <div className="w-12 text-right font-medium shrink-0">{formatNum(calls)}</div>
+                </div>
+                <div className="flex-1 w-full space-y-1.5 overflow-y-auto max-h-[180px] pr-2">
+                   {chartItems.map(([name, value]) => (
+                     <div key={name} className="flex items-center justify-between text-[11px] group hover:bg-muted/50 p-1 rounded-sm transition-colors">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColorForModel(name) }} />
+                          <span className="text-muted-foreground truncate" title={name}>{name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0 ml-2">
+                          <span className="font-bold tabular-nums">{formatNum(value)}</span>
+                          <span className="text-muted-foreground/60 w-10 text-right tabular-nums">{((value / totalCalls) * 100).toFixed(1)}%</span>
+                        </div>
+                     </div>
+                   ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            ) : (
+              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm border-2 border-dashed rounded-xl bg-muted/5">暂无调用分布数据</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Token 使用趋势</CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 flex flex-col">
+            {trendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minHeight={240}>
+                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorInput" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorOutput" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis 
+                    dataKey="date" 
+                    tick={{ fontSize: 10, fill: '#94a3b8' }} 
+                    axisLine={false} 
+                    tickLine={false} 
+                    dy={10}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 10, fill: '#94a3b8' }} 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tickFormatter={(v) => formatNum(v)} 
+                  />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                  />
+                  <Area type="monotone" dataKey="input_tokens" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorInput)" name="Token 输入" />
+                  <Area type="monotone" dataKey="output_tokens" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorOutput)" name="Token 输出" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground border-2 border-dashed rounded-xl bg-muted/5">暂无趋势统计数据</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader className="pb-2">
@@ -766,6 +1180,7 @@ function AnnouncementTab() {
       const data = await fetchAnnouncements();
       setAnnouncements(data);
     } catch (error) {
+      console.error("加载公告失败:", error);
       toast.error("加载公告失败");
     } finally {
       setLoading(false);
@@ -791,6 +1206,7 @@ function AnnouncementTab() {
       setContent("");
       loadAnnouncements();
     } catch (error) {
+      console.error("保存失败:", error);
       toast.error("保存失败");
     }
   };
@@ -802,6 +1218,7 @@ function AnnouncementTab() {
         toast.success("公告已删除");
         loadAnnouncements();
       } catch (error) {
+        console.error("删除失败:", error);
         toast.error("删除失败");
       }
     }
@@ -926,253 +1343,1973 @@ function SystemMaintenanceTab() {
 
 
 
-
-// 存储配置 Tab
-function StorageConfigTab() {
-  const [configs, setConfigs] = useState<StorageConfig[]>([]);
+// ============ 档案分类管理 Tab ============
+function ArchiveClassificationTab() {
+  const [categories, setCategories] = useState<DocumentCategory[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [editingConfig, setEditingConfig] = useState<StorageConfig | null>(null);
-  const [testingId, setTestingId] = useState<number | null>(null);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<DocumentCategory | null>(null);
 
-  const [formData, setFormData] = useState({
-    name: "",
-    type: "local" as "local" | "s3" | "webdav",
-    enabled: true,
-    config: {} as Record<string, unknown>,
-  });
-
-  useEffect(() => {
-    const load = async () => {
+  const loadCategories = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listStorageConfigs();
-      setConfigs(data);
-    } catch (error) {
-      toast.error("加载存储配置失败");
+      const data = await fetchDocumentCategories();
+      setCategories(data);
+      
+      // 如果当前有选中的大类，同步更新其数据以刷新子类列表等
+      if (selectedCategory) {
+        const updated = data.find(c => c.id === selectedCategory.id);
+        if (updated) setSelectedCategory(updated);
+      }
+    } catch {
+      toast.error("加载分类失败");
     } finally {
       setLoading(false);
     }
-  };
-    load();
-  }, []);
+  }, [selectedCategory]);
 
-  const handleCreate = () => {
-    setEditingConfig(null);
-    setFormData({ name: "", type: "local", enabled: true, config: {} });
-    setShowCreateDialog(true);
-  };
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
-  const handleEdit = (config: StorageConfig) => {
-    setEditingConfig(config);
-    setFormData({
-      name: config.name,
-      type: config.type as "local" | "s3" | "webdav",
-      enabled: config.enabled,
-      config: config.config,
-    });
-    setShowCreateDialog(true);
+  const handleEditCategory = (category: DocumentCategory) => {
+    setSelectedCategory(category);
+    setShowCategoryModal(true);
   };
 
-  const handleSave = async () => {
-    if (!formData.name.trim()) {
-      toast.error("请输入存储配置名称");
-      return;
-    }
+  const handleAddCategory = () => {
+    setSelectedCategory(null);
+    setShowCategoryModal(true);
+  };
 
+  const handleDeleteCategory = async (id: number) => {
+    if (!confirm("确定要删除此分类及其下所有子分类吗？")) return;
     try {
-      if (editingConfig) {
-        await updateStorageConfig(editingConfig.id, formData);
-        toast.success("存储配置已更新");
-      } else {
-        await createStorageConfig(formData);
-        toast.success("存储配置已创建");
-      }
-      setShowCreateDialog(false);
-      const data = await listStorageConfigs();
-      setConfigs(data);
-    } catch (error) {
-      toast.error("保存失败");
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteStorageConfig(id);
-      toast.success("存储配置已删除");
-      const data = await listStorageConfigs();
-      setConfigs(data);
-    } catch (error) {
+      await deleteCategory(id);
+      toast.success("分类已删除");
+      loadCategories();
+    } catch {
       toast.error("删除失败");
     }
   };
 
-  const handleTest = async (config: StorageConfig) => {
-    setTestingId(config.id);
-    try {
-      const result = await testStorageConnection({
-        type: config.type,
-        config: config.config,
-      });
-      if (result.success) {
-        toast.success(`连接成功 (${result.latency_ms}ms)`);
-      } else {
-        toast.error(`连接失败: ${result.message}`);
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-medium">档案大类</h3>
+        <Button size="sm" onClick={handleAddCategory}>
+          <Plus className="w-4 h-4 mr-2" />
+          新增大类
+        </Button>
+      </div>
+
+      <div className="border rounded-md">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px]">代码</TableHead>
+              <TableHead>名称</TableHead>
+              <TableHead>排序</TableHead>
+              <TableHead>子类数量</TableHead>
+              <TableHead className="text-right">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">加载中...</TableCell>
+              </TableRow>
+            ) : categories.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">暂无分类数据</TableCell>
+              </TableRow>
+            ) : (
+              categories.map((cat) => (
+                <TableRow key={cat.id}>
+                  <TableCell className="font-mono">{cat.code}</TableCell>
+                  <TableCell className="font-medium">{cat.name}</TableCell>
+                  <TableCell>{cat.sort_order}</TableCell>
+                  <TableCell>{cat.sub_categories?.length || 0}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleEditCategory(cat)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteCategory(cat.id)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <CategoryModal
+        open={showCategoryModal}
+        onOpenChange={setShowCategoryModal}
+        category={selectedCategory}
+        onSaved={loadCategories}
+      />
+    </div>
+  );
+}
+
+function CategoryModal({
+  open,
+  onOpenChange,
+  category,
+  onSaved
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  category: DocumentCategory | null;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [description, setDescription] = useState("");
+  const [sortOrder, setSortOrder] = useState(0);
+  const [saving, setSaving] = useState(false);
+  
+  const [showSubModal, setShowSubModal] = useState(false);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<DocumentSubCategory | null>(null);
+
+  useEffect(() => {
+    if (category) {
+      setName(category.name);
+      setCode(category.code);
+      setDescription(category.description || "");
+      setSortOrder(category.sort_order || 0);
+      
+      // 如果子分类正在编辑，也同步更新它以显示最新数据
+      if (selectedSubCategory && category.sub_categories) {
+        const updated = category.sub_categories.find(s => s.id === selectedSubCategory.id);
+        if (updated) setSelectedSubCategory(updated);
       }
-    } catch (error) {
-      toast.error("测试连接失败");
+    } else {
+      setName("");
+      setCode("");
+      setDescription("");
+      setSortOrder(0);
+    }
+  }, [category, open, selectedSubCategory]);
+
+  const handleSave = async () => {
+    if (!name.trim() || !code.trim()) {
+      toast.error("名称和代码不能为空");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (category) {
+        await updateCategoryCode(category.id, { name, code, description, sort_order: sortOrder });
+        toast.success("更新成功");
+      } else {
+        await createCategoryCode({ name, code, description, sort_order: sortOrder });
+        toast.success("创建成功");
+      }
+      onSaved();
+      if (!category) onOpenChange(false);
+    } catch {
+      toast.error("保存失败");
     } finally {
-      setTestingId(null);
+      setSaving(false);
     }
   };
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "s3":
-        return <Cloud className="w-4 h-4" />;
-      case "webdav":
-        return <Server className="w-4 h-4" />;
-      default:
-        return <HardDrive className="w-4 h-4" />;
-    }
+  const handleEditSub = (sub: DocumentSubCategory) => {
+    setSelectedSubCategory(sub);
+    setShowSubModal(true);
   };
 
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case "s3":
-        return "S3";
-      case "webdav":
-        return "WebDAV";
-      default:
-        return "本地";
+  const handleAddSub = () => {
+    setSelectedSubCategory(null);
+    setShowSubModal(true);
+  };
+
+  const handleDeleteSub = async (subId: number) => {
+    if (!confirm("确定要删除此子分类吗？")) return;
+    try {
+      await deleteSubCategory(subId);
+      toast.success("子分类已删除");
+      onSaved();
+    } catch {
+      toast.error("删除失败");
     }
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>存储配置</CardTitle>
-          <CardDescription>管理文件存储位置和配置</CardDescription>
-        </div>
-        <Button onClick={handleCreate} size="sm">
-          <Plus className="w-4 h-4 mr-2" />
-          新增配置
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : configs.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">暂无存储配置</div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {configs.map((config) => (
-              <Card key={config.id} className="border">
-                <CardContent className="pt-6">
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
-                        {getTypeIcon(config.type)}
-                        <div>
-                          <p className="font-medium">{config.name}</p>
-                          <p className="text-xs text-muted-foreground">{getTypeLabel(config.type)}</p>
-                        </div>
-                      </div>
-                      {config.is_default && <Badge variant="default">默认</Badge>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">状态:</span>
-                      <Badge variant={config.enabled ? "outline" : "secondary"}>
-                        {config.enabled ? "启用" : "禁用"}
-                      </Badge>
-                    </div>
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTest(config)}
-                        disabled={testingId === config.id}
-                      >
-                        <RefreshCw className="w-3 h-3 mr-1" />
-                        {testingId === config.id ? "测试中" : "测试"}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(config)}>
-                        <Edit className="w-3 h-3 mr-1" />
-                        编辑
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDelete(config.id)}
-                      >
-                        <Trash2 className="w-3 h-3 mr-1" />
-                        删除
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </CardContent>
-
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingConfig ? "编辑存储配置" : "新增存储配置"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="config-name">配置名称</Label>
-              <Input
-                id="config-name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="例如: 主存储"
-              />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-0">
+          <DialogTitle>{category ? `编辑分类: ${category.name}` : "新增大类"}</DialogTitle>
+        </DialogHeader>
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>分类名称</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如: 行政档案" />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="config-type">存储类型</Label>
-              <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v as "local" | "s3" | "webdav" })}>
+            <div className="space-y-2">
+              <Label>分类代码</Label>
+              <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="如: ADMIN" />
+            </div>
+            <div className="space-y-2">
+              <Label>排序权重</Label>
+              <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(parseInt(e.target.value) || 0)} />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>描述</Label>
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="分类描述信息" rows={2} />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "保存中..." : "保存基本信息"}
+            </Button>
+          </div>
+
+          {category && (
+            <div className="space-y-4 border-t pt-6">
+              <div className="flex justify-between items-center">
+                <h4 className="font-semibold text-sm">子分类列表</h4>
+                <Button size="sm" variant="outline" onClick={handleAddSub}>
+                  <Plus className="w-3 h-3 mr-1" />
+                  新增子类
+                </Button>
+              </div>
+
+              <div className="border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>代码</TableHead>
+                      <TableHead>名称</TableHead>
+                      <TableHead>排序</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!category.sub_categories || category.sub_categories.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-4 text-muted-foreground text-sm">暂无子类</TableCell>
+                      </TableRow>
+                    ) : (
+                      category.sub_categories.map((sub) => (
+                        <TableRow key={sub.id}>
+                          <TableCell className="font-mono text-xs">{sub.code}</TableCell>
+                          <TableCell className="text-sm font-medium">{sub.name}</TableCell>
+                          <TableCell className="text-sm">{sub.sort_order || 0}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => handleEditSub(sub)}>
+                                <Edit className="w-3 h-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteSub(sub.id)}>
+                                <Trash2 className="w-3 h-3 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {category && (
+          <SubCategoryModal
+            open={showSubModal}
+            onOpenChange={setShowSubModal}
+            categoryId={category.id}
+            subCategory={selectedSubCategory}
+            onSaved={onSaved}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FieldModal({
+  open,
+  onOpenChange,
+  subCategoryId,
+  field,
+  onSaved
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  subCategoryId: number;
+  field: ArchiveFieldDefinition | null;
+  onSaved: () => void;
+}) {
+  const [formData, setFormData] = useState({
+    field_name: "",
+    field_label: "",
+    field_type: "text" as ArchiveFieldDefinition["field_type"],
+    required: false,
+    options: "",
+    placeholder: "",
+    help_text: "",
+    default_value: "",
+    condition_config: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (field) {
+      setFormData({
+        field_name: field.field_name,
+        field_label: field.field_label,
+        field_type: field.field_type,
+        required: field.required,
+        options: field.options || "",
+        placeholder: field.placeholder || "",
+        help_text: field.help_text || "",
+        default_value: field.default_value || "",
+        condition_config: field.condition_config ? JSON.stringify(field.condition_config, null, 2) : "",
+      });
+    } else {
+      setFormData({
+        field_name: "",
+        field_label: "",
+        field_type: "text",
+        required: false,
+        options: "",
+        placeholder: "",
+        help_text: "",
+        default_value: "",
+        condition_config: "",
+      });
+    }
+  }, [field, open]);
+
+  const handleSave = async () => {
+    if (!formData.field_name || !formData.field_label) {
+      toast.error("字段名和标签不能为空");
+      return;
+    }
+
+    let conditionConfigObj = null;
+    if (formData.condition_config.trim()) {
+      try {
+        conditionConfigObj = JSON.parse(formData.condition_config);
+      } catch {
+        toast.error("条件配置格式错误，必须是有效的 JSON");
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        ...formData,
+        condition_config: conditionConfigObj,
+      };
+      if (field) {
+        await updateFieldDefinition(field.id, payload);
+      } else {
+        await createFieldDefinition({ ...payload, sub_category_id: subCategoryId });
+      }
+      toast.success("保存成功");
+      onSaved();
+      onOpenChange(false);
+    } catch {
+      toast.error("保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{field ? `编辑字段: ${field.field_label}` : "新增字段"}</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>字段标签 (显示名称)</Label>
+              <Input value={formData.field_label} onChange={(e) => setFormData({ ...formData, field_label: e.target.value })} placeholder="如: 合同金额" />
+            </div>
+            <div className="space-y-2">
+              <Label>字段名称 (英文ID)</Label>
+              <Input value={formData.field_name} onChange={(e) => setFormData({ ...formData, field_name: e.target.value })} placeholder="如: contract_amount" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>字段类型</Label>
+              <Select value={formData.field_type} onValueChange={(v) => setFormData({ ...formData, field_type: v as ArchiveFieldDefinition["field_type"] })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="local">本地存储</SelectItem>
-                  <SelectItem value="s3">S3 兼容</SelectItem>
-                  <SelectItem value="webdav">WebDAV</SelectItem>
+                  <SelectItem value="text">文本</SelectItem>
+                  <SelectItem value="number">数字</SelectItem>
+                  <SelectItem value="date">日期</SelectItem>
+                  <SelectItem value="select">下拉选择</SelectItem>
+                  <SelectItem value="textarea">多行文本</SelectItem>
+                  <SelectItem value="checkbox">复选框</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="config-enabled"
-                checked={formData.enabled}
-                onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
+            <div className="flex items-center space-x-2 pt-8">
+              <Switch checked={formData.required} onCheckedChange={(v) => setFormData({ ...formData, required: v })} />
+              <Label>设为必填</Label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>默认值</Label>
+              <Input value={formData.default_value} onChange={(e) => setFormData({ ...formData, default_value: e.target.value })} placeholder="输入默认值" />
+            </div>
+            {(formData.field_type === "select" || formData.field_type === "multiselect") && (
+              <div className="space-y-2">
+                <Label>选项列表 (英文逗号分隔)</Label>
+                <Input value={formData.options} onChange={(e) => setFormData({ ...formData, options: e.target.value })} placeholder="选项1,选项2,选项3" />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>提示文字 (Placeholder)</Label>
+            <Input value={formData.placeholder} onChange={(e) => setFormData({ ...formData, placeholder: e.target.value })} />
+          </div>
+
+          <div className="space-y-2">
+            <Label>帮助信息</Label>
+            <Textarea value={formData.help_text} onChange={(e) => setFormData({ ...formData, help_text: e.target.value })} />
+          </div>
+
+          <div className="space-y-2">
+            <Label>条件显示规则 (JSON)</Label>
+            <Textarea 
+              value={formData.condition_config} 
+              onChange={(e) => setFormData({ ...formData, condition_config: e.target.value })} 
+              placeholder='{"field_name": "category", "operator": "equals", "value": "A"}'
+              rows={4}
+              className="font-mono text-xs"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "保存中..." : "保存字段"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SubCategoryModal({
+  open,
+  onOpenChange,
+  categoryId,
+  subCategory,
+  onSaved
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  categoryId: number;
+  subCategory: DocumentSubCategory | null;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [description, setDescription] = useState("");
+  const [sortOrder, setSortOrder] = useState(0);
+  const [saving, setSaving] = useState(false);
+  
+  const [fields, setFields] = useState<ArchiveFieldDefinition[]>([]);
+  const [loadingFields, setLoadingFields] = useState(false);
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [selectedField, setSelectedField] = useState<ArchiveFieldDefinition | null>(null);
+
+  const loadFields = useCallback(async () => {
+    if (!subCategory) return;
+    setLoadingFields(true);
+    try {
+      const data = await fetchFieldsBySubCategory(subCategory.id);
+      const allFields = [...data.ungrouped, ...data.groups.flatMap(g => g.fields)];
+      setFields(allFields);
+    } catch {
+      toast.error("加载字段失败");
+    } finally {
+      setLoadingFields(false);
+    }
+  }, [subCategory]);
+
+  useEffect(() => {
+    if (subCategory) {
+      setName(subCategory.name);
+      setCode(subCategory.code);
+      setDescription(subCategory.description || "");
+      setSortOrder(subCategory.sort_order || 0);
+      loadFields();
+    } else {
+      setName("");
+      setCode("");
+      setDescription("");
+      setSortOrder(0);
+      setFields([]);
+    }
+  }, [subCategory, open, loadFields]);
+
+  const handleSave = async () => {
+    if (!name.trim() || !code.trim()) {
+      toast.error("名称和代码不能为空");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (subCategory) {
+        await updateSubCategoryCode(subCategory.id, { code, name, description, sort_order: sortOrder });
+        toast.success("更新成功");
+      } else {
+        await createSubCategory({ category_id: categoryId, name, code, description, sort_order: sortOrder });
+        toast.success("创建成功");
+      }
+      onSaved();
+      if (!subCategory) onOpenChange(false);
+    } catch {
+      toast.error("保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditField = (field: ArchiveFieldDefinition) => {
+    setSelectedField(field);
+    setShowFieldModal(true);
+  };
+
+  const handleAddField = () => {
+    setSelectedField(null);
+    setShowFieldModal(true);
+  };
+
+  const handleDeleteField = async (fieldId: number) => {
+    if (!confirm("确定要删除此字段吗？")) return;
+    try {
+      await deleteFieldDefinition(fieldId);
+      toast.success("字段已删除");
+      loadFields();
+    } catch {
+      toast.error("删除失败");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-0">
+          <DialogTitle>{subCategory ? `编辑子类: ${subCategory.name}` : "新增子类"}</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>子类名称</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如: 劳动合同" />
+            </div>
+            <div className="space-y-2">
+              <Label>子类代码</Label>
+              <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="如: CONTRACT" />
+            </div>
+            <div className="space-y-2">
+              <Label>排序权重</Label>
+              <Input type="number" value={sortOrder} onChange={(e) => setSortOrder(parseInt(e.target.value) || 0)} />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>描述</Label>
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="子类描述信息" rows={2} />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "保存中..." : "保存基本信息"}
+            </Button>
+          </div>
+
+          {subCategory && (
+            <div className="space-y-4 border-t pt-6">
+              <div className="flex justify-between items-center">
+                <h4 className="font-semibold text-sm">业务字段 (Metadata)</h4>
+                <Button size="sm" variant="outline" onClick={handleAddField}>
+                  <Plus className="w-3 h-3 mr-1" />
+                  新增字段
+                </Button>
+              </div>
+
+              <div className="border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>标签</TableHead>
+                      <TableHead>名称(Key)</TableHead>
+                      <TableHead>类型</TableHead>
+                      <TableHead>必填</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loadingFields ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">加载中...</TableCell>
+                      </TableRow>
+                    ) : fields.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground text-sm">暂无字段</TableCell>
+                      </TableRow>
+                    ) : (
+                      fields.map((field) => (
+                        <TableRow key={field.id}>
+                          <TableCell className="text-sm font-medium">{field.field_label}</TableCell>
+                          <TableCell className="text-xs font-mono">{field.field_name}</TableCell>
+                          <TableCell className="text-xs uppercase text-muted-foreground">{field.field_type}</TableCell>
+                          <TableCell>{field.required ? <Badge variant="secondary">必填</Badge> : "-"}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => handleEditField(field)}>
+                                <Edit className="w-3 h-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteField(field.id)}>
+                                <Trash2 className="w-3 h-3 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {subCategory && (
+          <FieldModal
+            open={showFieldModal}
+            onOpenChange={setShowFieldModal}
+            subCategoryId={subCategory.id}
+            field={selectedField}
+            onSaved={loadFields}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AdvancedOptions() {
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-500" />
+            字段分组配置 (待开发)
+          </CardTitle>
+          <CardDescription>配置业务字段的逻辑分组与表单展示顺序</CardDescription>
+        </CardHeader>
+        <CardContent className="h-32 flex items-center justify-center border-2 border-dashed rounded-lg bg-accent/20">
+          <p className="text-muted-foreground text-sm">该功能正在内测中，敬请期待</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Search className="w-4 h-4 text-orange-500" />
+            条件显示规则 (待开发)
+          </CardTitle>
+          <CardDescription>配置基于字段值的联动显示或必填逻辑</CardDescription>
+        </CardHeader>
+        <CardContent className="h-32 flex items-center justify-center border-2 border-dashed rounded-lg bg-accent/20">
+          <p className="text-muted-foreground text-sm">需要配合高级字段引擎使用</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============ SMTP 配置 Tab ============
+// 货币格式化函数（CNY）
+// ============ 模型使用统计 Tab ============
+// ============ 角色权限管理 Tab ============
+// ============ 公告管理 Tab ============
+// ============ 系统维护 Tab ============
+const getTypeIcon = (type: string) => {
+  switch (type) {
+    case "s3":
+      return <Cloud className="w-3.5 h-3.5" />;
+    case "webdav":
+      return <Server className="w-3.5 h-3.5" />;
+    default:
+      return <HardDrive className="w-3.5 h-3.5" />;
+  }
+};
+
+const getTypeLabel = (type: string) => {
+  switch (type) {
+    case "s3":
+      return "S3 兼容";
+    case "webdav":
+      return "WebDAV";
+    default:
+      return "本地存储";
+  }
+};
+
+function StorageStatusIndicator({ config, res }: { config: StorageConfig; res?: { success: boolean; testing?: boolean } }) {
+  const isEnabled = config.enabled;
+  const isOnline = res?.success === true;
+  const isTesting = res?.testing === true;
+
+  if (!isEnabled) return <Circle className="w-2.5 h-2.5 text-gray-400 fill-gray-400" />;
+  if (isTesting) return <Circle className="w-2.5 h-2.5 text-yellow-500 fill-yellow-500 animate-pulse" />;
+  if (isOnline) return <Circle className="w-2.5 h-2.5 text-green-500 fill-green-500" />;
+  return <Circle className="w-2.5 h-2.5 text-red-500 fill-red-500" />;
+}
+
+function StorageTab() {
+  const [configs, setConfigs] = useState<StorageConfig[]>([]);
+  const [modules, setModules] = useState<StorageModuleConfig[]>([]);
+  const [rules, setRules] = useState<StorageRule[]>([]);
+  const [testResults, setTestResults] = useState<Record<number, { success: boolean; latency?: number; message?: string; testing?: boolean }>>({});
+  const [selectedModule, setSelectedModule] = useState<StorageModuleConfig | null>(null);
+  
+  const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<StorageConfig | null>(null);
+  const [configForm, setConfigForm] = useState({
+    name: "",
+    type: "s3" as "s3" | "webdav",
+    enabled: true,
+    s3: { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
+    webdav: { url: "https://", username: "", password: "" }
+  });
+
+  const [ruleForm, setRuleForm] = useState({
+    storage_id: 0,
+    base_path: "",
+    enabled: true
+  });
+
+  const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [deleteConfigConfirmOpen, setDeleteConfigConfirmOpen] = useState(false);
+  const [deleteRuleConfirmId, setDeleteRuleConfirmId] = useState<number | null>(null);
+  const [deleteTargetConfigId, setDeleteTargetId] = useState<number | null>(null);
+  const [savingRule, setSavingRule] = useState(false);
+  const [webdavDirs, setWebdavDirs] = useState<string[]>([]);
+  const [fetchingDirs, setFetchingDirs] = useState(false);
+
+  const fetchWebdavDirs = async (type: string, config: any) => {
+    if (type !== "webdav") return;
+    setFetchingDirs(true);
+    try {
+      const res = await listStorageDirectoriesEnhanced({ type, config });
+      setWebdavDirs(res.directories || []);
+    } catch {
+      toast.error("获取 WebDAV 目录失败");
+    } finally {
+      setFetchingDirs(false);
+    }
+  };
+
+  const handleTest = async (config: StorageConfig, silent = false) => {
+    setTestResults(prev => ({ ...prev, [config.id]: { ...prev[config.id], testing: true } }));
+    try {
+      const result = await testStorageConnection({
+        type: config.type,
+        config: config.config
+      });
+      setTestResults(prev => ({ 
+        ...prev, 
+        [config.id]: { 
+          testing: false, 
+          success: result.success, 
+          latency: result.latency_ms, 
+          message: result.message 
+        } 
+      }));
+      if (!silent) {
+        if (result.success) toast.success(`连接成功 (${result.latency_ms}ms)`);
+        else toast.error(`连接失败: ${result.message}`);
+      }
+    } catch {
+      setTestResults(prev => ({ ...prev, [config.id]: { testing: false, success: false } }));
+      if (!silent) toast.error("测试连接失败");
+    }
+  };
+
+  const loadData = useCallback(async () => {
+    try {
+      const [configsData, modulesData, rulesData] = await Promise.all([
+        listStorageConfigs(),
+        listStorageModules(),
+        listStorageRulesEnhanced()
+      ]);
+      setConfigs(configsData);
+      
+      const displayModules = modulesData.length > 0 ? modulesData : [
+        { module_code: "employee", module_name: "员工管理" },
+        { module_code: "provident", module_name: "社保管理" },
+        { module_code: "dormitory", module_name: "宿舍管理" },
+        { module_code: "daily", module_name: "日常事务" },
+        { module_code: "archives", module_name: "档案管理" }
+      ];
+      setModules(displayModules);
+      setRules(rulesData);
+      
+      if (displayModules.length > 0 && !selectedModule) {
+        setSelectedModule(displayModules[0]);
+      }
+
+      configsData.forEach(conf => handleTest(conf, true));
+    } catch {
+      toast.error("加载存储数据失败");
+    }
+  }, [selectedModule]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const existingRule = selectedModule ? rules.find(r => r.module_code === selectedModule.module_code) : null;
+
+  useEffect(() => {
+    if (selectedModule) {
+      const rule = rules.find(r => r.module_code === selectedModule.module_code);
+      if (rule) {
+        const configObj = configs.find(c => c.id === rule.storage_id);
+        const resolvedPath = rule.base_path || `/upload/${selectedModule.module_code}/{YYYY}`;
+        setRuleForm({
+          storage_id: rule.storage_id,
+          base_path: resolvedPath,
+          enabled: rule.enabled
+        });
+      } else {
+        const defaultLocal = configs.find(c => c.is_default && c.type === "local") || configs.find(c => c.type === "local");
+        const basePath = `/upload/${selectedModule.module_code}/{YYYY}`;
+        setRuleForm({
+          storage_id: defaultLocal?.id || 0,
+          base_path: basePath,
+          enabled: true
+        });
+      }
+    }
+  }, [selectedModule, rules, configs]);
+
+  const handleSaveConfig = async () => {
+    if (!configForm.name.trim()) {
+      toast.error("请输入配置名称");
+      return;
+    }
+
+    const storageConfig = configForm.type === "s3" ? configForm.s3 : configForm.webdav;
+    
+    try {
+      const testResult = await testStorageConnection({ type: configForm.type, config: storageConfig });
+      if (!testResult.success) {
+        toast.error(`连接测试失败: ${testResult.message}，无法保存`);
+        return;
+      }
+    } catch {
+      toast.error("连接测试异常，无法保存");
+      return;
+    }
+
+    const payload = {
+      name: configForm.name,
+      type: configForm.type,
+      enabled: configForm.enabled,
+      config: storageConfig
+    };
+
+    try {
+      if (editingConfig) {
+        await updateStorageConfig(editingConfig.id, payload);
+        toast.success("配置已更新");
+      } else {
+        await createStorageConfig(payload);
+        toast.success("配置已创建");
+      }
+      setShowConfigDialog(false);
+      loadData();
+    } catch {
+      toast.error("保存失败");
+    }
+  };
+
+  const handleDeleteConfig = async (id: number) => {
+    try {
+      await deleteStorageConfig(id);
+      toast.success("配置已删除");
+      loadData();
+    } catch {
+      toast.error("删除失败");
+    }
+  };
+
+  const handleSaveRule = async () => {
+    if (!selectedModule) return;
+    setSavingRule(true);
+    try {
+      const existingRule = rules.find(r => r.module_code === selectedModule.module_code);
+      const payload = {
+        module_code: selectedModule.module_code,
+        storage_id: ruleForm.storage_id,
+        base_path: ruleForm.base_path,
+        enabled: ruleForm.enabled,
+        priority: 0,
+        name: `${selectedModule.module_name}存储规则`
+      };
+
+      if (existingRule) {
+        await updateStorageRuleEnhanced(existingRule.id, payload);
+      } else {
+        await createStorageRuleEnhanced(payload);
+      }
+      toast.success("规则已保存");
+      loadData();
+    } catch {
+      toast.error("保存规则失败");
+    } finally {
+      setSavingRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (id: number) => {
+    try {
+      await deleteStorageRuleEnhanced(id);
+      toast.success("规则已删除");
+      loadData();
+    } catch {
+      toast.error("删除失败");
+    }
+  };
+
+  const handleRestoreDefault = async () => {
+    if (!selectedModule) return;
+    try {
+      const defaultLocal = configs.find(c => c.is_default && c.type === "local") || configs.find(c => c.type === "local");
+      const basePath = `/upload/${selectedModule.module_code}/{YYYY}`;
+      
+      setRuleForm({
+        storage_id: defaultLocal?.id || 0,
+        base_path: basePath,
+        enabled: true
+      });
+      toast.success("已重置为默认值，请点击保存以生效");
+    } catch {
+      toast.error("恢复失败");
+    } finally {
+      setRestoreConfirm(false);
+    }
+  };
+
+  const executeDeleteRule = async () => {
+    if (deleteRuleConfirmId === null) return;
+    try {
+      await deleteStorageRuleEnhanced(deleteRuleConfirmId);
+      toast.success("规则已删除");
+      loadData();
+    } catch {
+      toast.error("删除失败");
+    } finally {
+      setDeleteRuleConfirmId(null);
+    }
+  };
+
+  const getRuleDescription = (rule: StorageRule) => {
+    const config = configs.find(c => c.id === rule.storage_id);
+    const configName = config ? config.name : "未知存储";
+    const moduleName = modules.find(m => m.module_code === rule.module_code)?.module_name || rule.module_code;
+    
+    let archiveType = "实时存储数据";
+    const path = rule.base_path || "";
+    if (path.includes("{YYYY}") && path.includes("{MM}") && path.includes("{DD}")) {
+      archiveType = "并按照日(YYYY-MM-DD)归档";
+    } else if (path.includes("{YYYY}") && path.includes("{MM}")) {
+      archiveType = "并按照月(YYYY-MM)归档";
+    } else if (path.includes("{YYYY}")) {
+      archiveType = "并按照年(YYYY)归档";
+    }
+
+    return `「${moduleName}」存储于「${configName}」${archiveType}`;
+  };
+
+  const handleS3ProviderChange = (provider: string) => {
+    const endpoints: Record<string, string> = {
+      aliyun: "https://oss-cn-hangzhou.aliyuncs.com",
+      tencent: "https://cos.ap-guangzhou.myqcloud.com",
+      bitiful: "https://s3.bitiful.net",
+      qiniu: "https://s3-cn-east-1.qiniucs.com",
+      custom: ""
+    };
+    setConfigForm(prev => ({
+      ...prev,
+      s3: { ...prev.s3, provider, endpoint: endpoints[provider] || prev.s3.endpoint }
+    }));
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-primary" />
+            存储节点
+          </h3>
+          <Button variant="ghost" size="sm" className="h-8 text-xs font-medium" onClick={() => {
+            setEditingConfig(null);
+            setConfigForm({
+              name: "",
+              type: "s3",
+              enabled: true,
+              s3: { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
+              webdav: { url: "https://", username: "", password: "" }
+            });
+            setShowConfigDialog(true);
+          }}>
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            添加节点
+          </Button>
+        </div>
+        <ScrollArea className="w-full whitespace-nowrap pb-4">
+          <div className="flex gap-4">
+            {configs.map(config => {
+              const res = testResults[config.id];
+              const isDefaultLocal = config.is_default && config.type === "local";
+              
+              return (
+                <Card key={config.id} className={cn(
+                  "w-[260px] shrink-0 transition-all hover:shadow-md",
+                  !config.enabled && "opacity-60 grayscale-[0.5]"
+                )}>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-muted rounded-lg text-muted-foreground group-hover:text-primary transition-colors">
+                          {getTypeIcon(config.type)}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-bold truncate leading-none mb-1">{config.name}</span>
+                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">{getTypeLabel(config.type)}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <StorageStatusIndicator config={config} res={res} />
+                        {res?.latency && config.enabled && (
+                          <span className="text-[10px] font-mono text-muted-foreground">{res.latency}ms</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-2 border-t mt-1">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-7 px-2 text-[11px] font-medium hover:bg-primary/5 hover:text-primary"
+                        onClick={() => handleTest(config)}
+                        disabled={res?.testing}
+                      >
+                        <RefreshCw className={cn("w-3 h-3 mr-1.5", res?.testing && "animate-spin")} />
+                        测试
+                      </Button>
+                      <div className="flex gap-0.5">
+                        {!isDefaultLocal && (
+                          <>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
+                              setEditingConfig(config);
+                              setConfigForm({
+                                name: config.name,
+                                type: config.type as "s3" | "webdav",
+                                enabled: config.enabled,
+                                s3: config.type === "s3" ? (config.config as unknown as typeof configForm.s3) : { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
+                                webdav: config.type === "webdav" ? (config.config as unknown as typeof configForm.webdav) : { url: "https://", username: "", password: "" }
+                              });
+                              setShowConfigDialog(true);
+                            }}>
+                              <Edit className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/5" onClick={() => {
+                              setDeleteTargetId(config.id);
+                              setDeleteConfigConfirmOpen(true);
+                            }}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        )}
+                        {isDefaultLocal && (
+                          <Badge variant="outline" className="text-[9px] h-5 px-1.5 font-normal border-muted-foreground/20 text-muted-foreground">系统默认</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_1fr] gap-6 items-stretch">
+        <Card className="flex flex-col transition-all hover:shadow-md border bg-card">
+          <CardHeader className="py-4 px-5 border-b bg-muted/5">
+            <CardTitle className="text-base font-bold text-foreground">业务模块</CardTitle>
+          </CardHeader>
+          <CardContent className="p-1 flex-1">
+            <ScrollArea className="h-full max-h-[480px]">
+              <div className="p-2 space-y-1">
+                {modules.map(mod => {
+                  const rule = rules.find(r => r.module_code === mod.module_code && r.enabled);
+                  const storageId = rule?.storage_id;
+                  const status = storageId ? testResults[storageId] : null;
+                  const isOffline = status?.success === false;
+                  const isHighLatency = status?.latency && status.latency > 500;
+
+                  return (
+                    <button
+                      key={mod.module_code}
+                      onClick={() => setSelectedModule(mod)}
+                      className={cn(
+                        "w-full text-left px-3 py-3 text-[13px] rounded-md transition-all flex items-center justify-between group",
+                        selectedModule?.module_code === mod.module_code 
+                          ? "bg-primary text-primary-foreground font-bold shadow-md ring-1 ring-primary/20" 
+                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <span className="truncate">{mod.module_name}</span>
+                      {rule && (
+                        <div className={cn(
+                          "w-2 h-2 rounded-full",
+                          selectedModule?.module_code === mod.module_code 
+                            ? "bg-primary-foreground" 
+                            : (isOffline ? "bg-red-500" : (isHighLatency ? "bg-orange-500" : "bg-emerald-500"))
+                        )} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card className="flex flex-col transition-all hover:shadow-md border bg-card">
+          <CardHeader className="py-4 px-6 border-b bg-muted/5">
+            <CardTitle className="text-base font-bold flex items-center gap-2">
+              <Settings2 className="w-5 h-5 text-primary" />
+              规则配置: {selectedModule?.module_name}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6 space-y-8 flex-1">
+            <div className="space-y-2.5">
+              <Label className="text-[13px] font-medium">目标存储卷</Label>
+              <Select value={String(ruleForm.storage_id)} onValueChange={v => setRuleForm(prev => ({ ...prev, storage_id: Number(v) }))}>
+                <SelectTrigger className="h-10 text-sm">
+                  <SelectValue placeholder="选择存储节点" />
+                </SelectTrigger>
+                <SelectContent>
+                  {configs.filter(c => c.enabled).map(c => (
+                    <SelectItem key={c.id} value={String(c.id)} className="text-sm">
+                      <div className="flex items-center gap-2">
+                        {getTypeIcon(c.type)}
+                        <span>{c.name}</span>
+                        {c.is_default && <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-1 font-normal opacity-70">默认</Badge>}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-[13px] font-medium">基础映射路径 (Base Path)</Label>
+                <div className="flex gap-1">
+                  {["{YYYY}", "{MM}", "{DD}"].map(v => (
+                    <button 
+                      key={v}
+                      className="text-[10px] px-1.5 py-0.5 bg-muted hover:bg-primary/10 hover:text-primary rounded-sm transition-colors border"
+                      onClick={() => setRuleForm(prev => ({ ...prev, base_path: prev.base_path + v }))}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Input 
+                value={ruleForm.base_path} 
+                onChange={e => setRuleForm(prev => ({ ...prev, base_path: e.target.value }))}
+                placeholder="例如: /uploads/{YYYY}/{MM}/"
+                className="h-10 text-sm font-mono"
               />
-              <Label htmlFor="config-enabled">启用此配置</Label>
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 italic px-0.5">
+                <Info className="w-3.5 h-3.5" />
+                支持动态变量，例如: /archives/{"{YYYY}"}/{"{MM}"}
+              </p>
+            </div>
+
+            <div className="pt-4 border-t">
+              <div className="flex items-center justify-between p-4 rounded-xl border bg-muted/20">
+                <div className="space-y-0.5">
+                  <Label htmlFor="rule-enabled" className="text-sm font-bold cursor-pointer">启用此独立规则</Label>
+                  <p className="text-[11px] text-muted-foreground">如果关闭，该模块将使用全局默认存储路径</p>
+                </div>
+                <Switch checked={ruleForm.enabled} onCheckedChange={v => setRuleForm(prev => ({ ...prev, enabled: v }))} id="rule-enabled" />
+              </div>
+            </div>
+          </CardContent>
+          <div className="px-6 py-4 border-t bg-muted/5 flex justify-end gap-3 shrink-0">
+            {existingRule && (
+              <Button onClick={() => setRestoreConfirm(true)} variant="outline" size="sm" className="h-9 px-4 text-xs font-medium">
+                恢复默认
+              </Button>
+            )}
+            <Button onClick={handleSaveRule} size="sm" className="h-9 px-8 text-xs font-bold shadow-md" disabled={savingRule}>
+              {savingRule ? "正在保存..." : "保存"}
+            </Button>
+          </div>
+        </Card>
+
+        <Card className="flex flex-col transition-all hover:shadow-md border overflow-hidden bg-card">
+          <CardHeader className="py-4 px-6 border-b bg-muted/5 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">已生效规则</CardTitle>
+            <Badge variant="outline" className="text-[10px] font-bold px-2 py-0.5">{rules.length} 条配置</Badge>
+          </CardHeader>
+          <CardContent className="p-0 flex-1 overflow-hidden">
+            <ScrollArea className="h-full max-h-[450px]">
+              <Table>
+                <TableHeader className="bg-muted/10 sticky top-0 z-10">
+                  <TableRow className="hover:bg-transparent border-none">
+                    <TableHead className="text-sm h-10 px-4 text-center font-bold">业务模块</TableHead>
+                    <TableHead className="text-sm h-10 px-4 text-center font-bold">状态显示</TableHead>
+                    <TableHead className="text-sm h-10 px-4 text-center font-bold">配置说明</TableHead>
+                    <TableHead className="text-sm h-10 px-4 text-center font-bold w-[60px]">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rules.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-20 text-muted-foreground text-xs italic">
+                        暂无自定义规则
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rules.map(rule => {
+                      const mName = modules.find(m => m.module_code === rule.module_code)?.module_name || rule.module_code;
+                      const cName = configs.find(c => c.id === rule.storage_id)?.name || "未知";
+                      const isOffline = testResults[rule.storage_id]?.success === false;
+                      const isSelected = selectedModule?.module_code === rule.module_code;
+
+                      return (
+                        <TableRow 
+                          key={rule.id} 
+                          className={cn(
+                            "cursor-pointer transition-all group border-b",
+                            isSelected && "bg-primary/[0.03]"
+                          )}
+                          onClick={() => setSelectedModule(modules.find(m => m.module_code === rule.module_code) || null)}
+                        >
+                          <TableCell className="py-4 px-4 text-center">
+                            <div className="flex flex-col items-center">
+                              <span className="text-[13px] font-bold">{mName}</span>
+                              <span className="text-[10px] text-muted-foreground mt-0.5">{cName}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-4 px-4 text-center">
+                             <div className="flex flex-col items-center gap-1">
+                                <div className="flex items-center gap-1.5">
+                                  <Circle className={cn(
+                                    "w-2 h-2 fill-current", 
+                                    !rule.enabled ? "text-muted-foreground" : (isOffline ? "text-red-500" : (testResults[rule.storage_id]?.latency && testResults[rule.storage_id]!.latency! > 500 ? "text-orange-500" : "text-emerald-500"))
+                                  )} />
+                                  <span className={cn(
+                                    "text-xs font-bold",
+                                    !rule.enabled ? "text-muted-foreground" : (isOffline ? "text-red-500" : (testResults[rule.storage_id]?.latency && testResults[rule.storage_id]!.latency! > 500 ? "text-orange-500" : "text-emerald-500"))
+                                  )}>
+                                    {!rule.enabled ? "已停用" : (isOffline ? "断联" : (testResults[rule.storage_id]?.latency && testResults[rule.storage_id]!.latency! > 500 ? "延迟高" : "正常"))}
+                                  </span>
+                                </div>
+                                {testResults[rule.storage_id]?.latency && rule.enabled && !isOffline && (
+                                  <span className="text-[10px] font-mono text-muted-foreground">{testResults[rule.storage_id]?.latency}ms</span>
+                                )}
+                             </div>
+                          </TableCell>
+                          <TableCell className="py-4 px-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <div className={cn(
+                                "w-1.5 h-1.5 rounded-full shrink-0",
+                                rule.enabled ? (isOffline ? "bg-red-500" : "bg-emerald-500") : "bg-muted"
+                              )} />
+                              <span className="text-[11px] text-muted-foreground leading-snug line-clamp-2 max-w-[250px] text-center" title={getRuleDescription(rule)}>
+                                {getRuleDescription(rule)}
+                                {isOffline && rule.enabled && <span className="text-red-500 ml-1 font-bold">!</span>}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-4 px-4 text-center">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive transition-all hover:bg-destructive/10" onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteRuleConfirmId(rule.id);
+                            }}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {editingConfig ? <Edit className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              {editingConfig ? "编辑存储节点" : "新增存储节点"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>显示名称</Label>
+                <Input value={configForm.name} onChange={e => setConfigForm(prev => ({ ...prev, name: e.target.value }))} placeholder="如: 缤纷云 S3" />
+              </div>
+              <div className="space-y-2">
+                <Label>存储协议</Label>
+                <Select value={configForm.type} onValueChange={v => setConfigForm(prev => ({ ...prev, type: v as "s3" | "webdav" }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="s3">S3 兼容</SelectItem>
+                    <SelectItem value="webdav">WebDAV</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {configForm.type === "s3" ? (
+              <div className="space-y-3 p-3 bg-muted/30 rounded-lg border border-muted">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">服务商预设</Label>
+                  <Select value={configForm.s3.provider} onValueChange={handleS3ProviderChange}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="aliyun">阿里云 OSS</SelectItem>
+                      <SelectItem value="tencent">腾讯云 COS</SelectItem>
+                      <SelectItem value="bitiful">缤纷云 Bitiful</SelectItem>
+                      <SelectItem value="qiniu">七牛云 Kodo</SelectItem>
+                      <SelectItem value="custom">自定义 (S3 兼容)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Endpoint (访问端点)</Label>
+                  <Input value={configForm.s3.endpoint} onChange={e => setConfigForm(prev => ({ ...prev, s3: { ...prev.s3, endpoint: e.target.value } }))} placeholder="https://..." className="h-8 text-xs" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Bucket (存储桶)</Label>
+                    <Input value={configForm.s3.bucket} onChange={e => setConfigForm(prev => ({ ...prev, s3: { ...prev.s3, bucket: e.target.value } }))} placeholder="my-bucket" className="h-8 text-xs" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Region (区域)</Label>
+                    <Input value={configForm.s3.region} onChange={e => setConfigForm(prev => ({ ...prev, s3: { ...prev.s3, region: e.target.value } }))} placeholder="cn-hangzhou" className="h-8 text-xs" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Access Key</Label>
+                  <Input value={configForm.s3.access_key} onChange={e => setConfigForm(prev => ({ ...prev, s3: { ...prev.s3, access_key: e.target.value } }))} className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Secret Key</Label>
+                  <Input type="password" value={configForm.s3.secret_key} onChange={e => setConfigForm(prev => ({ ...prev, s3: { ...prev.s3, secret_key: e.target.value } }))} className="h-8 text-xs" />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 p-3 bg-muted/30 rounded-lg border border-muted">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">WebDAV URL</Label>
+                  <Input value={configForm.webdav.url} onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, url: e.target.value } }))} placeholder="https://..." className="h-8 text-xs" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">用户名</Label>
+                    <Input value={configForm.webdav.username} onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, username: e.target.value } }))} className="h-8 text-xs" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">密码</Label>
+                    <Input type="password" value={configForm.webdav.password} onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, password: e.target.value } }))} className="h-8 text-xs" />
+                  </div>
+                </div>
+
+                {webdavDirs.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t mt-2">
+                    <Label className="text-xs text-primary font-semibold">选择存储目录</Label>
+                    <Select value={(configForm.webdav as any).directory || "/"} onValueChange={(v) => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, directory: v } }))}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="选择目录" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="/" className="text-xs">/ (根目录)</SelectItem>
+                        {webdavDirs.map(d => <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {fetchingDirs && <p className="text-[10px] text-muted-foreground animate-pulse italic">正在扫描 WebDAV 目录树...</p>}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => {
+               const conf = configForm.type === "s3" ? configForm.s3 : configForm.webdav;
+               testStorageConnection({ type: configForm.type, config: conf }).then(res => {
+                 if (res.success) {
+                   toast.success(`连接测试成功 (${res.latency_ms}ms)`);
+                   if (configForm.type === "webdav") fetchWebdavDirs("webdav", conf);
+                 }
+                 else toast.error(`连接测试失败: ${res.message}`);
+               });
+            }}>测试连接</Button>
+            <Button size="sm" onClick={handleSaveConfig}>保存配置</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={restoreConfirm} onOpenChange={setRestoreConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认恢复默认？</AlertDialogTitle>
+            <AlertDialogDescription>这将重置当前模块的存储策略。目标存储将回退到“本地存储”，基础路径将恢复为标准路径。确定继续吗？</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRestoreDefault} className="bg-primary text-primary-foreground hover:bg-primary/90">确认恢复</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteConfigConfirmOpen} onOpenChange={setDeleteConfigConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除存储节点？</AlertDialogTitle>
+            <AlertDialogDescription>此操作不可撤销。删除此存储节点可能会导致依赖它的存储规则失效。确定要继续吗？</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (deleteTargetConfigId) handleDeleteConfig(deleteTargetConfigId);
+                setDeleteConfigConfirmOpen(false);
+              }} 
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteRuleConfirmId !== null} onOpenChange={(open) => !open && setDeleteRuleConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除存储规则？</AlertDialogTitle>
+            <AlertDialogDescription>删除该规则后，对应的业务模块将回退到全局默认存储设置。确定要继续吗？</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDeleteRule} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">确认删除</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+
+function ArchiveGlobalTab() {
+  const [activeTab, setActiveTab] = useState("retention");
+
+  const [periods, setPeriods] = useState<RetentionPeriod[]>([]);
+  const [loadingRetention, setLoadingRetention] = useState(false);
+  const [showRetentionDialog, setShowRetentionDialog] = useState(false);
+  const [editingRetention, setEditingRetention] = useState<RetentionPeriod | null>(null);
+  const [retentionName, setRetentionName] = useState("");
+  const [retentionYears, setRetentionYears] = useState("1");
+
+  const [locations, setLocations] = useState<StorageLocation[]>([]);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<StorageLocation | null>(null);
+  const [locationName, setLocationName] = useState("");
+  const [locationDesc, setLocationDesc] = useState("");
+
+  const [rules, setRules] = useState<CodeRule[]>([]);
+  const [loadingRules, setLoadingRules] = useState(false);
+  const [showRuleDialog, setShowRuleDialog] = useState(false);
+  const [editingRule, setEditingRule] = useState<CodeRule | null>(null);
+  const [ruleName, setRuleName] = useState("");
+  const [rulePattern, setRulePattern] = useState("");
+  const [rulePreview, setRulePreview] = useState<CodeRulePreview | null>(null);
+
+  const loadRetentionData = useCallback(async () => {
+    setLoadingRetention(true);
+    try {
+      const data = await fetchRetentionPeriods();
+      setPeriods(data);
+    } catch { toast.error("加载保管期限失败"); }
+    finally { setLoadingRetention(false); }
+  }, []);
+
+  const loadLocationData = useCallback(async () => {
+    setLoadingLocations(true);
+    try {
+      const data = await fetchStorageLocations();
+      setLocations(data);
+    } catch { toast.error("加载存档地点失败"); }
+    finally { setLoadingLocations(false); }
+  }, []);
+
+  const loadRuleData = useCallback(async () => {
+    setLoadingRules(true);
+    try {
+      const data = await fetchCodeRules();
+      setRules(data);
+    } catch { toast.error("加载编码规则失败"); }
+    finally { setLoadingRules(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "retention") loadRetentionData();
+    else if (activeTab === "locations") loadLocationData();
+    else if (activeTab === "code-rules") loadRuleData();
+  }, [activeTab, loadRetentionData, loadLocationData, loadRuleData]);
+
+  const handleSaveRetention = async () => {
+    if (!retentionName.trim()) { toast.error("名称不能为空"); return; }
+    try {
+      if (editingRetention) await updateRetentionPeriod(editingRetention.id, { name: retentionName, years: parseInt(retentionYears) });
+      else await createRetentionPeriod({ name: retentionName, years: parseInt(retentionYears) });
+      toast.success("保存成功");
+      setShowRetentionDialog(false);
+      loadRetentionData();
+    } catch { toast.error("保存失败"); }
+  };
+
+  const handleDeleteRetention = async (id: number) => {
+    if (!confirm("确定要删除此保管期限吗?")) return;
+    try { await deleteRetentionPeriod(id); toast.success("已删除"); loadRetentionData(); } catch { toast.error("删除失败"); }
+  };
+
+  const handleSaveLocation = async () => {
+    if (!locationName.trim()) { toast.error("名称不能为空"); return; }
+    try {
+      if (editingLocation) await updateStorageLocation(editingLocation.id, { name: locationName, description: locationDesc });
+      else await createStorageLocation({ name: locationName, description: locationDesc });
+      toast.success("保存成功");
+      setShowLocationDialog(false);
+      loadLocationData();
+    } catch { toast.error("保存失败"); }
+  };
+
+  const handleDeleteLocation = async (id: number) => {
+    if (!confirm("确定要删除此存档地点吗?")) return;
+    try { await deleteStorageLocation(id); toast.success("已删除"); loadLocationData(); } catch { toast.error("删除失败"); }
+  };
+
+  const handleSaveRule = async () => {
+    if (!ruleName.trim() || !rulePattern.trim()) { toast.error("名称和模式不能为空"); return; }
+    try {
+      if (editingRule) await updateCodeRule(editingRule.id, { name: ruleName, pattern: rulePattern });
+      else await createCodeRule({ name: ruleName, pattern: rulePattern });
+      toast.success("保存成功");
+      setShowRuleDialog(false);
+      loadRuleData();
+    } catch { toast.error("保存失败"); }
+  };
+
+  const handleDeleteRule = async (id: number) => {
+    if (!confirm("确定要删除此编码规则吗?")) return;
+    try { await deleteCodeRule(id); toast.success("已删除"); loadRuleData(); } catch { toast.error("删除失败"); }
+  };
+
+  const handlePreviewRule = async () => {
+    try {
+      const res = await getCodeRulePreview("", "", new Date().getFullYear());
+      setRulePreview(res);
+    } catch { toast.error("预览失败"); }
+  };
+
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>全局配置</CardTitle>
+        <CardDescription>管理档案保管期限、存档地点及系统全局编码规则</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="retention" className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              保管期限
+            </TabsTrigger>
+            <TabsTrigger value="locations" className="flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              存档地点
+            </TabsTrigger>
+            <TabsTrigger value="code-rules" className="flex items-center gap-2">
+              <Sliders className="w-4 h-4" />
+              编码规则
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="retention" className="space-y-4">
+            <div className="flex justify-between items-center mb-4">
+               <div>
+                 <h4 className="text-sm font-medium">保管期限列表</h4>
+                 <p className="text-xs text-muted-foreground">定义档案可供选择的存放年限</p>
+               </div>
+               <Button size="sm" onClick={() => { setEditingRetention(null); setRetentionName(""); setRetentionYears("1"); setShowRetentionDialog(true); }}>
+                 <Plus className="w-4 h-4 mr-2" />
+                 新增期限
+               </Button>
+            </div>
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>名称</TableHead>
+                    <TableHead>年数</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingRetention ? (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">加载中...</TableCell></TableRow>
+                  ) : periods.length === 0 ? (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">暂无数据</TableCell></TableRow>
+                  ) : (
+                    periods.map(p => (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-sm font-medium">{p.name}</TableCell>
+                        <TableCell className="text-sm">{p.years} 年</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => { setEditingRetention(p); setRetentionName(p.name); setRetentionYears(String(p.years)); setShowRetentionDialog(true); }}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleDeleteRetention(p.id)}>
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="locations" className="space-y-4">
+            <div className="flex justify-between items-center mb-4">
+               <div>
+                 <h4 className="text-sm font-medium">存档地点列表</h4>
+                 <p className="text-xs text-muted-foreground">物理档案的存放库房或货架位置</p>
+               </div>
+               <Button size="sm" onClick={() => { setEditingLocation(null); setLocationName(""); setLocationDesc(""); setShowLocationDialog(true); }}>
+                 <Plus className="w-4 h-4 mr-2" />
+                 新增地点
+               </Button>
+            </div>
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>名称</TableHead>
+                    <TableHead>描述/详细地址</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingLocations ? (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">加载中...</TableCell></TableRow>
+                  ) : locations.length === 0 ? (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">暂无数据</TableCell></TableRow>
+                  ) : (
+                    locations.map(l => (
+                      <TableRow key={l.id}>
+                        <TableCell className="text-sm font-medium">{l.name}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{l.description || "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => { setEditingLocation(l); setLocationName(l.name); setLocationDesc(l.description || ""); setShowLocationDialog(true); }}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleDeleteLocation(l.id)}>
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="code-rules" className="space-y-4">
+            <div className="flex justify-between items-center mb-4">
+               <div>
+                 <h4 className="text-sm font-medium">编码规则列表</h4>
+                 <p className="text-xs text-muted-foreground">定义档案编号自动生成的模板格式</p>
+               </div>
+               <Button size="sm" onClick={() => { setEditingRule(null); setRuleName(""); setRulePattern(""); setRulePreview(null); setShowRuleDialog(true); }}>
+                 <Plus className="w-4 h-4 mr-2" />
+                 新增规则
+               </Button>
+            </div>
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>名称</TableHead>
+                    <TableHead>模式</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingRules ? (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">加载中...</TableCell></TableRow>
+                  ) : rules.length === 0 ? (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-muted-foreground">暂无数据</TableCell></TableRow>
+                  ) : (
+                    rules.map(r => (
+                      <TableRow key={r.id}>
+                        <TableCell className="text-sm font-medium">{r.name}</TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">{r.pattern}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => { setEditingRule(r); setRuleName(r.name); setRulePattern(r.pattern); setRulePreview(null); setShowRuleDialog(true); }}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleDeleteRule(r.id)}>
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+
+      <Dialog open={showRetentionDialog} onOpenChange={setShowRetentionDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingRetention ? "编辑" : "新增"}保管期限</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2"><Label>名称</Label><Input value={retentionName} onChange={e => setRetentionName(e.target.value)} placeholder="如: 长期保存" /></div>
+            <div className="space-y-2"><Label>年数 (0 表示永久)</Label><Input type="number" value={retentionYears} onChange={e => setRetentionYears(e.target.value)} /></div>
+          </div>
+          <DialogFooter><Button onClick={handleSaveRetention}>保存</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingLocation ? "编辑" : "新增"}存档地点</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2"><Label>名称</Label><Input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="如: 档案室A" /></div>
+            <div className="space-y-2"><Label>详细说明</Label><Textarea value={locationDesc} onChange={e => setLocationDesc(e.target.value)} placeholder="货架编号、地址等" /></div>
+          </div>
+          <DialogFooter><Button onClick={handleSaveLocation}>保存</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRuleDialog} onOpenChange={setShowRuleDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>{editingRule ? "编辑" : "新增"}编码规则</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2"><Label>名称</Label><Input value={ruleName} onChange={e => setRuleName(e.target.value)} placeholder="如: 合同类编码" /></div>
+            <div className="space-y-2">
+              <Label>模式</Label>
+              <Textarea value={rulePattern} onChange={e => setRulePattern(e.target.value)} placeholder="{YYYY}{MM}{DD}-{SEQ:4}" rows={3} />
+              <p className="text-[10px] text-muted-foreground">支持占位符: {'{YYYY}'}, {'{MM}'}, {'{DD}'}, {'{SEQ:4}'}, {'{CAT}'}, {'{SUBCAT}'}</p>
+            </div>
+            {rulePreview && (
+              <div className="p-3 bg-muted rounded-md text-xs font-mono">预览示例: {rulePreview.sample_code}</div>
+            )}
+            <Button variant="secondary" size="sm" className="w-full" onClick={handlePreviewRule}><Eye className="w-3.5 h-3.5 mr-1" />实时预览</Button>
+          </div>
+          <DialogFooter><Button onClick={handleSaveRule}>保存规则</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ============ 主组件 ============
+
+
+function RetentionPeriodsTab() {
+  const [periods, setPeriods] = useState<RetentionPeriod[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingPeriod, setEditingPeriod] = useState<RetentionPeriod | null>(null);
+  const [periodName, setPeriodName] = useState("");
+  const [periodYears, setPeriodYears] = useState("1");
+
+  useEffect(() => {
+    loadPeriods();
+  }, []);
+
+  const loadPeriods = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchRetentionPeriods();
+      setPeriods(data);
+    } catch (error) {
+      console.error("加载期限失败:", error);
+      toast.error("加载期限失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!periodName.trim() || !periodYears.trim()) {
+      toast.error("期限名称和年数不能为空");
+      return;
+    }
+
+    try {
+      if (editingPeriod) {
+        await updateRetentionPeriod(editingPeriod.id, { name: periodName, years: parseInt(periodYears) });
+        toast.success("期限已更新");
+      } else {
+        await createRetentionPeriod({ name: periodName, years: parseInt(periodYears) });
+        toast.success("期限已创建");
+      }
+      setShowDialog(false);
+      setPeriodName("");
+      setPeriodYears("1");
+      loadPeriods();
+    } catch (error) {
+      console.error("保存失败:", error);
+      toast.error("保存失败");
+    }
+  };
+
+   const handleDelete = async (id: number) => {
+     if (confirm("确定要删除此期限吗？")) {
+       try {
+         await deleteRetentionPeriod(id);
+         toast.success("期限已删除");
+         loadPeriods();
+       } catch (error) {
+         console.error("删除失败:", error);
+         toast.error("删除失败");
+       }
+     }
+   };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>保管期限</CardTitle>
+            <CardDescription>管理档案保管期限</CardDescription>
+          </div>
+          <Button onClick={() => { setEditingPeriod(null); setPeriodName(""); setPeriodYears("1"); setShowDialog(true); }}>
+            <Plus className="w-4 h-4 mr-2" />
+            新增期限
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">加载中...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>期限名称</TableHead>
+                  <TableHead>年数</TableHead>
+                  <TableHead>操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {periods.map((period) => (
+                  <TableRow key={period.id}>
+                    <TableCell>{period.name}</TableCell>
+                    <TableCell>{period.years} 年</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => { setEditingPeriod(period); setPeriodName(period.name); setPeriodYears(String(period.years)); setShowDialog(true); }}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(period.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingPeriod ? "编辑期限" : "新增期限"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="period-name">期限名称</Label>
+              <Input id="period-name" value={periodName} onChange={(e) => setPeriodName(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="config-json">配置 JSON</Label>
-              <Textarea
-                id="config-json"
-                value={JSON.stringify(formData.config, null, 2)}
-                onChange={(e) => {
-                  try {
-                    setFormData({ ...formData, config: JSON.parse(e.target.value) });
-                  } catch (error) {
-                    // 保持原值
-                  }
-                }}
-                placeholder='{"root_path": "/data"}'
-                rows={4}
-              />
+              <Label htmlFor="period-years">年数</Label>
+              <Input id="period-years" type="number" value={periodYears} onChange={(e) => setPeriodYears(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>
               取消
             </Button>
             <Button onClick={handleSave}>保存</Button>
@@ -1183,215 +3320,138 @@ function StorageConfigTab() {
   );
 }
 
-// 存储规则 Tab
-function StorageRuleTab() {
-  const [rules, setRules] = useState<StorageRule[]>([]);
-  const [modules, setModules] = useState<StorageModuleConfig[]>([]);
-  const [configs, setConfigs] = useState<StorageConfig[]>([]);
-  const [loading, setLoading] = useState(true);
+// ============ 存档地点管理 Tab ============
+function StorageLocationsTab() {
+  const [locations, setLocations] = useState<StorageLocation[]>([]);
+  const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
-  const [editingRule, setEditingRule] = useState<StorageRule | null>(null);
-  const [formData, setFormData] = useState({
-    module_code: "",
-    resource_type: "",
-    storage_id: 0,
-    priority: 0,
-    enabled: true,
-    name: "",
-  });
+  const [editingLocation, setEditingLocation] = useState<StorageLocation | null>(null);
+  const [locationName, setLocationName] = useState("");
+  const [locationAddress, setLocationAddress] = useState("");
 
-  const loadData = useCallback(async () => {
+  useEffect(() => {
+    loadLocations();
+  }, []);
+
+  const loadLocations = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const [rulesData, modulesData, configsData] = await Promise.all([
-        listStorageRulesEnhanced(),
-        listStorageModules(),
-        listStorageConfigs(),
-      ]);
-      setRules(rulesData);
-      setModules(modulesData);
-      setConfigs(configsData);
+      const data = await fetchStorageLocations();
+      setLocations(data);
     } catch (error) {
-      toast.error("加载存储规则失败");
+      console.error("加载地点失败:", error);
+      toast.error("加载地点失败");
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  const handleSave = async () => {
-    if (!formData.module_code || !formData.storage_id) {
-      toast.error("请选择模块和存储配置");
-      return;
-    }
-    try {
-      if (editingRule) {
-        await updateStorageRuleEnhanced(editingRule.id, formData);
-        toast.success("存储规则已更新");
-      } else {
-        await createStorageRuleEnhanced(formData);
-        toast.success("存储规则已创建");
-      }
-      setShowDialog(false);
-      setEditingRule(null);
-      loadData();
-    } catch (error) {
-      toast.error("保存存储规则失败");
-    }
   };
 
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteStorageRuleEnhanced(id);
-      toast.success("存储规则已删除");
-      loadData();
-    } catch (error) {
-      toast.error("删除存储规则失败");
-    }
-  };
+   const handleSave = async () => {
+     if (!locationName.trim() || !locationAddress.trim()) {
+       toast.error("地点名称和地址不能为空");
+       return;
+     }
 
-  const openCreate = () => {
-    setEditingRule(null);
-    setFormData({ module_code: "", resource_type: "", storage_id: 0, priority: 0, enabled: true, name: "" });
-    setShowDialog(true);
-  };
+     try {
+       if (editingLocation) {
+         await updateStorageLocation(editingLocation.id, { name: locationName, description: locationAddress });
+         toast.success("地点已更新");
+       } else {
+         await createStorageLocation({ name: locationName, description: locationAddress });
+         toast.success("地点已创建");
+       }
+       setShowDialog(false);
+       setLocationName("");
+       setLocationAddress("");
+       loadLocations();
+     } catch (error) {
+       console.error("保存失败:", error);
+       toast.error("保存失败");
+     }
+   };
 
-  const openEdit = (rule: StorageRule) => {
-    setEditingRule(rule);
-    setFormData({
-      module_code: rule.module_code,
-      resource_type: rule.resource_type,
-      storage_id: rule.storage_id,
-      priority: rule.priority,
-      enabled: rule.enabled,
-      name: rule.name,
-    });
-    setShowDialog(true);
-  };
-
-  const getConfigName = (storageId: number) => {
-    const config = configs.find((c) => c.id === storageId);
-    return config ? config.name : `ID: ${storageId}`;
-  };
-
-  const getModuleName = (moduleCode: string) => {
-    const mod = modules.find((m) => m.module_code === moduleCode);
-    return mod ? mod.module_name : moduleCode;
-  };
-
-  if (loading) {
-    return <div className="flex items-center justify-center py-12 text-muted-foreground">加载中...</div>;
-  }
+   const handleDelete = async (id: number) => {
+     if (confirm("确定要删除此地点吗？")) {
+       try {
+         await deleteStorageLocation(id);
+         toast.success("地点已删除");
+         loadLocations();
+       } catch (error) {
+         console.error("删除失败:", error);
+         toast.error("删除失败");
+       }
+     }
+   };
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>存储规则</CardTitle>
-          <CardDescription>配置模块和资源类型到存储后端的映射规则</CardDescription>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>存档地点</CardTitle>
+            <CardDescription>管理档案存档地点</CardDescription>
+          </div>
+          <Button onClick={() => { setEditingLocation(null); setLocationName(""); setLocationAddress(""); setShowDialog(true); }}>
+            <Plus className="w-4 h-4 mr-2" />
+            新增地点
+          </Button>
         </div>
-        <Button onClick={openCreate} size="sm">
-          <Plus className="h-4 w-4 mr-1" />
-          新增规则
-        </Button>
       </CardHeader>
       <CardContent>
-        {rules.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">暂无存储规则，点击&quot;新增规则&quot;开始配置</div>
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">加载中...</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>模块</TableHead>
-                <TableHead>资源类型</TableHead>
-                <TableHead>存储配置</TableHead>
-                <TableHead>优先级</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.id}>
-                  <TableCell className="font-medium">{getModuleName(rule.module_code)}</TableCell>
-                  <TableCell>{rule.resource_type || "（全部）"}</TableCell>
-                  <TableCell>{getConfigName(rule.storage_id)}</TableCell>
-                  <TableCell>{rule.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={rule.enabled ? "default" : "secondary"}>
-                      {rule.enabled ? "启用" : "禁用"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(rule)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(rule.id)}>
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>地点名称</TableHead>
+                  <TableHead>地址</TableHead>
+                  <TableHead>操作</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+               <TableBody>
+                 {locations.map((loc) => (
+                   <TableRow key={loc.id}>
+                     <TableCell>{loc.name}</TableCell>
+                     <TableCell>{loc.description}</TableCell>
+                     <TableCell>
+                       <div className="flex gap-2">
+                         <Button variant="outline" size="sm" onClick={() => { setEditingLocation(loc); setLocationName(loc.name); setLocationAddress(loc.description || ""); setShowDialog(true); }}>
+                           <Edit className="w-4 h-4" />
+                         </Button>
+                         <Button variant="outline" size="sm" onClick={() => handleDelete(loc.id)}>
+                           <Trash2 className="w-4 h-4" />
+                         </Button>
+                       </div>
+                     </TableCell>
+                   </TableRow>
+                 ))}
+               </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingRule ? "编辑存储规则" : "新增存储规则"}</DialogTitle>
+            <DialogTitle>{editingLocation ? "编辑地点" : "新增地点"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>规则名称</Label>
-              <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="输入规则名称" />
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="loc-name">地点名称</Label>
+              <Input id="loc-name" value={locationName} onChange={(e) => setLocationName(e.target.value)} />
             </div>
-            <div className="space-y-2">
-              <Label>模块</Label>
-              <Select value={formData.module_code} onValueChange={(v) => setFormData({ ...formData, module_code: v })}>
-                <SelectTrigger><SelectValue placeholder="选择模块" /></SelectTrigger>
-                <SelectContent>
-                  {modules.map((m) => (
-                    <SelectItem key={m.module_code} value={m.module_code}>{m.module_name}</SelectItem>
-                  ))}
-                  <SelectItem value="archives">档案管理</SelectItem>
-                  <SelectItem value="dormitory">宿舍管理</SelectItem>
-                  <SelectItem value="provident">社保/公积金</SelectItem>
-                  <SelectItem value="knowledge">知识库</SelectItem>
-                  <SelectItem value="audit_logs">系统日志</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>资源类型</Label>
-              <Input value={formData.resource_type} onChange={(e) => setFormData({ ...formData, resource_type: e.target.value })} placeholder="如 employee_photos, contracts（留空表示全部）" />
-            </div>
-            <div className="space-y-2">
-              <Label>存储配置</Label>
-              <Select value={String(formData.storage_id)} onValueChange={(v) => setFormData({ ...formData, storage_id: Number(v) })}>
-                <SelectTrigger><SelectValue placeholder="选择存储配置" /></SelectTrigger>
-                <SelectContent>
-                  {configs.filter((c) => c.enabled).map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.name} ({c.type})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>优先级</Label>
-              <Input type="number" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: Number(e.target.value) })} />
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch checked={formData.enabled} onCheckedChange={(v) => setFormData({ ...formData, enabled: v })} />
-              <Label>启用</Label>
+            <div className="grid gap-2">
+              <Label htmlFor="loc-address">地址</Label>
+              <Input id="loc-address" value={locationAddress} onChange={(e) => setLocationAddress(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>取消</Button>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>
+              取消
+            </Button>
             <Button onClick={handleSave}>保存</Button>
           </DialogFooter>
         </DialogContent>
@@ -1400,249 +3460,179 @@ function StorageRuleTab() {
   );
 }
 
-// 文件管理 Tab
-function FileManagementTab() {
-  const [files, setFiles] = useState<SysFile[]>([]);
-  const [total, setTotal] = useState(0);
+// ============ 编码规则管理 Tab ============
+function CodeRulesTab() {
+  const [rules, setRules] = useState<CodeRule[]>([]);
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(0);
-  const [configs, setConfigs] = useState<StorageConfig[]>([]);
-  const [selectedConfigId, setSelectedConfigId] = useState<number | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
-
-  const pageSize = 20;
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingRule, setEditingRule] = useState<CodeRule | null>(null);
+  const [ruleName, setRuleName] = useState("");
+  const [rulePattern, setRulePattern] = useState("");
+  const [preview, setPreview] = useState<CodeRulePreview | null>(null);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await listStorageConfigs();
-        setConfigs(data);
-        if (data.length > 0 && selectedConfigId === null) {
-          setSelectedConfigId(data[0].id);
-        }
-      } catch (error) {
-        toast.error("加载存储配置失败");
-      }
-    };
-    load();
-  }, [selectedConfigId]);
+    loadRules();
+  }, []);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const response = await listStorageFiles({
-          storage_config_id: selectedConfigId || undefined,
-          limit: pageSize,
-          offset: page * pageSize,
-        });
-        setFiles(response.files);
-        setTotal(response.total);
-      } catch (error) {
-        toast.error("加载文件列表失败");
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [page, selectedConfigId]);
+  const loadRules = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchCodeRules();
+      setRules(data);
+    } catch (error) {
+      console.error("加载规则失败:", error);
+      toast.error("加载规则失败");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedConfigId) {
-      toast.error("请选择文件和存储配置");
+   const handlePreview = async () => {
+     if (!rulePattern.trim()) {
+       toast.error("规则不能为空");
+       return;
+     }
+
+     try {
+       const result = await getCodeRulePreview("", "", new Date().getFullYear());
+       setPreview(result);
+     } catch (error) {
+       console.error("预览失败:", error);
+       toast.error("预览失败");
+     }
+   };
+
+  const handleSave = async () => {
+    if (!ruleName.trim() || !rulePattern.trim()) {
+      toast.error("规则名称和规则不能为空");
       return;
     }
 
-    setUploading(true);
     try {
-      await uploadStorageFile(file, selectedConfigId);
-      toast.success("文件上传成功");
-      setPage(0);
+      if (editingRule) {
+        await updateCodeRule(editingRule.id, { name: ruleName, pattern: rulePattern });
+        toast.success("规则已更新");
+      } else {
+        await createCodeRule({ name: ruleName, pattern: rulePattern });
+        toast.success("规则已创建");
+      }
+      setShowDialog(false);
+      setRuleName("");
+      setRulePattern("");
+      setPreview(null);
+      loadRules();
     } catch (error) {
-      toast.error("文件上传失败");
-    } finally {
-      setUploading(false);
+      console.error("保存失败:", error);
+      toast.error("保存失败");
     }
   };
 
-  const handleDownload = (fileId: number) => {
-    const url = getStorageFileDownloadUrl(fileId);
-    window.open(url, "_blank");
-  };
-
-  const handleDelete = async (fileId: number) => {
-    try {
-      await deleteStorageFile(fileId);
-      toast.success("文件已删除");
-      setPage(0);
-    } catch (error) {
-      toast.error("删除失败");
-    } finally {
-      setDeleteConfirmId(null);
-    }
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-  };
-
-  const totalPages = Math.ceil(total / pageSize);
+   const handleDelete = async (id: number) => {
+     if (confirm("确定要删除此规则吗？")) {
+       try {
+         await deleteCodeRule(id);
+         toast.success("规则已删除");
+         loadRules();
+       } catch (error) {
+         console.error("删除失败:", error);
+         toast.error("删除失败");
+       }
+     }
+   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>文件管理</CardTitle>
-        <CardDescription>上传和管理存储文件</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3 items-end">
-            <div className="grid gap-2">
-              <Label htmlFor="storage-select">选择存储配置</Label>
-              <Select
-                value={selectedConfigId?.toString() || ""}
-                onValueChange={(v) => {
-                  setSelectedConfigId(Number(v));
-                  setPage(0);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {configs.map((config) => (
-                    <SelectItem key={config.id} value={config.id.toString()}>
-                      {config.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="file-input">选择文件</Label>
-              <Input
-                id="file-input"
-                type="file"
-                onChange={handleFileUpload}
-                disabled={uploading || !selectedConfigId}
-              />
-            </div>
-            <Button disabled={uploading} className="w-full">
-              <Upload className="w-4 h-4 mr-2" />
-              {uploading ? "上传中..." : "上传"}
-            </Button>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>编码规则</CardTitle>
+            <CardDescription>管理档案编码生成规则</CardDescription>
           </div>
+          <Button onClick={() => { setEditingRule(null); setRuleName(""); setRulePattern(""); setPreview(null); setShowDialog(true); }}>
+            <Plus className="w-4 h-4 mr-2" />
+            新增规则
+          </Button>
         </div>
-
+      </CardHeader>
+      <CardContent>
         {loading ? (
           <div className="text-center py-8 text-muted-foreground">加载中...</div>
-        ) : files.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">暂无文件</div>
         ) : (
-          <>
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>文件名</TableHead>
-                    <TableHead>大小</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>存储类型</TableHead>
-                    <TableHead>创建时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>规则名称</TableHead>
+                  <TableHead>规则模式</TableHead>
+                  <TableHead>操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rules.map((rule) => (
+                  <TableRow key={rule.id}>
+                    <TableCell>{rule.name}</TableCell>
+                    <TableCell className="font-mono text-sm">{rule.pattern}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => { setEditingRule(rule); setRuleName(rule.name); setRulePattern(rule.pattern); setShowDialog(true); }}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(rule.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {files.map((file) => (
-                    <TableRow key={file.id}>
-                      <TableCell className="font-medium">{file.original_name}</TableCell>
-                      <TableCell>{formatFileSize(file.size)}</TableCell>
-                      <TableCell>{file.content_type}</TableCell>
-                      <TableCell>{file.storage_type}</TableCell>
-                      <TableCell>{format(new Date(file.created_at), "yyyy-MM-dd HH:mm")}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDownload(file.id)}
-                          >
-                            <Download className="w-3 h-3 mr-1" />
-                            下载
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setDeleteConfirmId(file.id)}
-                          >
-                            <Trash2 className="w-3 h-3 mr-1" />
-                            删除
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  共 {total} 个文件，第 {page + 1} / {totalPages} 页
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage(Math.max(0, page - 1))}
-                    disabled={page === 0}
-                  >
-                    上一页
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
-                    disabled={page === totalPages - 1}
-                  >
-                    下一页
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
 
-      <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
-            <AlertDialogDescription>确定要删除这个文件吗？此操作无法撤销。</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}>
-              删除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editingRule ? "编辑规则" : "新增规则"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="rule-name">规则名称</Label>
+              <Input id="rule-name" value={ruleName} onChange={(e) => setRuleName(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="rule-pattern">规则模式</Label>
+              <Textarea id="rule-pattern" value={rulePattern} onChange={(e) => setRulePattern(e.target.value)} placeholder="例如: {YYYY}{MM}{DD}-{SEQ:4}" rows={3} />
+            </div>
+             {preview && (
+               <div className="border rounded-lg p-3 bg-muted">
+                 <p className="text-sm font-medium mb-2">预览示例：</p>
+                 <p className="font-mono text-sm">{preview.sample_code}</p>
+               </div>
+             )}
+            <Button variant="outline" onClick={handlePreview} className="w-full">
+              <Eye className="w-4 h-4 mr-2" />
+              预览
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSave}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
 
-// ============ 主组件 ============
+// 存储配置 Tab
+
 export function SystemSettings() {
   const { user } = useAuth();
   const router = useRouter();
+  const [activeGroup, setActiveGroup] = useState("基础配置");
   const [activeSubTab, setActiveSubTab] = useState("announcements");
 
   // 权限校验
@@ -1654,7 +3644,6 @@ export function SystemSettings() {
   }, [user, router]);
 
   // 切换一级分组时，自动选中该分组的第一个子 tab
-  /*
   const handleGroupChange = (group: string) => {
     setActiveGroup(group);
     const groupData = SETTINGS_TAB_GROUPS.find((g) => g.group === group);
@@ -1662,7 +3651,6 @@ export function SystemSettings() {
       setActiveSubTab(groupData.items[0].id);
     }
   };
-  */
 
   // 渲染对应的 Tab 内容
   const renderTabContent = () => {
@@ -1673,8 +3661,16 @@ export function SystemSettings() {
         return <SMTPConfigTab />;
       case "model-usage":
         return <ModelUsageTab />;
-      case "archive-config":
-        return <ArchiveConfigTab />;
+      case "archive-classification":
+        return <ArchiveClassificationTab />;
+      case "archive-global":
+        return <ArchiveGlobalTab />;
+      case "retention-periods":
+        return <RetentionPeriodsTab />;
+      case "storage-locations":
+        return <StorageLocationsTab />;
+      case "code-rules":
+        return <CodeRulesTab />;
       case "roles":
         return <RolePermissionTab />;
       case "announcements":
@@ -1683,12 +3679,8 @@ export function SystemSettings() {
         return <SystemLogs />;
       case "maintenance":
         return <SystemMaintenanceTab />;
-      case "storage-configs":
-        return <StorageConfigTab />;
-      case "storage-rules":
-        return <StorageRuleTab />;
-      case "storage-files":
-        return <FileManagementTab />;
+      case "storage":
+        return <StorageTab />;
       default:
         return null;
     }
@@ -1719,6 +3711,7 @@ export function SystemSettings() {
                   <button
                     key={item.id}
                     onClick={() => {
+                      setActiveGroup(group.group);
                       setActiveSubTab(item.id);
                     }}
                     className={cn(

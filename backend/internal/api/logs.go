@@ -110,7 +110,58 @@ func (h *LogHandler) Routes() chi.Router {
 	r.Post("/alert-rules", h.CreateAlertRule)
 	r.Put("/alert-rules/{id}", h.UpdateAlertRule)
 	r.Delete("/alert-rules/{id}", h.DeleteAlertRule)
+	r.Get("/backup-settings", h.GetBackupSettings)
+	r.Post("/backup-settings", h.UpdateBackupSettings)
 	return r
+}
+
+type BackupSettings struct {
+	RetentionDays     int    `json:"retention_days"`
+	AutoBackupEnabled bool   `json:"auto_backup_enabled"`
+	BackupCron        string `json:"backup_cron"`
+}
+
+func (h *LogHandler) GetBackupSettings(w http.ResponseWriter, r *http.Request) {
+	settingsPath := filepath.Join("data", "backup_settings.json")
+	var settings BackupSettings
+
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		settings = BackupSettings{RetentionDays: 30, AutoBackupEnabled: false, BackupCron: "0 2 * * *"}
+	} else {
+		data, err := os.ReadFile(settingsPath)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to read backup settings", err)
+			return
+		}
+		if err := json.Unmarshal(data, &settings); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to parse backup settings", err)
+			return
+		}
+	}
+	respondJSON(w, http.StatusOK, settings)
+}
+
+func (h *LogHandler) UpdateBackupSettings(w http.ResponseWriter, r *http.Request) {
+	var settings BackupSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	if err := os.MkdirAll("data", 0755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create data directory", err)
+		return
+	}
+	settingsPath := filepath.Join("data", "backup_settings.json")
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to marshal backup settings", err)
+		return
+	}
+	if err := os.WriteFile(settingsPath, data, 0644); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to save backup settings", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"message": "settings updated"})
 }
 
 // QueryLogs queries audit_logs and system_logs with filtering and pagination
@@ -131,6 +182,7 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 	action := r.URL.Query().Get("action")
 	userID := r.URL.Query().Get("user_id")
 	status := r.URL.Query().Get("status")
+	level := r.URL.Query().Get("level")
 	keyword := r.URL.Query().Get("keyword")
 	if keyword == "" {
 		keyword = r.URL.Query().Get("search")
@@ -147,8 +199,8 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 		var systemLogs []SystemLog
 		query := h.db.Model(&SystemLog{})
 
-		if action != "" {
-			query = query.Where("level = ?", action)
+		if level != "" {
+			query = query.Where("level = ?", level)
 		}
 		if keyword != "" {
 			query = query.Where("message ILIKE ?", "%"+keyword+"%")
@@ -176,10 +228,16 @@ func (h *LogHandler) QueryLogs(w http.ResponseWriter, r *http.Request) {
 	} else if logType == "login" {
 		// Query audit_logs WHERE action LIKE 'LOGIN%' OR action='REGISTER' OR action='LOGOUT'
 		var auditLogs []models.AuditLog
-		query := h.db.Model(&models.AuditLog{}).Where(
-			"action LIKE ? OR action = ? OR action = ?",
-			"LOGIN%", "REGISTER", "LOGOUT",
-		)
+		query := h.db.Model(&models.AuditLog{})
+
+		if action != "" {
+			query = query.Where("action = ?", action)
+		} else {
+			query = query.Where(
+				"action LIKE ? OR action = ? OR action = ?",
+				"LOGIN%", "REGISTER", "LOGOUT",
+			)
+		}
 
 		if userID != "" {
 			query = query.Where("user_id = ?", userID)

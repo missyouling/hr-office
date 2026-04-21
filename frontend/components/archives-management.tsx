@@ -47,7 +47,7 @@ const RETENTION_OPTIONS = [
 
 const SUPPORTED_FILE_TYPES = {
   images: ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'],
-  documents: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.text'],
+  filteredDocuments: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.text'],
   drawings: ['.dwg', '.dxf', '.cad'],
   archives: ['.zip', '.rar', '.7z', '.tar', '.gz'],
   text: ['.txt', '.text', '.log', '.md', '.json', '.xml', '.yaml', '.yml', '.csv'],
@@ -65,7 +65,7 @@ interface PendingFile {
 
 export function ArchivesManagement() {
   const [categories, setCategories] = useState<DocumentCategory[]>([]);
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
   const [total, setTotal] = useState(0);
   const [storageLocations, setStorageLocations] = useState<StorageLocation[]>([]);
   const [page, setPage] = useState(1);
@@ -205,7 +205,7 @@ export function ArchivesManagement() {
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
 
-  const [fieldSchema, setFieldSchema] = useState<FormFieldSchema[]>([]);
+  const [formSchema, setFormSchema] = useState<FormFieldSchema[]>([]);
   const [tableSchema, setTableSchema] = useState<TableColumnSchema[]>([]);
 
   // 加载分类数据
@@ -220,12 +220,12 @@ export function ArchivesManagement() {
       fetchFieldsBySubCategory(Number(selectedSubCategory))
         .then((res) => {
           const allFields = [...(res.groups || []).flatMap(g => g.fields || []), ...(res.ungrouped || [])];
-          setFieldSchema(generateFormSchema(allFields));
+          setFormSchema(generateFormSchema(allFields));
           setTableSchema(generateTableSchema(allFields));
         })
         .catch((err) => {
           console.error("加载字段架构失败:", err);
-          setFieldSchema([]);
+          setFormSchema([]);
           setTableSchema([]);
         });
     }
@@ -239,13 +239,13 @@ export function ArchivesManagement() {
   // 全选逻辑
   useEffect(() => {
     if (selectAll) {
-      setSelectedIds(new Set(documents.map(d => d.id)));
-    } else if (selectedIds.size === documents.length && documents.length > 0) {
+      setSelectedIds(new Set(filteredDocuments.map(d => d.id)));
+    } else if (selectedIds.size === filteredDocuments.length && filteredDocuments.length > 0) {
       // 已经全部选中了，不需要改
-    } else if (!selectAll && selectedIds.size === documents.length) {
+    } else if (!selectAll && selectedIds.size === filteredDocuments.length) {
       // 保持当前选择
     }
-  }, [selectAll, documents]);
+  }, [selectAll, filteredDocuments]);
 
   // 保存打印设置到 localStorage
   useEffect(() => {
@@ -290,7 +290,7 @@ export function ArchivesManagement() {
       }
 
       const response = await fetchDocuments(params as Parameters<typeof fetchDocuments>[0]);
-      setDocuments(response.items);
+      setFilteredDocuments(response.items);
       setTotal(response.total);
     } catch (error) {
       console.error("加载文档失败:", error);
@@ -321,7 +321,7 @@ export function ArchivesManagement() {
       newSet.add(id);
     }
     setSelectedIds(newSet);
-    setSelectAll(newSet.size === documents.length);
+    setSelectAll(newSet.size === filteredDocuments.length);
   };
 
   // 全选/取消全选
@@ -330,12 +330,12 @@ export function ArchivesManagement() {
       setSelectedIds(new Set());
       setSelectAll(false);
     } else {
-      setSelectedIds(new Set(documents.map(d => d.id)));
+      setSelectedIds(new Set(filteredDocuments.map(d => d.id)));
       setSelectAll(true);
     }
   };
 
-  const handleOpenForm = (doc?: Document) => {
+  const handleEdit = (doc?: Document) => {
     if (!doc) {
       handleCategoryChange(activeTab === "all" ? "WS" : activeTab);
     }
@@ -365,7 +365,7 @@ export function ArchivesManagement() {
         remarks: doc.remarks || "",
       };
       
-      fieldSchema.forEach(field => {
+      formSchema.forEach(field => {
         const value = (doc as unknown as Record<string, unknown>)[field.field_name];
         if (value !== undefined && value !== null) {
           newFormData[field.field_name] = String(value);
@@ -467,7 +467,7 @@ export function ArchivesManagement() {
     if (doc.file_path) {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api'}/archives/documents/${doc.id}/download`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api'}/archives/filteredDocuments/${doc.id}/download`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
@@ -603,7 +603,7 @@ export function ArchivesManagement() {
     // 检查是否有重名文件（基于文件名，不包含扩展名）
     const fileNameWithoutExt = (f: File) => f.name.replace(/\.[^.]+$/, '');
     for (const newFile of files) {
-      const duplicateDoc = documents.find(doc =>
+      const duplicateDoc = filteredDocuments.find(doc =>
         doc.file_name?.toLowerCase() === fileNameWithoutExt(newFile).toLowerCase()
       );
       if (duplicateDoc) {
@@ -1140,9 +1140,9 @@ export function ArchivesManagement() {
       {/* 表格 */}
       <ArchiveTableRenderer
         schema={tableSchema}
-        data={documents}
+        data={filteredDocuments}
         visibleColumns={visibleColumns}
-        onEdit={handleOpenForm}
+        onEdit={handleEdit}
         onDelete={handleDelete}
         onView={handlePreview}
         selectedIds={selectedIds}
@@ -1184,7 +1184,7 @@ export function ArchivesManagement() {
           </DialogHeader>
           <div className="py-4">
             <ArchiveFormRenderer
-              schema={fieldSchema}
+              schema={formSchema}
               data={formData as unknown as Document}
               onChange={(data) => setFormData(data as unknown as Record<string, string>)}
               storageLocations={storageLocations as unknown as Record<string, unknown>[]}
@@ -1551,7 +1551,7 @@ export function ArchivesManagement() {
                     onChange={handleSingleFileSelect}
                     accept={[
                       ...SUPPORTED_FILE_TYPES.images,
-                      ...SUPPORTED_FILE_TYPES.documents,
+                      ...SUPPORTED_FILE_TYPES.filteredDocuments,
                       ...SUPPORTED_FILE_TYPES.drawings,
                     ].join(',')}
                   />
@@ -1598,7 +1598,7 @@ export function ArchivesManagement() {
         <div className="mt-4 p-4 border rounded-md bg-muted/30">
           <h4 className="font-medium mb-3">完善档案信息</h4>
           <ArchiveFormRenderer
-            schema={fieldSchema}
+            schema={formSchema}
             data={{
               ...formData,
               file_name: singleFileName,
@@ -1728,7 +1728,7 @@ export function ArchivesManagement() {
                     onChange={handleFileSelect}
                     accept={[
                       ...SUPPORTED_FILE_TYPES.images,
-                      ...SUPPORTED_FILE_TYPES.documents,
+                      ...SUPPORTED_FILE_TYPES.filteredDocuments,
                       ...SUPPORTED_FILE_TYPES.drawings,
                     ].join(',')}
                   />

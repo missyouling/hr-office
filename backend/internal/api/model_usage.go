@@ -11,7 +11,7 @@ import (
 
 // GetModelUsageStats - GET /api/settings/models/usage
 // Query params: config_type, start_date, end_date
-// Returns: { total_calls, success_calls, failed_calls, success_rate, total_tokens, input_tokens, output_tokens, total_cost, avg_duration_ms }
+// Returns: { total_calls, success_calls, failed_calls, success_rate, total_tokens, input_tokens, output_tokens, total_cost, avg_duration_ms, today_calls, today_cost, today_input_tokens, today_output_tokens, rpm, tpm }
 func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
 	if err != nil {
@@ -23,7 +23,18 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	startDateStr := r.URL.Query().Get("start_date")
 	endDateStr := r.URL.Query().Get("end_date")
 
-	query := h.db.Where("user_id = ?", userID)
+	// Fetch user role to determine if they can see global stats
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch user", err)
+		return
+	}
+
+	// Build query: admins see all data, regular users see only their own
+	query := h.db
+	if user.Role != "admin" && user.Role != "super_admin" {
+		query = query.Where("user_id = ?", userID)
+	}
 
 	if configType != "" {
 		query = query.Where("config_type = ?", configType)
@@ -45,15 +56,21 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type StatsResult struct {
-		TotalCalls    int64   `json:"total_calls"`
-		SuccessCalls  int64   `json:"success_calls"`
-		FailedCalls   int64   `json:"failed_calls"`
-		SuccessRate   float64 `json:"success_rate"`
-		TotalTokens   int64   `json:"total_tokens"`
-		InputTokens   int64   `json:"input_tokens"`
-		OutputTokens  int64   `json:"output_tokens"`
-		TotalCost     float64 `json:"total_cost"`
-		AvgDurationMs float64 `json:"avg_duration_ms"`
+		TotalCalls        int64   `json:"total_calls"`
+		SuccessCalls      int64   `json:"success_calls"`
+		FailedCalls       int64   `json:"failed_calls"`
+		SuccessRate       float64 `json:"success_rate"`
+		TotalTokens       int64   `json:"total_tokens"`
+		InputTokens       int64   `json:"input_tokens"`
+		OutputTokens      int64   `json:"output_tokens"`
+		TotalCost         float64 `json:"total_cost"`
+		AvgDurationMs     float64 `json:"avg_duration_ms"`
+		TodayCalls        int64   `json:"today_calls"`
+		TodayCost         float64 `json:"today_cost"`
+		TodayInputTokens  int64   `json:"today_input_tokens"`
+		TodayOutputTokens int64   `json:"today_output_tokens"`
+		RPM               float64 `json:"rpm"`
+		TPM               float64 `json:"tpm"`
 	}
 
 	var result StatsResult
@@ -74,6 +91,58 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to get usage stats", err)
 		return
 	}
+
+	// Calculate today's metrics
+	todayStart := time.Now().Truncate(24 * time.Hour)
+	var todayStats struct {
+		TodayCalls        int64
+		TodayCost         float64
+		TodayInputTokens  int64
+		TodayOutputTokens int64
+	}
+
+	err = query.Model(&models.ModelUsageLog{}).
+		Where("created_at >= ?", todayStart).
+		Select(
+			"COUNT(*) as today_calls",
+			"SUM(cost_usd) as today_cost",
+			"SUM(input_tokens) as today_input_tokens",
+			"SUM(output_tokens) as today_output_tokens",
+		).
+		Scan(&todayStats).Error
+
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get today stats", err)
+		return
+	}
+
+	result.TodayCalls = todayStats.TodayCalls
+	result.TodayCost = todayStats.TodayCost
+	result.TodayInputTokens = todayStats.TodayInputTokens
+	result.TodayOutputTokens = todayStats.TodayOutputTokens
+
+	// Calculate RPM (requests per minute) and TPM (tokens per minute) from last 60 seconds
+	sixtySecondsAgo := time.Now().Add(-60 * time.Second)
+	var recentStats struct {
+		RecentCalls  int64
+		RecentTokens int64
+	}
+
+	err = query.Model(&models.ModelUsageLog{}).
+		Where("created_at >= ?", sixtySecondsAgo).
+		Select(
+			"COUNT(*) as recent_calls",
+			"SUM(total_tokens) as recent_tokens",
+		).
+		Scan(&recentStats).Error
+
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get recent stats", err)
+		return
+	}
+
+	result.RPM = float64(recentStats.RecentCalls)
+	result.TPM = float64(recentStats.RecentTokens)
 
 	if result.TotalCalls > 0 {
 		result.SuccessRate = float64(result.SuccessCalls) / float64(result.TotalCalls) * 100
@@ -99,7 +168,18 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 
 	configType := r.URL.Query().Get("config_type")
 
-	query := h.db.Where("user_id = ?", userID)
+	// Fetch user role to determine if they can see global stats
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch user", err)
+		return
+	}
+
+	// Build query: admins see all data, regular users see only their own
+	query := h.db
+	if user.Role != "admin" && user.Role != "super_admin" {
+		query = query.Where("user_id = ?", userID)
+	}
 	if configType != "" {
 		query = query.Where("config_type = ?", configType)
 	}
@@ -184,6 +264,13 @@ func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch user role to determine if they can see global stats
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to fetch user", err)
+		return
+	}
+
 	type ModelStats struct {
 		ModelName     string  `json:"model_name"`
 		ConfigType    string  `json:"config_type"`
@@ -199,8 +286,14 @@ func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 		SuccessRate   float64 `json:"success_rate"`
 	}
 
+	// Build query: admins see all data, regular users see only their own
+	query := h.db
+	if user.Role != "admin" && user.Role != "super_admin" {
+		query = query.Where("user_id = ?", userID)
+	}
+
 	var results []ModelStats
-	err = h.db.Where("user_id = ?", userID).
+	err = query.
 		Model(&models.ModelUsageLog{}).
 		Select(
 			"model_name",

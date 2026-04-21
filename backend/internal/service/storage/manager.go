@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -119,14 +120,74 @@ func (m *StorageManager) UploadFile(ctx context.Context, configID uint, userID u
 		contentType = "application/octet-stream"
 	}
 
-	hash := md5.New()
-	teeReader := io.TeeReader(reader, hash)
-
-	if err := driver.Upload(ctx, storagePath, teeReader, size); err != nil {
-		return nil, fmt.Errorf("failed to upload file: %w", err)
+	// Buffer the file content to allow retry on failover
+	fileData := make([]byte, size)
+	n, err := io.ReadFull(reader, fileData)
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	if int64(n) != size {
+		return nil, fmt.Errorf("incomplete file read: expected %d bytes, got %d", size, n)
 	}
 
+	hash := md5.New()
+	hash.Write(fileData)
 	etag := hex.EncodeToString(hash.Sum(nil))
+
+	// Attempt upload to primary storage
+	uploadErr := driver.Upload(ctx, storagePath, io.NopCloser(bytes.NewReader(fileData)), size)
+	
+	// If upload failed and primary storage is not local, attempt failover to local
+	if uploadErr != nil {
+		log.Printf("[StorageManager] upload to config %d failed: %v, attempting failover to local storage", configID, uploadErr)
+		
+		if driver.Type() != "local" {
+			// Get default local storage config
+			var localConfig models.StorageConfig
+			if err := m.db.Where("user_id = ? AND type = ? AND enabled = ?", userID, "local", true).
+				First(&localConfig).Error; err != nil {
+				return nil, fmt.Errorf("primary upload failed and no local fallback available: %w", uploadErr)
+			}
+
+			localDriver, err := m.GetDriver(localConfig.ID)
+			if err != nil {
+				return nil, fmt.Errorf("primary upload failed and failed to get local driver: %w", uploadErr)
+			}
+
+			// Attempt upload to local fallback
+			if err := localDriver.Upload(ctx, storagePath, io.NopCloser(bytes.NewReader(fileData)), size); err != nil {
+				return nil, fmt.Errorf("both primary and fallback uploads failed: primary=%w, fallback=%w", uploadErr, err)
+			}
+
+			// Create SysFile record with fallback flags
+			sysFile := &models.SysFile{
+				StorageType:     localDriver.Type(),
+				Path:            storagePath,
+				OriginalName:    filename,
+				Size:            size,
+				ContentType:     contentType,
+				ETag:            etag,
+				StorageConfigID: &localConfig.ID,
+				CreatedBy:       &userID,
+				IsFallback:      true,
+				PrimaryConfigID: &configID,
+				MigrationStatus: "pending",
+			}
+
+			if err := m.db.Create(sysFile).Error; err != nil {
+				if delErr := localDriver.Delete(ctx, storagePath); delErr != nil {
+					log.Printf("[StorageManager] failed to delete fallback file after metadata creation error: %v", delErr)
+				}
+				return nil, fmt.Errorf("failed to create file metadata: %w", err)
+			}
+
+			log.Printf("[StorageManager] file uploaded to local fallback storage (config %d), marked for migration", localConfig.ID)
+			return sysFile, nil
+		}
+		
+		// If primary is already local, return the error
+		return nil, fmt.Errorf("failed to upload file to local storage: %w", uploadErr)
+	}
 
 	sysFile := &models.SysFile{
 		StorageType:     driver.Type(),
@@ -137,6 +198,8 @@ func (m *StorageManager) UploadFile(ctx context.Context, configID uint, userID u
 		ETag:            etag,
 		StorageConfigID: &configID,
 		CreatedBy:       &userID,
+		IsFallback:      false,
+		MigrationStatus: "none",
 	}
 
 	if err := m.db.Create(sysFile).Error; err != nil {

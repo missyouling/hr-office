@@ -1,27 +1,34 @@
 "use client";
 
-import React from 'react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { TableColumnSchema } from '@/lib/archive-schema';
-import type { Document } from '@/lib/api';
+import React from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { TableColumnSchema } from "@/lib/archive-schema";
+
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Edit2, Trash2, Eye } from "lucide-react";
 
 interface ArchiveTableRendererProps {
   schema: TableColumnSchema[];
-  data: Document[];
-  visibleColumns?: string[];
-  onEdit?: (doc: Document) => void;
-  onDelete?: (id: number) => void;
-  onView?: (doc: Document) => void;
-  // 多选相关
+  data: Array<Record<string, unknown> & { id: number }>;
+  visibleColumns: string[];
+  onEdit: (row: Record<string, unknown> & { id: number }) => void;
+  onDelete: (id: number) => void;
+  onView?: (row: Record<string, unknown> & { id: number }) => void;
   selectedIds?: Set<number>;
   onSelect?: (id: number) => void;
   onSelectAll?: () => void;
   selectAll?: boolean;
 }
 
-export function ArchiveTableRenderer({
+export const ArchiveTableRenderer: React.FC<ArchiveTableRendererProps> = ({
   schema,
   data,
   visibleColumns,
@@ -32,72 +39,74 @@ export function ArchiveTableRenderer({
   onSelect,
   onSelectAll,
   selectAll,
-}: ArchiveTableRendererProps) {
-  const columns = schema.filter(
-    col => col.visible && (!visibleColumns || visibleColumns.includes(col.key))
-  );
+}) => {
+  const columns = schema.filter((col) => visibleColumns.includes(col.key));
 
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            {onSelectAll && (
-              <TableHead className="w-12">
+            {(onSelect || onSelectAll) && (
+              <TableHead className="w-[40px]">
                 <Checkbox
                   checked={selectAll}
-                  onCheckedChange={onSelectAll}
+                  onCheckedChange={() => onSelectAll?.()}
                 />
               </TableHead>
             )}
-            <TableHead className="w-12 text-center">序号</TableHead>
             {columns.map((col) => (
-              <TableHead key={col.key}>{col.label}</TableHead>
+              <TableHead key={col.key} className="whitespace-nowrap">
+                {col.label}
+              </TableHead>
             ))}
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.length > 0 ? (
-            data.map((row, index) => (
-              <TableRow key={row.id}>
-                {onSelect && (
+            data.map((row) => (
+              <TableRow
+                key={row.id}
+                className={selectedIds?.has(row.id) ? "bg-muted/50" : ""}
+              >
+                {(onSelect || onSelectAll) && (
                   <TableCell>
                     <Checkbox
                       checked={selectedIds?.has(row.id)}
-                      onCheckedChange={() => onSelect(row.id)}
+                      onCheckedChange={() => onSelect?.(row.id)}
                     />
                   </TableCell>
                 )}
-                <TableCell className="text-center">{index + 1}</TableCell>
                 {columns.map((col) => (
                   <TableCell key={col.key}>
-                    {col.render ? col.render(((row as unknown) as Record<string, unknown>)[col.key], row) : String(((row as unknown) as Record<string, unknown>)[col.key] || '')}
+                    {renderCellValue(row[col.key], col.type)}
                   </TableCell>
                 ))}
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
+                    {onView && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onView(row)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
-                      size="sm"
-                      onClick={() => onView?.(row)}
+                      size="icon"
+                      onClick={() => onEdit(row)}
                     >
-                      查看
+                      <Edit2 className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
-                      size="sm"
-                      onClick={() => onEdit?.(row)}
+                      size="icon"
+                      onClick={() => onDelete(row.id)}
                     >
-                      编辑
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => onDelete?.(row.id)}
-                    >
-                      删除
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </TableCell>
@@ -105,7 +114,7 @@ export function ArchiveTableRenderer({
             ))
           ) : (
             <TableRow>
-              <TableCell colSpan={columns.length + (onSelect ? 2 : 1) + 1} className="h-24 text-center">
+              <TableCell colSpan={columns.length + (onSelect ? 2 : 1)} className="h-24 text-center">
                 暂无数据
               </TableCell>
             </TableRow>
@@ -114,5 +123,26 @@ export function ArchiveTableRenderer({
       </Table>
     </div>
   );
-}
+};
 
+function renderCellValue(value: unknown, type: string) {
+  if (value === null || value === undefined) return "-";
+
+  if (type === "date") {
+    try {
+      return new Date(value).toLocaleDateString("zh-CN");
+    } catch {
+      return String(value);
+    }
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  return String(value);
+}

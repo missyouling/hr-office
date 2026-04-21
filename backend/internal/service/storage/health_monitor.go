@@ -154,6 +154,8 @@ func (m *HealthMonitor) checkOne(ctx context.Context, config *models.StorageConf
 		// Healthy
 		if config.Status == "error" || config.Status == "checking" {
 			log.Printf("[HealthMonitor] %s (id=%d) recovered", config.Name, config.ID)
+			// Trigger background migration for files in fallback storage
+			go m.migrateFilesFromFallback(config.ID)
 		}
 		config.FailCount = 0
 		config.Status = "active"
@@ -276,6 +278,95 @@ func (m *HealthMonitor) CheckSingle(ctx context.Context, configID uint) (*Health
 	}
 
 	return driver.Test(ctx)
+}
+
+// migrateFilesFromFallback migrates files from fallback storage back to primary storage
+func (m *HealthMonitor) migrateFilesFromFallback(primaryConfigID uint) {
+	log.Printf("[HealthMonitor] starting migration for files in fallback storage (primary config %d)", primaryConfigID)
+
+	var fallbackFiles []models.SysFile
+	if err := m.db.Where("primary_config_id = ? AND is_fallback = ? AND migration_status = ?",
+		primaryConfigID, true, "pending").Find(&fallbackFiles).Error; err != nil {
+		log.Printf("[HealthMonitor] failed to query fallback files: %v", err)
+		return
+	}
+
+	if len(fallbackFiles) == 0 {
+		log.Printf("[HealthMonitor] no pending migrations for config %d", primaryConfigID)
+		return
+	}
+
+	log.Printf("[HealthMonitor] found %d files to migrate for config %d", len(fallbackFiles), primaryConfigID)
+
+	var primaryConfig models.StorageConfig
+	if err := m.db.First(&primaryConfig, primaryConfigID).Error; err != nil {
+		log.Printf("[HealthMonitor] failed to load primary config %d: %v", primaryConfigID, err)
+		return
+	}
+
+	primaryDriver, err := m.registry.Create(primaryConfig.Type, []byte(primaryConfig.Config))
+	if err != nil {
+		log.Printf("[HealthMonitor] failed to create primary driver for config %d: %v", primaryConfigID, err)
+		return
+	}
+
+	var fallbackConfig models.StorageConfig
+	if len(fallbackFiles) > 0 && fallbackFiles[0].StorageConfigID != nil {
+		if err := m.db.First(&fallbackConfig, *fallbackFiles[0].StorageConfigID).Error; err != nil {
+			log.Printf("[HealthMonitor] failed to load fallback config: %v", err)
+			return
+		}
+	}
+
+	fallbackDriver, err := m.registry.Create(fallbackConfig.Type, []byte(fallbackConfig.Config))
+	if err != nil {
+		log.Printf("[HealthMonitor] failed to create fallback driver: %v", err)
+		return
+	}
+
+	for _, file := range fallbackFiles {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		if err := m.migrateFile(ctx, &file, fallbackDriver, primaryDriver, &primaryConfig); err != nil {
+			log.Printf("[HealthMonitor] migration failed for file %d: %v", file.ID, err)
+			m.db.Model(&file).Updates(map[string]interface{}{
+				"migration_status": "failed",
+			})
+		}
+	}
+
+	log.Printf("[HealthMonitor] migration completed for config %d", primaryConfigID)
+}
+
+// migrateFile migrates a single file from fallback to primary storage
+func (m *HealthMonitor) migrateFile(ctx context.Context, file *models.SysFile, fallbackDriver, primaryDriver Driver, primaryConfig *models.StorageConfig) error {
+	reader, err := fallbackDriver.Download(ctx, file.Path)
+	if err != nil {
+		return fmt.Errorf("failed to download from fallback: %w", err)
+	}
+	defer reader.Close()
+
+	if err := primaryDriver.Upload(ctx, file.Path, reader, file.Size); err != nil {
+		return fmt.Errorf("failed to upload to primary: %w", err)
+	}
+
+	if err := fallbackDriver.Delete(ctx, file.Path); err != nil {
+		log.Printf("[HealthMonitor] warning: failed to delete from fallback storage: %v", err)
+	}
+
+	if err := m.db.Model(file).Updates(map[string]interface{}{
+		"is_fallback":       false,
+		"migration_status":  "completed",
+		"storage_type":      primaryDriver.Type(),
+		"storage_config_id": primaryConfig.ID,
+		"primary_config_id": nil,
+	}).Error; err != nil {
+		return fmt.Errorf("failed to update file metadata: %w", err)
+	}
+
+	log.Printf("[HealthMonitor] successfully migrated file %d to primary storage", file.ID)
+	return nil
 }
 
 // sendSMTPEmail sends an email via SMTP with TLS support

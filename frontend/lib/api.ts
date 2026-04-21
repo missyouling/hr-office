@@ -2295,6 +2295,14 @@ export interface Permission {
   sort_order: number;
 }
 
+export async function listStorageDirectoriesEnhanced(req: { type: string; config: Record<string, unknown> }): Promise<{ directories: string[] }> {
+  return request<{ directories: string[] }>("/admin/storage/directories", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
 export async function fetchRoles(): Promise<Role[]> {
   return request("/rbac/roles");
 }

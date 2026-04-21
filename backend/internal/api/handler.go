@@ -449,9 +449,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		sr.Get("/{id}/status", h.getStorageStatus)
 		sr.Get("/{id}/capacity", h.getStorageCapacity)
 		sr.Post("/{id}/set-primary", h.setStoragePrimary)
-		sr.Post("/test", h.testStorageConnectionNew)
-		sr.Get("/directories", h.listStorageDirectories)
-		// 模块配置
+ 		sr.Post("/test", h.testStorageConnectionNew)
+ 		sr.Post("/directories", h.listStorageDirectories)
+ 		// 模块配置
 		sr.Get("/modules", h.listStorageModules)
 		sr.Post("/modules", h.createStorageModule)
 		sr.Put("/modules/{id}", h.updateStorageModule)

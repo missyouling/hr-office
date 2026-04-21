@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -25,11 +26,11 @@ func NewOCRExtractService(db *gorm.DB, ocrService *OCRService) *OCRExtractServic
 
 // ExtractResult OCR提取结果
 type ExtractResult struct {
-	OCRStatus         string                 `json:"ocr_status"`          // success/failed/skipped
-	OCRText           string                 `json:"ocr_text"`            // OCR提取的原文
-	SharedFields      map[string]interface{} `json:"shared_fields"`       // 共用字段预填充值
-	ProprietaryFields map[string]interface{} `json:"proprietary_fields"`  // 专用字段预填充值
-	ErrorMessage      string                 `json:"error_message"`       // 错误信息
+	OCRStatus         string                 `json:"ocr_status"`         // success/failed/skipped
+	OCRText           string                 `json:"ocr_text"`           // OCR提取的原文
+	SharedFields      map[string]interface{} `json:"shared_fields"`      // 共用字段预填充值
+	ProprietaryFields map[string]interface{} `json:"proprietary_fields"` // 专用字段预填充值
+	ErrorMessage      string                 `json:"error_message"`      // 错误信息
 }
 
 // ExtractFieldsFromFile 从上传文件中提取字段
@@ -130,7 +131,7 @@ func (s *OCRExtractService) callOCR(file multipart.File, header *multipart.FileH
 		if ocrResult != nil && ocrResult.Error != "" {
 			errMsg = ocrResult.Error
 		}
-		return "", fmt.Errorf(errMsg)
+		return "", errors.New(errMsg)
 	}
 
 	return ocrResult.Text, nil

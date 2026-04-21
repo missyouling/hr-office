@@ -77,6 +77,9 @@ type SysFile struct {
 	ETag            string         `json:"etag" gorm:"size:100"`              // file hash/etag
 	StorageConfigID *uint          `json:"storage_config_id" gorm:"index"`    // FK to StorageConfig
 	CreatedBy       *uint          `json:"created_by" gorm:"index"`           // FK to User who uploaded
+	IsFallback      bool           `json:"is_fallback" gorm:"default:false"`  // whether file is in fallback storage
+	PrimaryConfigID *uint          `json:"primary_config_id" gorm:"index"`    // original storage config ID (when fallback)
+	MigrationStatus string         `json:"migration_status" gorm:"size:20;default:none"` // none/pending/completed/failed
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
 	DeletedAt       gorm.DeletedAt `json:"deleted_at" gorm:"index"` // soft delete support
