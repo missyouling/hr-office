@@ -2128,15 +2128,15 @@ function StorageTab() {
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; latency?: number; message?: string; testing?: boolean }>>({});
   const [selectedModule, setSelectedModule] = useState<StorageModuleConfig | null>(null);
   
-  const [showConfigDialog, setShowConfigDialog] = useState(false);
-  const [editingConfig, setEditingConfig] = useState<StorageConfig | null>(null);
-  const [configForm, setConfigForm] = useState({
-    name: "",
-    type: "s3" as "s3" | "webdav",
-    enabled: true,
-    s3: { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
-    webdav: { url: "https://", username: "", password: "", directory: "/" }
-  });
+   const [showConfigDialog, setShowConfigDialog] = useState(false);
+   const [editingConfig, setEditingConfig] = useState<StorageConfig | null>(null);
+   const [configForm, setConfigForm] = useState({
+     name: "",
+     type: "s3" as "s3" | "webdav",
+     enabled: true,
+     s3: { endpoint: "", bucket: "", region: "", access_key: "", secret_key: "", provider: "aliyun" },
+     webdav: { url: "", username: "", password: "", directory: "/" }
+   });
 
   const [ruleForm, setRuleForm] = useState({
     storage_id: 0,
@@ -2153,29 +2153,30 @@ function StorageTab() {
   const [fetchingDirs, setFetchingDirs] = useState(false);
   const [showWebdavPassword, setShowWebdavPassword] = useState(false);
 
-  const fetchWebdavDirs = async (type: string, config: any) => {
-    if (type !== "webdav") return;
-    setFetchingDirs(true);
-    console.log("[WebDAV] fetchWebdavDirs called with config:", JSON.stringify(config));
-    try {
-      const webdavConfig = {
-        webdav_url: config.webdav_url || config.url || config.webdavURL || "",
-        webdav_username: config.webdav_username || config.username || config.webdavUsername || "",
-        webdav_password: config.webdav_password || config.password || config.webdavPassword || "",
-        directory: config.directory || "/"
-      };
-      console.log("[WebDAV] Transformed webdavConfig:", JSON.stringify(webdavConfig));
-      console.log("[WebDAV] Calling listStorageDirectoriesEnhanced with:", { type, config: webdavConfig });
-      const res = await listStorageDirectoriesEnhanced({ type, config: webdavConfig });
-      console.log("[WebDAV] listStorageDirectoriesEnhanced result:", res);
-      setWebdavDirs(res.directories || []);
-    } catch (err: any) {
-      console.error("[WebDAV] fetchWebdavDirs error:", err);
-      toast.error("获取 WebDAV 目录失败: " + (err?.message || ""));
-    } finally {
-      setFetchingDirs(false);
-    }
-  };
+   const fetchWebdavDirs = async (type: string, config: Record<string, unknown>) => {
+     if (type !== "webdav") return;
+     setFetchingDirs(true);
+     console.log("[WebDAV] fetchWebdavDirs called with config:", JSON.stringify(config));
+     try {
+       const webdavConfig = {
+         webdav_url: (config.webdav_url || config.url || config.webdavURL || "") as string,
+         webdav_username: (config.webdav_username || config.username || config.webdavUsername || "") as string,
+         webdav_password: (config.webdav_password || config.password || config.webdavPassword || "") as string,
+         directory: (config.directory || "/") as string
+       };
+       console.log("[WebDAV] Transformed webdavConfig:", JSON.stringify(webdavConfig));
+       console.log("[WebDAV] Calling listStorageDirectoriesEnhanced with:", { type, config: webdavConfig });
+       const res = await listStorageDirectoriesEnhanced({ type, config: webdavConfig });
+       console.log("[WebDAV] listStorageDirectoriesEnhanced result:", res);
+       setWebdavDirs(res.directories || []);
+     } catch (err) {
+       const error = err instanceof Error ? err : new Error(String(err));
+       console.error("[WebDAV] fetchWebdavDirs error:", error);
+       toast.error("获取 WebDAV 目录失败: " + (error?.message || ""));
+     } finally {
+       setFetchingDirs(false);
+     }
+   };
 
   const handleTest = async (config: StorageConfig, silent = false) => {
     setTestResults(prev => ({ ...prev, [config.id]: { ...prev[config.id], testing: true } }));
@@ -2282,7 +2283,7 @@ function StorageTab() {
 
     // WebDAV: 提示目录列表失败但允许保存（用户可手动指定路径）
     if (configForm.type === "webdav") {
-      const webdavConfig = configForm.webdav as any;
+      const webdavConfig = configForm.webdav;
       if (webdavDirs.length === 0 && !fetchingDirs && webdavConfig.url) {
         const confirmed = await new Promise<boolean>(resolve => {
           const dialogConfirmed = confirm(
@@ -2420,19 +2421,22 @@ function StorageTab() {
     return `「${moduleName}」存储于「${configName}」${archiveType}`;
   };
 
-  const handleS3ProviderChange = (provider: string) => {
-    const endpoints: Record<string, string> = {
-      aliyun: "https://oss-cn-hangzhou.aliyuncs.com",
-      tencent: "https://cos.ap-guangzhou.myqcloud.com",
-      bitiful: "https://s3.bitiful.net",
-      qiniu: "https://s3-cn-east-1.qiniucs.com",
-      custom: ""
-    };
-    setConfigForm(prev => ({
-      ...prev,
-      s3: { ...prev.s3, provider, endpoint: endpoints[provider] || prev.s3.endpoint }
-    }));
-  };
+   const handleS3ProviderChange = (provider: string) => {
+     const endpoints: Record<string, string> = {
+       aliyun: "https://oss-cn-hangzhou.aliyuncs.com",
+       tencent: "https://cos.ap-guangzhou.myqcloud.com",
+       bitiful: "https://s3.bitiful.net",
+       qiniu: "https://s3-cn-east-1.qiniucs.com"
+     };
+     setConfigForm(prev => ({
+       ...prev,
+       s3: { 
+         ...prev.s3, 
+         provider, 
+         endpoint: provider === "custom" ? prev.s3.endpoint : endpoints[provider]
+       }
+     }));
+   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -2448,8 +2452,8 @@ function StorageTab() {
               name: "",
               type: "s3",
               enabled: true,
-              s3: { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
-              webdav: { url: "https://", username: "", password: "", directory: "/" }
+              s3: { endpoint: "https://oss-cn-hangzhou.aliyuncs.com", bucket: "", region: "", access_key: "", secret_key: "", provider: "aliyun" },
+              webdav: { url: "", username: "", password: "", directory: "/" }
             });
             setShowConfigDialog(true);
           }}>
@@ -2501,26 +2505,27 @@ function StorageTab() {
                       <div className="flex gap-0.5">
                         {!isDefaultLocal && (
                           <>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
-                              setEditingConfig(config);
-                              const webdavConfig = config.type === "webdav" ? (config.config as unknown as typeof configForm.webdav) : { url: "https://", username: "", password: "", directory: "/" };
-                              setConfigForm({
-                                name: config.name,
-                                type: config.type as "s3" | "webdav",
-                                enabled: config.enabled,
-                                s3: config.type === "s3" ? (config.config as unknown as typeof configForm.s3) : { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
-                                webdav: webdavConfig
-                              });
-                              setShowConfigDialog(true);
-                              if (config.type === "webdav") {
-                                fetchWebdavDirs("webdav", {
-                                  webdav_url: webdavConfig.url,
-                                  webdav_username: webdavConfig.username,
-                                  webdav_password: webdavConfig.password,
-                                  directory: "/"
-                                });
-                              }
-                            }}>
+                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
+                               setEditingConfig(config);
+                               const webdavConfig = config.type === "webdav" ? (config.config as unknown as typeof configForm.webdav) : { url: "", username: "", password: "", directory: "/" };
+                               const s3ConfigData = config.type === "s3" ? (config.config as unknown as typeof configForm.s3) : { endpoint: "", bucket: "", region: "", access_key: "", secret_key: "", provider: "aliyun" };
+                               setConfigForm({
+                                 name: config.name,
+                                 type: config.type as "s3" | "webdav",
+                                 enabled: config.enabled,
+                                 s3: s3ConfigData,
+                                 webdav: webdavConfig
+                               });
+                               setShowConfigDialog(true);
+                               if (config.type === "webdav") {
+                                 fetchWebdavDirs("webdav", {
+                                   webdav_url: webdavConfig.url,
+                                   webdav_username: webdavConfig.username,
+                                   webdav_password: webdavConfig.password,
+                                   directory: "/"
+                                 });
+                               }
+                             }}>
                               <Edit className="w-3.5 h-3.5" />
                             </Button>
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/5" onClick={() => {
@@ -2862,7 +2867,7 @@ function StorageTab() {
                 <div className="space-y-1.5 pt-2 border-t mt-2">
                   <Label className="text-xs text-primary font-semibold">选择存储目录</Label>
                   {webdavDirs.length > 0 ? (
-                    <Select value={(configForm.webdav as any).directory || "/"} onValueChange={(v) => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, directory: v } }))}>
+                    <Select value={configForm.webdav.directory || "/"} onValueChange={(v) => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, directory: v } }))}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="选择目录" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="/" className="text-xs">/ (根目录)</SelectItem>
@@ -2871,7 +2876,7 @@ function StorageTab() {
                     </Select>
                   ) : (
                     <Input 
-                      value={(configForm.webdav as any).directory || "/"} 
+                      value={configForm.webdav.directory || "/"} 
                       onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, directory: e.target.value } }))} 
                       placeholder="/ (根目录)" 
                       className="h-8 text-xs" 
@@ -2889,38 +2894,36 @@ function StorageTab() {
           </div>
           <DialogFooter className="gap-2">
 <Button variant="outline" size="sm" onClick={() => {
-               if (configForm.type === "webdav") {
-                 const webdavConfig = configForm.webdav as any;
-                 const conf = {
-                   type: "webdav",
-                   config: {
-                     url: webdavConfig.url,
-                     webdav_username: webdavConfig.username,
-                     webdav_password: webdavConfig.password
-                   }
-                 };
-                 testStorageConnection(conf).then(res => {
-                   if (res.success) {
-                     toast.success(`连接测试成功 (${res.latency_ms}ms)`);
-                     fetchWebdavDirs("webdav", {
-                     webdav_url: webdavConfig.url,
-                     webdav_username: webdavConfig.username,
-                     webdav_password: webdavConfig.password
-                   });
-                   }
-                   else toast.error(`连接测试失败: ${res.message}`);
-                 });
-               } else {
-                 const s3Config = configForm.s3 as any;
-                 const conf = {
-                   type: "s3",
-                   config: {
-                     s3_endpoint: s3Config.endpoint,
-                     s3_bucket: s3Config.bucket,
-                     s3_region: s3Config.region,
-                     s3_access_key: s3Config.access_key,
-                     s3_secret_key: s3Config.secret_key
-                   }
+                if (configForm.type === "webdav") {
+                  const conf = {
+                    type: "webdav",
+                    config: {
+                      url: configForm.webdav.url,
+                      webdav_username: configForm.webdav.username,
+                      webdav_password: configForm.webdav.password
+                    }
+                  };
+                  testStorageConnection(conf).then(res => {
+                    if (res.success) {
+                      toast.success(`连接测试成功 (${res.latency_ms}ms)`);
+                      fetchWebdavDirs("webdav", {
+                      webdav_url: configForm.webdav.url,
+                      webdav_username: configForm.webdav.username,
+                      webdav_password: configForm.webdav.password
+                    });
+                    }
+                    else toast.error(`连接测试失败: ${res.message}`);
+                  });
+                } else {
+                  const conf = {
+                    type: "s3",
+                    config: {
+                      s3_endpoint: configForm.s3.endpoint,
+                      s3_bucket: configForm.s3.bucket,
+                      s3_region: configForm.s3.region,
+                      s3_access_key: configForm.s3.access_key,
+                      s3_secret_key: configForm.s3.secret_key
+                    }
                  };
                  testStorageConnection(conf).then(res => {
                    if (res.success) toast.success(`连接测试成功 (${res.latency_ms}ms)`);
