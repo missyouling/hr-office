@@ -2976,6 +2976,12 @@ export interface ModelUsageStatsResponse {
   output_tokens: number;
   total_cost: number;
   avg_duration_ms: number;
+  today_calls: number;
+  today_cost: number;
+  today_input_tokens: number;
+  today_output_tokens: number;
+  rpm: number;
+  tpm: number;
 }
 
 export interface ModelUsageTrendItem {
@@ -2984,6 +2990,8 @@ export interface ModelUsageTrendItem {
   success_calls: number;
   failed_calls: number;
   total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
   total_cost: number;
 }
 
@@ -3004,11 +3012,13 @@ export interface ModelUsageByModelItem {
 
 export async function fetchModelUsageStats(params?: {
   config_type?: string;
+  model_name?: string;
   start_date?: string;
   end_date?: string;
 }): Promise<ModelUsageStatsResponse> {
   const searchParams = new URLSearchParams();
   if (params?.config_type) searchParams.append("config_type", params.config_type);
+  if (params?.model_name) searchParams.append("model_name", params.model_name);
   if (params?.start_date) searchParams.append("start_date", params.start_date);
   if (params?.end_date) searchParams.append("end_date", params.end_date);
   const qs = searchParams.toString();
@@ -3018,10 +3028,16 @@ export async function fetchModelUsageStats(params?: {
 export async function fetchModelUsageTrend(params?: {
   period?: string;
   config_type?: string;
+  model_name?: string;
+  start_date?: string;
+  end_date?: string;
 }): Promise<ModelUsageTrendItem[]> {
   const searchParams = new URLSearchParams();
   if (params?.period) searchParams.append("period", params.period);
   if (params?.config_type) searchParams.append("config_type", params.config_type);
+  if (params?.model_name) searchParams.append("model_name", params.model_name);
+  if (params?.start_date) searchParams.append("start_date", params.start_date);
+  if (params?.end_date) searchParams.append("end_date", params.end_date);
   const qs = searchParams.toString();
   return request<ModelUsageTrendItem[]>(`/settings/models/usage/trend${qs ? `?${qs}` : ""}`);
 }
@@ -3029,10 +3045,14 @@ export async function fetchModelUsageTrend(params?: {
 export async function fetchModelUsageByModel(params?: {
   config_type?: string;
   model_name?: string;
+  start_date?: string;
+  end_date?: string;
 }): Promise<ModelUsageByModelItem[]> {
   const searchParams = new URLSearchParams();
   if (params?.config_type) searchParams.append("config_type", params.config_type);
   if (params?.model_name) searchParams.append("model_name", params.model_name);
+  if (params?.start_date) searchParams.append("start_date", params.start_date);
+  if (params?.end_date) searchParams.append("end_date", params.end_date);
   const qs = searchParams.toString();
   return request<ModelUsageByModelItem[]>(`/settings/models/usage/by-model${qs ? `?${qs}` : ""}`);
 }

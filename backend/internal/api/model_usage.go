@@ -10,7 +10,7 @@ import (
 )
 
 // GetModelUsageStats - GET /api/settings/models/usage
-// Query params: config_type, start_date, end_date
+// Query params: config_type, model_name, start_date, end_date
 // Returns: { total_calls, success_calls, failed_calls, success_rate, total_tokens, input_tokens, output_tokens, total_cost, avg_duration_ms, today_calls, today_cost, today_input_tokens, today_output_tokens, rpm, tpm }
 func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
@@ -20,6 +20,7 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configType := r.URL.Query().Get("config_type")
+	modelName := r.URL.Query().Get("model_name")
 	startDateStr := r.URL.Query().Get("start_date")
 	endDateStr := r.URL.Query().Get("end_date")
 
@@ -39,17 +40,20 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	if configType != "" {
 		query = query.Where("config_type = ?", configType)
 	}
+	if modelName != "" {
+		query = query.Where("model_name = ?", modelName)
+	}
 
 	if startDateStr != "" {
-		startDate, err := time.Parse("2006-01-02", startDateStr)
-		if err == nil {
+		startDate, parseErr := time.Parse("2006-01-02", startDateStr)
+		if parseErr == nil {
 			query = query.Where("created_at >= ?", startDate)
 		}
 	}
 
 	if endDateStr != "" {
-		endDate, err := time.Parse("2006-01-02", endDateStr)
-		if err == nil {
+		endDate, parseErr := time.Parse("2006-01-02", endDateStr)
+		if parseErr == nil {
 			endDate = endDate.Add(24 * time.Hour)
 			query = query.Where("created_at < ?", endDate)
 		}
@@ -152,7 +156,7 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetModelUsageTrend - GET /api/settings/models/usage/trend
-// Query params: period (day/week/month), config_type
+// Query params: period (day/week/month), config_type, model_name, start_date, end_date
 // Returns: array of { date, total_calls, success_calls, failed_calls, total_tokens, total_cost }
 func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
@@ -167,6 +171,9 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configType := r.URL.Query().Get("config_type")
+	modelName := r.URL.Query().Get("model_name")
+	startDateStr := r.URL.Query().Get("start_date")
+	endDateStr := r.URL.Query().Get("end_date")
 
 	// Fetch user role to determine if they can see global stats
 	var user models.User
@@ -183,6 +190,23 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 	if configType != "" {
 		query = query.Where("config_type = ?", configType)
 	}
+	if modelName != "" {
+		query = query.Where("model_name = ?", modelName)
+	}
+
+	hasExplicitRange := false
+	if startDateStr != "" {
+		if startDate, parseErr := time.Parse("2006-01-02", startDateStr); parseErr == nil {
+			query = query.Where("created_at >= ?", startDate)
+			hasExplicitRange = true
+		}
+	}
+	if endDateStr != "" {
+		if endDate, parseErr := time.Parse("2006-01-02", endDateStr); parseErr == nil {
+			query = query.Where("created_at < ?", endDate.Add(24*time.Hour))
+			hasExplicitRange = true
+		}
+	}
 
 	type TrendItem struct {
 		Date         string  `json:"date"`
@@ -190,13 +214,14 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 		SuccessCalls int64   `json:"success_calls"`
 		FailedCalls  int64   `json:"failed_calls"`
 		TotalTokens  int64   `json:"total_tokens"`
+		InputTokens  int64   `json:"input_tokens"`
+		OutputTokens int64   `json:"output_tokens"`
 		TotalCost    float64 `json:"total_cost"`
 	}
 
 	var results []TrendItem
 
-	switch period {
-	case "week":
+	if hasExplicitRange {
 		err = query.Model(&models.ModelUsageLog{}).
 			Select(
 				"DATE(created_at) as date",
@@ -204,43 +229,68 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 				"SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_calls",
 				"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_calls",
 				"SUM(total_tokens) as total_tokens",
+				"SUM(input_tokens) as input_tokens",
+				"SUM(output_tokens) as output_tokens",
 				"SUM(cost_usd) as total_cost",
 			).
-			Where("created_at >= ?", time.Now().AddDate(0, 0, -7)).
 			Group("DATE(created_at)").
 			Order("date ASC").
-			Limit(30).
+			Limit(365).
 			Scan(&results).Error
-	case "month":
-		err = query.Model(&models.ModelUsageLog{}).
-			Select(
-				"TO_CHAR(created_at, 'YYYY-MM') as date",
-				"COUNT(*) as total_calls",
-				"SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_calls",
-				"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_calls",
-				"SUM(total_tokens) as total_tokens",
-				"SUM(cost_usd) as total_cost",
-			).
-			Where("created_at >= ?", time.Now().AddDate(0, -12, 0)).
-			Group("TO_CHAR(created_at, 'YYYY-MM')").
-			Order("date ASC").
-			Limit(30).
-			Scan(&results).Error
-	default:
-		err = query.Model(&models.ModelUsageLog{}).
-			Select(
-				"DATE(created_at) as date",
-				"COUNT(*) as total_calls",
-				"SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_calls",
-				"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_calls",
-				"SUM(total_tokens) as total_tokens",
-				"SUM(cost_usd) as total_cost",
-			).
-			Where("created_at >= ?", time.Now().AddDate(0, 0, -30)).
-			Group("DATE(created_at)").
-			Order("date ASC").
-			Limit(30).
-			Scan(&results).Error
+	} else {
+		switch period {
+		case "week":
+			err = query.Model(&models.ModelUsageLog{}).
+				Select(
+					"DATE(created_at) as date",
+					"COUNT(*) as total_calls",
+					"SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_calls",
+					"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_calls",
+					"SUM(total_tokens) as total_tokens",
+					"SUM(input_tokens) as input_tokens",
+					"SUM(output_tokens) as output_tokens",
+					"SUM(cost_usd) as total_cost",
+				).
+				Where("created_at >= ?", time.Now().AddDate(0, 0, -7)).
+				Group("DATE(created_at)").
+				Order("date ASC").
+				Limit(30).
+				Scan(&results).Error
+		case "month":
+			err = query.Model(&models.ModelUsageLog{}).
+				Select(
+					"TO_CHAR(created_at, 'YYYY-MM') as date",
+					"COUNT(*) as total_calls",
+					"SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_calls",
+					"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_calls",
+					"SUM(total_tokens) as total_tokens",
+					"SUM(input_tokens) as input_tokens",
+					"SUM(output_tokens) as output_tokens",
+					"SUM(cost_usd) as total_cost",
+				).
+				Where("created_at >= ?", time.Now().AddDate(0, -12, 0)).
+				Group("TO_CHAR(created_at, 'YYYY-MM')").
+				Order("date ASC").
+				Limit(30).
+				Scan(&results).Error
+		default:
+			err = query.Model(&models.ModelUsageLog{}).
+				Select(
+					"DATE(created_at) as date",
+					"COUNT(*) as total_calls",
+					"SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_calls",
+					"SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_calls",
+					"SUM(total_tokens) as total_tokens",
+					"SUM(input_tokens) as input_tokens",
+					"SUM(output_tokens) as output_tokens",
+					"SUM(cost_usd) as total_cost",
+				).
+				Where("created_at >= ?", time.Now().AddDate(0, 0, -30)).
+				Group("DATE(created_at)").
+				Order("date ASC").
+				Limit(30).
+				Scan(&results).Error
+		}
 	}
 
 	if err != nil {
@@ -256,6 +306,7 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetModelUsageByModel - GET /api/settings/models/usage/by-model
+// Query params: config_type, model_name, start_date, end_date
 // Returns: array of { model_name, config_type, provider, total_calls, success_calls, failed_calls, total_tokens, input_tokens, output_tokens, total_cost, avg_duration_ms, success_rate }
 func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
@@ -263,6 +314,11 @@ func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnauthorized, "unauthorized", err)
 		return
 	}
+
+	configType := r.URL.Query().Get("config_type")
+	modelName := r.URL.Query().Get("model_name")
+	startDateStr := r.URL.Query().Get("start_date")
+	endDateStr := r.URL.Query().Get("end_date")
 
 	// Fetch user role to determine if they can see global stats
 	var user models.User
@@ -290,6 +346,22 @@ func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 	query := h.db
 	if user.Role != "admin" && user.Role != "super_admin" {
 		query = query.Where("user_id = ?", userID)
+	}
+	if configType != "" {
+		query = query.Where("config_type = ?", configType)
+	}
+	if modelName != "" {
+		query = query.Where("model_name = ?", modelName)
+	}
+	if startDateStr != "" {
+		if startDate, parseErr := time.Parse("2006-01-02", startDateStr); parseErr == nil {
+			query = query.Where("created_at >= ?", startDate)
+		}
+	}
+	if endDateStr != "" {
+		if endDate, parseErr := time.Parse("2006-01-02", endDateStr); parseErr == nil {
+			query = query.Where("created_at < ?", endDate.Add(24*time.Hour))
+		}
 	}
 
 	var results []ModelStats

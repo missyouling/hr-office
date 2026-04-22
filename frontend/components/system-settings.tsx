@@ -70,6 +70,7 @@ import {
   createStorageRuleEnhanced,
   updateStorageRuleEnhanced,
   deleteStorageRuleEnhanced,
+  listStorageDirectoriesEnhanced,
 } from "@/lib/api";
 import type { AuditLog, StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -93,7 +94,7 @@ import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud,
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Area } from "recharts";
 
 // ============ 方案 A：一级 Tab + 二级侧边栏分组结构 ============
 
@@ -649,58 +650,77 @@ function ModelUsageTab() {
   const [selectedConfigType, setSelectedConfigType] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
 
+  const [allConfigTypes, setAllConfigTypes] = useState<string[]>([]);
+  const [allModelNames, setAllModelNames] = useState<string[]>([]);
+
+  const buildDateRangeParams = () => {
+    const params: { start_date?: string; end_date?: string } = {};
+    const now = new Date();
+    if (timeRange === "today") {
+      params.start_date = now.toISOString().split("T")[0];
+      params.end_date = now.toISOString().split("T")[0];
+    } else if (timeRange === "week") {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      params.start_date = weekAgo.toISOString().split("T")[0];
+      params.end_date = now.toISOString().split("T")[0];
+    } else if (timeRange === "month") {
+      const monthAgo = new Date(now);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      params.start_date = monthAgo.toISOString().split("T")[0];
+      params.end_date = now.toISOString().split("T")[0];
+    } else if (timeRange === "custom" && customFrom && customTo) {
+      params.start_date = customFrom;
+      params.end_date = customTo;
+    }
+    return params;
+  };
+
   const loadData = async () => {
+    if (timeRange === "custom" && customFrom && customTo && customFrom > customTo) {
+      toast.error("开始日期不能晚于结束日期");
+      return;
+    }
+
     setLoading(true);
     try {
-      const params: { start_date?: string; end_date?: string; config_type?: string } = {};
-      const trendParams: { period?: string; config_type?: string } = {};
-      const byModelParams: { config_type?: string; model_name?: string } = {};
-      
-      const now = new Date();
-      if (timeRange === "today") {
-        params.start_date = now.toISOString().split("T")[0];
-        params.end_date = now.toISOString().split("T")[0];
-        trendParams.period = "day";
-      } else if (timeRange === "week") {
-        const weekAgo = new Date(now);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        params.start_date = weekAgo.toISOString().split("T")[0];
-        params.end_date = now.toISOString().split("T")[0];
-        trendParams.period = "day";
-      } else if (timeRange === "month") {
-        const monthAgo = new Date(now);
-        monthAgo.setMonth(monthAgo.getMonth() - 1);
-        params.start_date = monthAgo.toISOString().split("T")[0];
-        params.end_date = now.toISOString().split("T")[0];
-        trendParams.period = "day";
-      } else if (timeRange === "custom" && customFrom && customTo) {
-        params.start_date = customFrom;
-        params.end_date = customTo;
-        trendParams.period = "day";
-      }
+      const dateRange = buildDateRangeParams();
+      const statsParams: { start_date?: string; end_date?: string; config_type?: string; model_name?: string } = { ...dateRange };
+      const trendParams: { period?: string; config_type?: string; model_name?: string; start_date?: string; end_date?: string } = { ...dateRange, period: "day" };
+      const byModelParams: { config_type?: string; model_name?: string; start_date?: string; end_date?: string } = { ...dateRange };
 
       if (selectedConfigType) {
-        params.config_type = selectedConfigType;
+        statsParams.config_type = selectedConfigType;
         trendParams.config_type = selectedConfigType;
         byModelParams.config_type = selectedConfigType;
       }
       if (selectedModel) {
+        statsParams.model_name = selectedModel;
+        trendParams.model_name = selectedModel;
         byModelParams.model_name = selectedModel;
       }
 
-      const [statsData, byModelData, trendChartData] = await Promise.all([
-        fetchModelUsageStats(params),
+      const [statsData, byModelData, trendChartData, optionsData] = await Promise.all([
+        fetchModelUsageStats(statsParams),
         fetchModelUsageByModel(byModelParams),
         fetchModelUsageTrend(trendParams),
+        fetchModelUsageByModel(dateRange),
       ]);
+      const safeByModelData = Array.isArray(byModelData) ? byModelData : [];
+      const safeOptionsData = Array.isArray(optionsData) ? optionsData : [];
+
       setStats(statsData);
-      setUsageData(Array.isArray(byModelData) ? byModelData : []);
+      setUsageData(safeByModelData);
       setTrendData(Array.isArray(trendChartData) ? trendChartData : []);
+      setAllConfigTypes(Array.from(new Set(safeOptionsData.map(item => item.config_type))).sort());
+      setAllModelNames(Array.from(new Set(safeOptionsData.map(item => item.model_name))).sort());
     } catch (error) {
       console.error("Failed to load usage data:", error);
       setUsageData([]);
       setStats(null);
       setTrendData([]);
+      setAllConfigTypes([]);
+      setAllModelNames([]);
     } finally {
       setLoading(false);
     }
@@ -716,7 +736,6 @@ function ModelUsageTab() {
 
   const totalTokensIn = stats?.input_tokens ?? 0;
   const totalTokensOut = stats?.output_tokens ?? 0;
-  const totalCalls = stats?.total_calls ?? 0;
   const avgLatency = Math.round(stats?.avg_duration_ms ?? 0);
   const totalCost = stats?.total_cost ?? 0;
   const todayTokens = stats?.today_input_tokens ? (stats.today_input_tokens + (stats.today_output_tokens || 0)) : 0;
@@ -736,13 +755,49 @@ function ModelUsageTab() {
     return COLORS[Math.abs(hash) % COLORS.length];
   };
 
-  const byModel = usageData.reduce((acc: Record<string, number>, r) => {
-    acc[r.model_name] = (acc[r.model_name] ?? 0) + r.total_calls;
+  const getStandardCost = (configType: string, inputTokens: number, outputTokens: number) => {
+    const rates: Record<string, { inRate: number; outRate: number }> = {
+      llm: { inRate: 0.5, outRate: 1.5 },
+      embedding: { inRate: 0.1, outRate: 0 },
+      rerank: { inRate: 0.5, outRate: 0 },
+      ocr: { inRate: 1.5, outRate: 0 },
+    };
+    const rate = rates[configType] || { inRate: 0.5, outRate: 1.0 };
+    return inputTokens / 1_000_000 * rate.inRate + outputTokens / 1_000_000 * rate.outRate;
+  };
+
+  const modelRows = usageData.reduce((acc: Record<string, { model: string; calls: number; tokens: number; actualCost: number; standardCost: number }>, item) => {
+    if (!acc[item.model_name]) {
+      acc[item.model_name] = {
+        model: item.model_name,
+        calls: 0,
+        tokens: 0,
+        actualCost: 0,
+        standardCost: 0,
+      };
+    }
+    acc[item.model_name].calls += item.total_calls;
+    acc[item.model_name].tokens += item.total_tokens;
+    acc[item.model_name].actualCost += item.total_cost;
+    acc[item.model_name].standardCost += getStandardCost(item.config_type, item.input_tokens, item.output_tokens);
     return acc;
   }, {});
 
-  const chartItems = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
-  const maxCalls = chartItems[0]?.[1] ?? 1;
+  const modelDistributionRows = Object.values(modelRows).sort((a, b) => b.calls - a.calls);
+
+  const trendChartData = trendData.map((item) => {
+    const cacheCreation = item.failed_calls;
+    const cacheRead = item.success_calls;
+    const cacheHitRate = item.total_calls > 0 ? Number(((item.success_calls / item.total_calls) * 100).toFixed(2)) : 0;
+    return {
+      ...item,
+      input: item.input_tokens,
+      output: item.output_tokens,
+      cacheCreation,
+      cacheRead,
+      cacheHitRate,
+    };
+  });
 
   const timeRangeOptions = [
     { value: "today", label: "今日" },
@@ -751,21 +806,6 @@ function ModelUsageTab() {
     { value: "custom", label: "自定义" },
   ];
 
-  const [allConfigTypes, setAllConfigTypes] = useState<string[]>([]);
-  const [allModelNames, setAllModelNames] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (usageData.length > 0) {
-      setAllConfigTypes(prev => {
-        const types = new Set([...prev, ...usageData.map(item => item.config_type)]);
-        return Array.from(types).sort();
-      });
-      setAllModelNames(prev => {
-        const names = new Set([...prev, ...usageData.map(item => item.model_name)]);
-        return Array.from(names).sort();
-      });
-    }
-  }, [usageData]);
 
   return (
     <div className="space-y-4">
@@ -854,58 +894,60 @@ function ModelUsageTab() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">模型分布</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col justify-center py-4">
-            {chartItems.length > 0 ? (
-              <div className="flex flex-col sm:flex-row items-center gap-6">
-                <div className="relative w-48 h-48 shrink-0">
+          <CardContent className="flex-1 py-3">
+            {modelDistributionRows.length > 0 ? (
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="w-44 h-44 shrink-0 mx-auto sm:mx-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={chartItems.map(([name, value]) => ({ name, value }))}
-                        innerRadius={60}
-                        outerRadius={85}
+                        data={modelDistributionRows.map((row) => ({ name: row.model, value: row.calls }))}
+                        innerRadius={46}
+                        outerRadius={86}
                         paddingAngle={2}
                         dataKey="value"
-                        animationDuration={1000}
+                        animationDuration={800}
                       >
-                        {chartItems.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={getColorForModel(entry[0])} className="outline-none" />
+                        {modelDistributionRows.map((row, index) => (
+                          <Cell key={`cell-${index}`} fill={getColorForModel(row.model)} className="outline-none" />
                         ))}
                       </Pie>
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      <Tooltip
+                        formatter={(value: number, name: string) => [formatNum(value), name]}
+                        contentStyle={{ borderRadius: "10px", border: "1px solid #e5e7eb", boxShadow: "0 8px 20px rgba(15,23,42,0.08)" }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex-1 w-full space-y-1.5 overflow-y-auto max-h-[180px] pr-2">
-                   {chartItems.map(([name, value]) => (
-                     <div key={name} className="flex items-center justify-between text-[11px] group hover:bg-muted/50 p-1 rounded-sm transition-colors">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColorForModel(name) }} />
-                          <span className="text-muted-foreground truncate" title={name}>{name}</span>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0 ml-2">
-                          <span className="font-bold tabular-nums">{formatNum(value)}</span>
-                          <span className="text-muted-foreground/60 w-10 text-right tabular-nums">{((value / totalCalls) * 100).toFixed(1)}%</span>
-                        </div>
-                     </div>
-                   ))}
-                </div>
-                </div>
-                <div className="flex-1 w-full space-y-1.5 overflow-y-auto max-h-[180px] pr-2">
-                   {chartItems.map(([name, value]) => (
-                     <div key={name} className="flex items-center justify-between text-[11px] group hover:bg-muted/50 p-1 rounded-sm transition-colors">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getColorForModel(name) }} />
-                          <span className="text-muted-foreground truncate" title={name}>{name}</span>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0 ml-2">
-                          <span className="font-bold tabular-nums">{formatNum(value)}</span>
-                          <span className="text-muted-foreground/60 w-10 text-right tabular-nums">{((value / totalCalls) * 100).toFixed(1)}%</span>
-                        </div>
-                     </div>
-                   ))}
+
+                <div className="flex-1 min-w-0 overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>模型</TableHead>
+                        <TableHead className="text-right">请求</TableHead>
+                        <TableHead className="text-right">Token</TableHead>
+                        <TableHead className="text-right">实际</TableHead>
+                        <TableHead className="text-right">标准</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {modelDistributionRows.slice(0, 8).map((row) => (
+                        <TableRow key={row.model}>
+                          <TableCell className="max-w-[200px] truncate" title={row.model}>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: getColorForModel(row.model) }} />
+                              <span className="truncate">{row.model}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{row.calls.toLocaleString()}</TableCell>
+                          <TableCell className="text-right tabular-nums">{formatNum(row.tokens)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-emerald-600 font-medium">${row.actualCost.toFixed(4)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-slate-400 font-medium">${row.standardCost.toFixed(4)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             ) : (
@@ -918,43 +960,31 @@ function ModelUsageTab() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">Token 使用趋势</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 flex flex-col">
-            {trendData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minHeight={240}>
-                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorInput" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorOutput" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                  <XAxis 
-                    dataKey="date" 
-                    tick={{ fontSize: 10, fill: '#94a3b8' }} 
-                    axisLine={false} 
-                    tickLine={false} 
-                    dy={10}
+          <CardContent className="flex-1">
+            {trendChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={trendChartData} margin={{ top: 10, right: 10, left: 6, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => formatNum(Number(v))} />
+                  <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: "10px", border: "1px solid #e5e7eb", boxShadow: "0 8px 20px rgba(15,23,42,0.08)" }}
+                    formatter={(value: number, name: string) => {
+                      if (name === "Cache Hit Rate") return [`${value}%`, name];
+                      return [formatNum(value), name];
+                    }}
                   />
-                  <YAxis 
-                    tick={{ fontSize: 10, fill: '#94a3b8' }} 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tickFormatter={(v) => formatNum(v)} 
-                  />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                  />
-                  <Area type="monotone" dataKey="input_tokens" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorInput)" name="Token 输入" />
-                  <Area type="monotone" dataKey="output_tokens" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorOutput)" name="Token 输出" />
-                </AreaChart>
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} />
+                  <Area type="monotone" dataKey="cacheRead" name="Cache Read" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.12} strokeWidth={2} />
+                  <Line type="monotone" dataKey="input" name="Input" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="output" name="Output" stroke="#22c55e" strokeWidth={2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="cacheCreation" name="Cache Creation" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="cacheHitRate" name="Cache Hit Rate" yAxisId="right" stroke="#8b5cf6" strokeWidth={2.5} strokeDasharray="4 4" dot={{ r: 2 }} />
+                </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground border-2 border-dashed rounded-xl bg-muted/5">暂无趋势统计数据</div>
+              <div className="h-48 flex items-center justify-center text-sm text-muted-foreground border-2 border-dashed rounded-xl bg-muted/5">暂无趋势统计数据</div>
             )}
           </CardContent>
         </Card>
@@ -2105,7 +2135,7 @@ function StorageTab() {
     type: "s3" as "s3" | "webdav",
     enabled: true,
     s3: { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
-    webdav: { url: "https://", username: "", password: "" }
+    webdav: { url: "https://", username: "", password: "", directory: "/" }
   });
 
   const [ruleForm, setRuleForm] = useState({
@@ -2121,15 +2151,27 @@ function StorageTab() {
   const [savingRule, setSavingRule] = useState(false);
   const [webdavDirs, setWebdavDirs] = useState<string[]>([]);
   const [fetchingDirs, setFetchingDirs] = useState(false);
+  const [showWebdavPassword, setShowWebdavPassword] = useState(false);
 
   const fetchWebdavDirs = async (type: string, config: any) => {
     if (type !== "webdav") return;
     setFetchingDirs(true);
+    console.log("[WebDAV] fetchWebdavDirs called with config:", JSON.stringify(config));
     try {
-      const res = await listStorageDirectoriesEnhanced({ type, config });
+      const webdavConfig = {
+        webdav_url: config.webdav_url || config.url || config.webdavURL || "",
+        webdav_username: config.webdav_username || config.username || config.webdavUsername || "",
+        webdav_password: config.webdav_password || config.password || config.webdavPassword || "",
+        directory: config.directory || "/"
+      };
+      console.log("[WebDAV] Transformed webdavConfig:", JSON.stringify(webdavConfig));
+      console.log("[WebDAV] Calling listStorageDirectoriesEnhanced with:", { type, config: webdavConfig });
+      const res = await listStorageDirectoriesEnhanced({ type, config: webdavConfig });
+      console.log("[WebDAV] listStorageDirectoriesEnhanced result:", res);
       setWebdavDirs(res.directories || []);
-    } catch {
-      toast.error("获取 WebDAV 目录失败");
+    } catch (err: any) {
+      console.error("[WebDAV] fetchWebdavDirs error:", err);
+      toast.error("获取 WebDAV 目录失败: " + (err?.message || ""));
     } finally {
       setFetchingDirs(false);
     }
@@ -2236,6 +2278,26 @@ function StorageTab() {
     } catch {
       toast.error("连接测试异常，无法保存");
       return;
+    }
+
+    // WebDAV: 提示目录列表失败但允许保存（用户可手动指定路径）
+    if (configForm.type === "webdav") {
+      const webdavConfig = configForm.webdav as any;
+      if (webdavDirs.length === 0 && !fetchingDirs && webdavConfig.url) {
+        const confirmed = await new Promise<boolean>(resolve => {
+          const dialogConfirmed = confirm(
+            "⚠️ 无法获取 WebDAV 目录列表。\n\n" +
+            "这可能是由于：\n" +
+            "• AliyunDrive 等服务的 API 限流\n" +
+            "• 服务商不支持目录列表功能\n" +
+            "• 认证信息不正确\n\n" +
+            `将使用目录: ${webdavConfig.directory || '/'}\n\n` +
+            "是否继续保存配置？"
+          );
+          resolve(dialogConfirmed);
+        });
+        if (!confirmed) return;
+      }
     }
 
     const payload = {
@@ -2387,7 +2449,7 @@ function StorageTab() {
               type: "s3",
               enabled: true,
               s3: { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
-              webdav: { url: "https://", username: "", password: "" }
+              webdav: { url: "https://", username: "", password: "", directory: "/" }
             });
             setShowConfigDialog(true);
           }}>
@@ -2441,14 +2503,23 @@ function StorageTab() {
                           <>
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
                               setEditingConfig(config);
+                              const webdavConfig = config.type === "webdav" ? (config.config as unknown as typeof configForm.webdav) : { url: "https://", username: "", password: "", directory: "/" };
                               setConfigForm({
                                 name: config.name,
                                 type: config.type as "s3" | "webdav",
                                 enabled: config.enabled,
                                 s3: config.type === "s3" ? (config.config as unknown as typeof configForm.s3) : { endpoint: "https://", bucket: "", region: "", access_key: "", secret_key: "", provider: "custom" },
-                                webdav: config.type === "webdav" ? (config.config as unknown as typeof configForm.webdav) : { url: "https://", username: "", password: "" }
+                                webdav: webdavConfig
                               });
                               setShowConfigDialog(true);
+                              if (config.type === "webdav") {
+                                fetchWebdavDirs("webdav", {
+                                  webdav_url: webdavConfig.url,
+                                  webdav_username: webdavConfig.username,
+                                  webdav_password: webdavConfig.password,
+                                  directory: "/"
+                                });
+                              }
                             }}>
                               <Edit className="w-3.5 h-3.5" />
                             </Button>
@@ -2757,6 +2828,7 @@ function StorageTab() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">WebDAV URL</Label>
                   <Input value={configForm.webdav.url} onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, url: e.target.value } }))} placeholder="https://..." className="h-8 text-xs" />
+                  <p className="text-[10px] text-muted-foreground">如: https://al.mozui.cn/dav (自动追加 /dav 后缀)</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -2765,13 +2837,31 @@ function StorageTab() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">密码</Label>
-                    <Input type="password" value={configForm.webdav.password} onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, password: e.target.value } }))} className="h-8 text-xs" />
+                    <div className="relative">
+                      <Input 
+                        type={showWebdavPassword ? "text" : "password"} 
+                        value={configForm.webdav.password} 
+                        onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, password: e.target.value } }))} 
+                        className="h-8 text-xs pr-8" 
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowWebdavPassword(!showWebdavPassword)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showWebdavPassword ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" x2="23" y1="1" y2="23"/></svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {webdavDirs.length > 0 && (
-                  <div className="space-y-1.5 pt-2 border-t mt-2">
-                    <Label className="text-xs text-primary font-semibold">选择存储目录</Label>
+                <div className="space-y-1.5 pt-2 border-t mt-2">
+                  <Label className="text-xs text-primary font-semibold">选择存储目录</Label>
+                  {webdavDirs.length > 0 ? (
                     <Select value={(configForm.webdav as any).directory || "/"} onValueChange={(v) => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, directory: v } }))}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="选择目录" /></SelectTrigger>
                       <SelectContent>
@@ -2779,22 +2869,64 @@ function StorageTab() {
                         {webdavDirs.map(d => <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  ) : (
+                    <Input 
+                      value={(configForm.webdav as any).directory || "/"} 
+                      onChange={e => setConfigForm(prev => ({ ...prev, webdav: { ...prev.webdav, directory: e.target.value } }))} 
+                      placeholder="/ (根目录)" 
+                      className="h-8 text-xs" 
+                    />
+                  )}
+                </div>
+
+                {fetchingDirs && (
+                  <div className="space-y-1 bg-yellow-50 border border-yellow-200 rounded p-2">
+                    <p className="text-[10px] text-yellow-900 font-semibold animate-pulse">⏳ 正在扫描 WebDAV 目录...</p>
                   </div>
                 )}
-                {fetchingDirs && <p className="text-[10px] text-muted-foreground animate-pulse italic">正在扫描 WebDAV 目录树...</p>}
               </div>
             )}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => {
-               const conf = configForm.type === "s3" ? configForm.s3 : configForm.webdav;
-               testStorageConnection({ type: configForm.type, config: conf }).then(res => {
-                 if (res.success) {
-                   toast.success(`连接测试成功 (${res.latency_ms}ms)`);
-                   if (configForm.type === "webdav") fetchWebdavDirs("webdav", conf);
-                 }
-                 else toast.error(`连接测试失败: ${res.message}`);
-               });
+<Button variant="outline" size="sm" onClick={() => {
+               if (configForm.type === "webdav") {
+                 const webdavConfig = configForm.webdav as any;
+                 const conf = {
+                   type: "webdav",
+                   config: {
+                     url: webdavConfig.url,
+                     webdav_username: webdavConfig.username,
+                     webdav_password: webdavConfig.password
+                   }
+                 };
+                 testStorageConnection(conf).then(res => {
+                   if (res.success) {
+                     toast.success(`连接测试成功 (${res.latency_ms}ms)`);
+                     fetchWebdavDirs("webdav", {
+                     webdav_url: webdavConfig.url,
+                     webdav_username: webdavConfig.username,
+                     webdav_password: webdavConfig.password
+                   });
+                   }
+                   else toast.error(`连接测试失败: ${res.message}`);
+                 });
+               } else {
+                 const s3Config = configForm.s3 as any;
+                 const conf = {
+                   type: "s3",
+                   config: {
+                     s3_endpoint: s3Config.endpoint,
+                     s3_bucket: s3Config.bucket,
+                     s3_region: s3Config.region,
+                     s3_access_key: s3Config.access_key,
+                     s3_secret_key: s3Config.secret_key
+                   }
+                 };
+                 testStorageConnection(conf).then(res => {
+                   if (res.success) toast.success(`连接测试成功 (${res.latency_ms}ms)`);
+                   else toast.error(`连接测试失败: ${res.message}`);
+                 });
+               }
             }}>测试连接</Button>
             <Button size="sm" onClick={handleSaveConfig}>保存配置</Button>
           </DialogFooter>
