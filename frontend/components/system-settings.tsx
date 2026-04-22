@@ -2918,18 +2918,18 @@ function StorageTab() {
                   const conf = {
                     type: "s3",
                     config: {
-                      s3_endpoint: configForm.s3.endpoint,
-                      s3_bucket: configForm.s3.bucket,
-                      s3_region: configForm.s3.region,
-                      s3_access_key: configForm.s3.access_key,
-                      s3_secret_key: configForm.s3.secret_key
+                      endpoint: configForm.s3.endpoint,
+                      bucket: configForm.s3.bucket,
+                      region: configForm.s3.region,
+                      access_key: configForm.s3.access_key,
+                      secret_key: configForm.s3.secret_key
                     }
-                 };
-                 testStorageConnection(conf).then(res => {
-                   if (res.success) toast.success(`连接测试成功 (${res.latency_ms}ms)`);
-                   else toast.error(`连接测试失败: ${res.message}`);
-                 });
-               }
+                  };
+                  testStorageConnection(conf).then(res => {
+                    if (res.success) toast.success(`连接测试成功 (${res.latency_ms}ms)`);
+                    else toast.error(`连接测试失败: ${res.message}`);
+                  });
+                }
             }}>测试连接</Button>
             <Button size="sm" onClick={handleSaveConfig}>保存配置</Button>
           </DialogFooter>
