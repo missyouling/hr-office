@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -256,14 +257,19 @@ type testStorageConnectionResponse struct {
 }
 
 func (h *Handler) listStorageDirectories(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[listStorageDirectories] called")
+
 	var req struct {
 		Type   string                 `json:"type"`
 		Config map[string]interface{} `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[listStorageDirectories] decode error: %v", err)
 		respondError(w, http.StatusBadRequest, "invalid payload", err)
 		return
 	}
+
+	log.Printf("[listStorageDirectories] type=%s, config=%+v", req.Type, req.Config)
 
 	configBytes, err := json.Marshal(req.Config)
 	if err != nil {
@@ -273,15 +279,19 @@ func (h *Handler) listStorageDirectories(w http.ResponseWriter, r *http.Request)
 
 	driver, err := storage.DefaultRegistry.Create(req.Type, configBytes)
 	if err != nil {
+		log.Printf("[listStorageDirectories] create driver error: %v", err)
 		respondError(w, http.StatusBadRequest, "failed to initialize driver", err)
 		return
 	}
 
 	files, err := driver.List(r.Context(), "")
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list directories", err)
+		log.Printf("[listStorageDirectories] driver.List error: %v", err)
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list directories: %v", err), nil)
 		return
 	}
+
+	log.Printf("[listStorageDirectories] success, files count: %d", len(files))
 
 	dirs := make([]string, 0)
 	for _, f := range files {
@@ -356,6 +366,9 @@ func (h *Handler) testStorageConnectionNew(w http.ResponseWriter, r *http.Reques
 
 	case "webdav":
 		url, ok := req.Config["url"].(string)
+		if !ok || url == "" {
+			url, ok = req.Config["webdav_url"].(string)
+		}
 		if !ok || url == "" {
 			respondError(w, http.StatusBadRequest, "missing url for webdav storage", nil)
 			return
