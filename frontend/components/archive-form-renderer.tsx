@@ -72,6 +72,9 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
 }) => {
   const id = `field-${field.name}`;
 
+  // 表单值来自 Record<string, unknown>，统一转换为字符串以匹配输入控件类型
+  const stringValue = typeof value === "string" ? value : value == null ? "" : String(value);
+
   const renderInput = () => {
     // Special handling for predefined system lists if applicable
     let options = field.options;
@@ -87,7 +90,7 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
           <Textarea
             id={id}
             placeholder={field.placeholder}
-            value={value || ""}
+            value={stringValue}
             onChange={(e) => onChange(e.target.value)}
             disabled={!field.editable}
             className="min-h-[100px]"
@@ -100,7 +103,7 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
             id={id}
             type="number"
             placeholder={field.placeholder}
-            value={value || ""}
+            value={stringValue}
             onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
             disabled={!field.editable}
           />
@@ -111,7 +114,7 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
           <Input
             id={id}
             type="date"
-            value={value || ""}
+            value={stringValue}
             onChange={(e) => onChange(e.target.value)}
             disabled={!field.editable}
           />
@@ -120,7 +123,7 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
       case "select":
         return (
           <Select
-            value={value || ""}
+            value={stringValue}
             onValueChange={onChange}
             disabled={!field.editable}
           >
@@ -160,7 +163,7 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
           <Input
             id={id}
             placeholder={field.placeholder || "多个选项以逗号分隔"}
-            value={value || ""}
+            value={stringValue}
             onChange={(e) => onChange(e.target.value)}
             disabled={!field.editable}
           />
@@ -173,7 +176,7 @@ const DynamicFormField: React.FC<DynamicFormFieldProps> = ({
             id={id}
             type="text"
             placeholder={field.placeholder}
-            value={value || ""}
+            value={stringValue}
             onChange={(e) => onChange(e.target.value)}
             disabled={!field.editable}
           />

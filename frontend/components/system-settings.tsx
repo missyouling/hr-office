@@ -25,6 +25,7 @@ import {
   deleteFieldDefinition,
   type ArchiveFieldDefinition,
   type DocumentCategory,
+  type DocumentSubCategory,
   fetchRetentionPeriods,
   createRetentionPeriod,
   updateRetentionPeriod,
@@ -45,6 +46,10 @@ import {
   updateCategoryCode,
   createCategoryCode,
   deleteCategory,
+  createSubCategory,
+  updateSubCategoryCode,
+  deleteSubCategory,
+  fetchFieldsBySubCategory,
   listStorageConfigs,
   createStorageConfig,
   updateStorageConfig,
@@ -511,10 +516,11 @@ function SMTPConfigTab() {
       const data = await listNotificationConfigs();
       setConfigs(data);
       data.forEach(c => {
-        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: c.config?.host || "", port: c.config?.port || "587", username: c.config?.username || "", password: c.config?.password || "", from: c.config?.from || "", from_name: c.config?.from_name || "人事系统", reply_to: c.config?.reply_to || "", encryption: c.config?.encryption || "ssl", server_name: c.config?.server_name || "" });
-        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: c.config?.access_key_id || "", access_key_secret: c.config?.access_key_secret || "", sign_name: c.config?.sign_name || "", template_code: c.config?.template_code || "" });
-        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: c.config?.bot_token || "", chat_id: c.config?.chat_id || "" });
-        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: c.config?.url || "", method: c.config?.method || "POST", auth: c.config?.auth || "" });
+        const cfg = (c.config ?? {}) as Record<string, string>;
+        if (c.channel === "smtp") setSmtpConfig({ enabled: c.enabled, host: cfg.host || "", port: cfg.port || "587", username: cfg.username || "", password: cfg.password || "", from: cfg.from || "", from_name: cfg.from_name || "人事系统", reply_to: cfg.reply_to || "", encryption: cfg.encryption || "ssl", server_name: cfg.server_name || "" });
+        if (c.channel === "sms") setSmsConfig({ enabled: c.enabled, access_key_id: cfg.access_key_id || "", access_key_secret: cfg.access_key_secret || "", sign_name: cfg.sign_name || "", template_code: cfg.template_code || "" });
+        if (c.channel === "telegram") setTelegramConfig({ enabled: c.enabled, bot_token: cfg.bot_token || "", chat_id: cfg.chat_id || "" });
+        if (c.channel === "webhook") setWebhookConfig({ enabled: c.enabled, url: cfg.url || "", method: cfg.method || "POST", auth: cfg.auth || "" });
       });
     } catch (e) { console.error("加载配置失败:", e); }
     finally { setLoading(false); }
@@ -913,7 +919,7 @@ function ModelUsageTab() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number, name: string) => [formatNum(value), name]}
+                        formatter={(value, name) => [formatNum(Number(value ?? 0)), String(name)]}
                         contentStyle={{ borderRadius: "10px", border: "1px solid #e5e7eb", boxShadow: "0 8px 20px rgba(15,23,42,0.08)" }}
                       />
                     </PieChart>
@@ -970,9 +976,9 @@ function ModelUsageTab() {
                   <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
                   <Tooltip
                     contentStyle={{ borderRadius: "10px", border: "1px solid #e5e7eb", boxShadow: "0 8px 20px rgba(15,23,42,0.08)" }}
-                    formatter={(value: number, name: string) => {
-                      if (name === "Cache Hit Rate") return [`${value}%`, name];
-                      return [formatNum(value), name];
+                    formatter={(value, name) => {
+                      if (name === "Cache Hit Rate") return [`${Number(value ?? 0)}%`, name];
+                      return [formatNum(Number(value ?? 0)), name];
                     }}
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} />
@@ -2213,13 +2219,13 @@ function StorageTab() {
       ]);
       setConfigs(configsData);
       
-      const displayModules = modulesData.length > 0 ? modulesData : [
+      const displayModules = modulesData.length > 0 ? modulesData : ([
         { module_code: "employee", module_name: "员工管理" },
         { module_code: "provident", module_name: "社保管理" },
         { module_code: "dormitory", module_name: "宿舍管理" },
         { module_code: "daily", module_name: "日常事务" },
         { module_code: "archives", module_name: "档案管理" }
-      ];
+      ] as StorageModuleConfig[]);
       setModules(displayModules);
       setRules(rulesData);
       

@@ -130,7 +130,7 @@ function renderCellValue(value: unknown, type: string) {
 
   if (type === "date") {
     try {
-      return new Date(value).toLocaleDateString("zh-CN");
+      return new Date(String(value)).toLocaleDateString("zh-CN");
     } catch {
       return String(value);
     }

@@ -366,9 +366,9 @@ export function ArchivesManagement() {
       };
       
       formSchema.forEach(field => {
-        const value = (doc as unknown as Record<string, unknown>)[field.field_name];
+        const value = (doc as unknown as Record<string, unknown>)[field.name];
         if (value !== undefined && value !== null) {
-          newFormData[field.field_name] = String(value);
+          newFormData[field.name] = String(value);
         }
       });
 
@@ -1140,11 +1140,11 @@ export function ArchivesManagement() {
       {/* 表格 */}
       <ArchiveTableRenderer
         schema={tableSchema}
-        data={filteredDocuments}
+        data={filteredDocuments as unknown as Array<Record<string, unknown> & { id: number }>}
         visibleColumns={visibleColumns}
-        onEdit={handleEdit}
+        onEdit={handleEdit as unknown as (row: Record<string, unknown> & { id: number }) => void}
         onDelete={handleDelete}
-        onView={handlePreview}
+        onView={handlePreview as unknown as (row: Record<string, unknown> & { id: number }) => void}
         selectedIds={selectedIds}
         onSelect={toggleSelect}
         onSelectAll={toggleSelectAll}
@@ -1185,7 +1185,7 @@ export function ArchivesManagement() {
           <div className="py-4">
             <ArchiveFormRenderer
               schema={formSchema}
-              data={formData as unknown as Document}
+              data={formData as unknown as Record<string, unknown>}
               onChange={(data) => setFormData(data as unknown as Record<string, string>)}
               storageLocations={storageLocations as unknown as Record<string, unknown>[]}
               retentionPeriods={RETENTION_OPTIONS.map(opt => ({ name: opt.value }))}
@@ -1607,7 +1607,7 @@ export function ArchivesManagement() {
               summary: singleSummary,
               remarks: singleRemarks,
               tags: singleTags as unknown as string,
-            } as unknown as Document}
+            } as unknown as Record<string, unknown>}
             onChange={(data) => {
               const d = data as unknown as Record<string, unknown>;
               setSingleFileName(String(d.file_name || ""));

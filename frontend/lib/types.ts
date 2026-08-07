@@ -531,6 +531,7 @@ export interface StorageRule {
   size_min: number | null;
   size_max: number | null;
   fallback_storage_id: number | null;
+  base_path?: string;
   created_at: string;
   updated_at: string;
 }
