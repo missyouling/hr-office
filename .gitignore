@@ -129,6 +129,9 @@ SUPABASE_SQL_EXECUTION_GUIDE.md
 skills/
 skills-lock.json
 
+# 运行时配置（由 Docker entrypoint 动态生成，不应提交）
+frontend/public/runtime-config.js
+
 # 临时文件
 .bashrc
 tmp_reset.sql
