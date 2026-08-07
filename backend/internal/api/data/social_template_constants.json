@@ -1,0 +1,11 @@
+{
+  "generated_at": "2026-08-07T00:00:00Z",
+  "personal_identity": { "options": [], "default": "" },
+  "household_type": { "options": [], "default": "" },
+  "education_level": { "options": [], "default": "" },
+  "special_skill": { "options": [], "default": "" },
+  "skill_level": { "options": [], "default": "" },
+  "decrease_reason": { "options": [], "default": "" },
+  "unemployment_reason": { "options": [], "default": "" },
+  "reduction_flag": { "options": [], "default": "" }
+}

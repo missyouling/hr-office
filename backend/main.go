@@ -81,6 +81,10 @@ func connectDatabase() (*gorm.DB, error) {
 		return nil, fmt.Errorf("parse postgres config: %v", err)
 	}
 
+	// Supabase pooler（PgBouncer）在事务模式下不支持预编译语句缓存，
+	// 使用 exec 模式避免 "prepared statement already exists (42P05)" 错误
+	connConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+
 	// PostgreSQL connection strategy: prefer IPv4, allow IPv6 if IPv4 unavailable
 	connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)

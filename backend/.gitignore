@@ -1,3 +1,7 @@
 data/
 uploads/
 *.db
+
+# 构建期嵌入的社保模板常量（//go:embed 必需，需纳入版本控制）
+!internal/api/data/
+!internal/api/data/social_template_constants.json

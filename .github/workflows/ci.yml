@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # 前端：安装依赖 → Lint → 构建（前端无 test 脚本，用 lint + build 覆盖）
+  frontend:
+    name: 前端 Lint & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Node.js 20（启用缓存）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: Lint 检查
+        run: npm run lint
+
+      - name: 前端构建（--turbopack）
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8080/api
+          NEXT_PUBLIC_API_BASE_URL_DOMAIN: http://localhost:8080/api
+          NEXT_PUBLIC_API_BASE_URL_IP: http://127.0.0.1:8080/api
+          NEXT_PUBLIC_API_IPV4_FALLBACK_PORT: "8080"
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: public-anon-key-placeholder
+          INTERNAL_API_BASE_URL: http://localhost:8080/api
+        run: npm run build
+
+  # 后端：单元测试 → 编译检查
+  backend:
+    name: 后端 Test & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Go 1.24（启用缓存）
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: 运行单元测试
+        run: go test ./...
+
+      - name: 编译检查
+        run: go build ./...
+
+  # Docker 构建检查：验证后端镜像可构建（使用根目录 Dockerfile）
+  docker-build:
+    name: Docker 构建检查（后端镜像）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建后端 Docker 镜像
+        run: docker build -f Dockerfile -t hr-office:ci .
