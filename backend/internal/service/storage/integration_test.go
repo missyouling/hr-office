@@ -38,8 +38,8 @@ func setupIntegrationTest(t *testing.T) *testDBContext {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
 
-	// Create in-memory SQLite database
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	// Create in-memory SQLite database with shared cache for concurrent access
+	db, err := gorm.Open(sqlite.Open(":memory:?cache=shared&_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("failed to open test database: %v", err)
