@@ -45,6 +45,8 @@ jobs:
   backend:
     name: 后端 Test & Build
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 1
     defaults:
       run:
         working-directory: backend
