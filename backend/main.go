@@ -373,6 +373,10 @@ func main() {
 		&models.OCRJob{},
 		&models.ChatMessage{},
 		&models.ModelUsageLog{},
+		&api.SystemLog{},
+		&api.LogBackup{},
+		&api.AlertRule{},
+		&api.BackupSettings{},
 	); err != nil {
 		log.Printf("auto migrate warning: %v", err)
 	}
