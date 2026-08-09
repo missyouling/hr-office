@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings } from "lucide-react";
+import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText } from "lucide-react";
 
 import { useAuth } from "@/lib/supabase/auth-context";
 import { toast } from "sonner";
@@ -49,8 +49,10 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
 
   // 系统设置仅 admin/super_admin 可见，合并到主菜单
   const showSystemSettings = user?.role === "admin" || user?.role === "super_admin";
-  const allNavItems = showSystemSettings 
-    ? [...availableNavItems, SYSTEM_SETTINGS_ITEM]
+  const showFeedback = user?.role === "admin" || user?.role === "super_admin";
+  const FEEDBACK_ITEM: NavMainItem = { id: "feedback", label: "反馈管理", icon: MessageSquareText };
+  const allNavItems = showSystemSettings
+    ? [...availableNavItems, SYSTEM_SETTINGS_ITEM, ...(showFeedback ? [FEEDBACK_ITEM] : [])]
     : availableNavItems;
 
   const handleLogout = async () => {

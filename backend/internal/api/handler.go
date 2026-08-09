@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"gorm.io/gorm"
 
 	"siapp/internal/auth"
+	"siapp/internal/middleware"
 	"siapp/internal/models"
 	"siapp/internal/service"
 	"siapp/internal/service/storage"
@@ -60,6 +62,14 @@ const (
 var insuranceTemplateFiles = map[string]string{
 	"increase": "社保缴费人员增加申报（企业职工批量新参保）模版.xls",
 	"decrease": "社保缴费人员减少申报（企业职工批量减少参保）模板.xls",
+}
+
+// applyEmployeeDepartmentFilter 根据当前用户所属部门过滤员工数据
+func applyEmployeeDepartmentFilter(ctx context.Context, db *gorm.DB) *gorm.DB {
+	if dept, ok := middleware.GetUserDepartmentFromContext(ctx); ok && dept != "" {
+		return db.Where("department = ?", dept)
+	}
+	return db
 }
 
 type socialInsuranceImportRecord struct {
@@ -193,7 +203,7 @@ func NewHandler(db *gorm.DB) *Handler {
 		retrievalService: retSvc,
 		chatService:      chatSvc,
 		tagService:       tagSvc,
-		chunkService:   service.NewChunkService(db, embSvc),
+		chunkService:     service.NewChunkService(db, embSvc),
 		storageRouter:    storage.NewStorageRouter(db),
 		uploadBaseDir:    uploadDir,
 		uploadBaseURL:    uploadURL,
@@ -456,7 +466,15 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 	r.Route("/announcements", h.registerAnnouncementRoutes)
 
+	r.Route("/feedback", func(fr chi.Router) {
+		fr.Post("/", h.submitFeedback)
+		fr.Get("/", h.listFeedback)
+		fr.Put("/{id}/reply", h.replyFeedback)
+		fr.Get("/stats", h.feedbackStats)
+	})
+
 	r.Route("/rbac", h.registerRolePermissionRoutes)
+	r.Route("/users", h.registerUserRoleRoutes)
 
 	// 系统配置 (管理员)
 	r.Route("/admin", func(ar chi.Router) {
@@ -479,9 +497,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		sr.Get("/{id}/status", h.getStorageStatus)
 		sr.Get("/{id}/capacity", h.getStorageCapacity)
 		sr.Post("/{id}/set-primary", h.setStoragePrimary)
- 		sr.Post("/test", h.testStorageConnectionNew)
- 		sr.Post("/directories", h.listStorageDirectories)
- 		// 模块配置
+		sr.Post("/test", h.testStorageConnectionNew)
+		sr.Post("/directories", h.listStorageDirectories)
+		// 模块配置
 		sr.Get("/modules", h.listStorageModules)
 		sr.Post("/modules", h.createStorageModule)
 		sr.Put("/modules/{id}", h.updateStorageModule)
@@ -564,7 +582,7 @@ func (h *Handler) listEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var employees []models.Employee
-	if err := h.db.Where("user_id = ?", userID).Order("name ASC, id_number ASC").Find(&employees).Error; err != nil {
+	if err := applyEmployeeDepartmentFilter(r.Context(), h.db.Where("user_id = ?", userID)).Order("name ASC, id_number ASC").Find(&employees).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list employees", err)
 		return
 	}
@@ -774,7 +792,7 @@ func (h *Handler) resignEmployee(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var employee models.Employee
-	if err := h.db.Where("id = ? AND user_id = ?", employeeID, userID).First(&employee).Error; err != nil {
+	if err := applyEmployeeDepartmentFilter(r.Context(), h.db.Where("id = ? AND user_id = ?", employeeID, userID)).First(&employee).Error; err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			status = http.StatusNotFound
@@ -1010,7 +1028,7 @@ func (h *Handler) deleteEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var employees []models.Employee
-	if err := h.db.Where("user_id = ? AND id IN ?", userID, uniqueIDs).Find(&employees).Error; err != nil {
+	if err := applyEmployeeDepartmentFilter(r.Context(), h.db.Where("user_id = ? AND id IN ?", userID, uniqueIDs)).Find(&employees).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load employees for deletion", err)
 		return
 	}
@@ -1021,7 +1039,7 @@ func (h *Handler) deleteEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND id IN ?", userID, uniqueIDs).Delete(&models.Employee{}).Error; err != nil {
+		if err := applyEmployeeDepartmentFilter(r.Context(), tx.Where("user_id = ? AND id IN ?", userID, uniqueIDs)).Delete(&models.Employee{}).Error; err != nil {
 			return err
 		}
 		return nil
@@ -1067,7 +1085,7 @@ func (h *Handler) downloadResignProof(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var employee models.Employee
-	if err := h.db.Where("id = ? AND user_id = ?", employeeID, userID).First(&employee).Error; err != nil {
+	if err := applyEmployeeDepartmentFilter(r.Context(), h.db.Where("id = ? AND user_id = ?", employeeID, userID)).First(&employee).Error; err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			status = http.StatusNotFound
@@ -1156,7 +1174,7 @@ func (h *Handler) restoreEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 
 	buildFilter := func(db *gorm.DB) *gorm.DB {
-		query := db.Where("user_id = ?", userID)
+		query := applyEmployeeDepartmentFilter(r.Context(), db.Where("user_id = ?", userID))
 		switch {
 		case len(ids) > 0 && len(refinedIDNumbers) > 0:
 			return query.Where("(id IN ? OR id_number IN ?)", ids, refinedIDNumbers)
@@ -2636,7 +2654,7 @@ func (h *Handler) exportEmployees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := h.db.Where("user_id = ?", userID)
+	query := applyEmployeeDepartmentFilter(r.Context(), h.db.Where("user_id = ?", userID))
 
 	if scope == "selected" {
 		if len(ids) > 0 {

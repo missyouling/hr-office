@@ -27,6 +27,10 @@ type rolePermissionPayload struct {
 	PermissionIDs []uint `json:"permission_ids"`
 }
 
+type userRolePayload struct {
+	RoleIDs []uint `json:"role_ids"`
+}
+
 func (h *Handler) registerRolePermissionRoutes(r chi.Router) {
 	r.Get("/roles", h.listRoles)
 	r.Post("/roles", h.createRole)
@@ -243,4 +247,90 @@ func (h *Handler) deletePermission(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, map[string]string{"message": "deleted"})
+}
+
+func (h *Handler) registerUserRoleRoutes(r chi.Router) {
+	r.Post("/{id}/roles", h.assignUserRoles)
+	r.Get("/{id}/roles", h.getUserRoles)
+}
+
+func (h *Handler) assignUserRoles(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid user id", err)
+		return
+	}
+
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		respondError(w, http.StatusNotFound, "user not found", err)
+		return
+	}
+
+	var payload userRolePayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+
+	// 过滤掉不存在的角色
+	var validRoleIDs []uint
+	if len(payload.RoleIDs) > 0 {
+		var existingRoles []models.Role
+		if err := h.db.Where("id IN ?", payload.RoleIDs).Find(&existingRoles).Error; err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to validate roles", err)
+			return
+		}
+		roleIDSet := make(map[uint]struct{}, len(existingRoles))
+		for _, role := range existingRoles {
+			roleIDSet[role.ID] = struct{}{}
+		}
+		for _, id := range payload.RoleIDs {
+			if _, ok := roleIDSet[id]; ok {
+				validRoleIDs = append(validRoleIDs, id)
+			}
+		}
+	}
+
+	h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.UserRole{}).Error; err != nil {
+			return err
+		}
+		for _, roleID := range validRoleIDs {
+			if err := tx.Create(&models.UserRole{UserID: uint(userID), RoleID: roleID}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	writeJSON(w, map[string]interface{}{
+		"message":  "roles updated",
+		"role_ids": validRoleIDs,
+	})
+}
+
+func (h *Handler) getUserRoles(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid user id", err)
+		return
+	}
+
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		respondError(w, http.StatusNotFound, "user not found", err)
+		return
+	}
+
+	var roles []models.Role
+	if err := h.db.
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ?", userID).
+		Find(&roles).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list user roles", err)
+		return
+	}
+
+	writeJSON(w, roles)
 }

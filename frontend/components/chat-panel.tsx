@@ -23,17 +23,28 @@ import {
   PanelLeftOpen,
   Clock,
   Sparkles,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { MarkdownContent } from "@/lib/markdown";
 import {
   chatKnowledgeStream,
   fetchSessions,
   deleteChatSession,
+  submitFeedback,
 } from "@/lib/api";
 import type { SearchResult, ChatSession } from "@/lib/api";
 
@@ -75,6 +86,13 @@ export function ChatPanel() {
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [showSessions, setShowSessions] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [ratedMap, setRatedMap] = useState<Record<string, "positive" | "negative">>({});
+  const [feedbackDialog, setFeedbackDialog] = useState<{
+    open: boolean;
+    messageId: string;
+    rating: "positive" | "negative";
+    comment: string;
+  }>({ open: false, messageId: "", rating: "positive", comment: "" });
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -242,6 +260,34 @@ export function ChatPanel() {
       setIsLoading(false);
     }
   }, []);
+
+  // ─── 反馈 ──────────────────────────────────────────────
+
+  const openFeedbackDialog = useCallback((messageId: string, rating: "positive" | "negative") => {
+    setFeedbackDialog({ open: true, messageId, rating, comment: "" });
+  }, []);
+
+  const closeFeedbackDialog = useCallback(() => {
+    setFeedbackDialog((prev) => ({ ...prev, open: false }));
+  }, []);
+
+  const handleSubmitFeedback = useCallback(async () => {
+    if (!feedbackDialog.messageId) return;
+    try {
+      await submitFeedback({
+        message_id: feedbackDialog.messageId,
+        session_id: sessionId || undefined,
+        rating: feedbackDialog.rating,
+        comment: feedbackDialog.comment.trim() || undefined,
+      });
+      setRatedMap((prev) => ({ ...prev, [feedbackDialog.messageId]: feedbackDialog.rating }));
+      toast.success("反馈已提交，感谢您的建议");
+      closeFeedbackDialog();
+    } catch (error) {
+      console.error("提交反馈失败:", error);
+      toast.error(error instanceof Error ? error.message : "提交反馈失败");
+    }
+  }, [feedbackDialog, sessionId, closeFeedbackDialog]);
 
   // ─── 键盘事件 ──────────────────────────────────────────
 
@@ -528,6 +574,34 @@ export function ChatPanel() {
                             )}
                           </div>
 
+                          {/* 点赞/点踩 */}
+                          {message.content && (
+                            <div className="flex items-center gap-1 px-1">
+                              <button
+                                onClick={() => openFeedbackDialog(message.id, "positive")}
+                                title="有帮助"
+                                className={`p-1.5 rounded-md transition-colors ${
+                                  ratedMap[message.id] === "positive"
+                                    ? "text-blue-600 bg-blue-50"
+                                    : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                                }`}
+                              >
+                                <ThumbsUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openFeedbackDialog(message.id, "negative")}
+                                title="没有帮助"
+                                className={`p-1.5 rounded-md transition-colors ${
+                                  ratedMap[message.id] === "negative"
+                                    ? "text-blue-600 bg-blue-50"
+                                    : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                                }`}
+                              >
+                                <ThumbsDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+
                           {/* 引用溯源 */}
                           {message.sources &&
                             message.sources.length > 0 && (
@@ -604,6 +678,31 @@ export function ChatPanel() {
           </div>
         </div>
       </Card>
+
+      {/* 反馈输入弹窗 */}
+      <Dialog open={feedbackDialog.open} onOpenChange={(open) => { if (!open) closeFeedbackDialog(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {feedbackDialog.rating === "positive" ? "这个回答对您有帮助吗？" : "这个回答哪里不够好？"}
+            </DialogTitle>
+          </DialogHeader>
+          <Textarea
+            placeholder="请输入您的建议或问题详情（选填）"
+            value={feedbackDialog.comment}
+            onChange={(e) => setFeedbackDialog((prev) => ({ ...prev, comment: e.target.value }))}
+            className="min-h-[100px] resize-none"
+          />
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={closeFeedbackDialog}>
+              取消
+            </Button>
+            <Button onClick={handleSubmitFeedback} className="bg-blue-600 hover:bg-blue-700">
+              提交反馈
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

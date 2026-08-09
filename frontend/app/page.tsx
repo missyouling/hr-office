@@ -25,6 +25,7 @@ import { fetchAnnouncements, type Announcement } from "@/lib/api";
 import { ChatPanel } from "@/components/chat-panel";
 import { GlobalSearch } from "@/components/global-search";
 import { KnowledgeStats } from "@/components/knowledge-stats";
+import { FeedbackPanel } from "@/components/feedback-panel";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -131,6 +132,8 @@ export default function HomePage() {
         return <DailyAffairsHub />;
       case "system":
         return <SystemSettings />;
+      case "feedback":
+        return <FeedbackPanel />;
       default:
         return <InsuranceManagement />;
     }

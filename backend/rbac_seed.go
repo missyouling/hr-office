@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -13,6 +14,9 @@ func seedRBAC(db *gorm.DB) error {
 		{Name: "user", Label: "普通用户", Description: "基本功能访问", IsSystem: true},
 		{Name: "admin", Label: "管理员", Description: "系统管理权限", IsSystem: true},
 		{Name: "super_admin", Label: "超级管理员", Description: "完整控制权限", IsSystem: true},
+		{Name: "manager", Label: "部门经理", Description: "查看和编辑员工、档案数据", IsSystem: true},
+		{Name: "editor", Label: "编辑者", Description: "查看和编辑业务数据", IsSystem: true},
+		{Name: "viewer", Label: "只读用户", Description: "仅查看数据", IsSystem: true},
 	}
 
 	for _, role := range roles {
@@ -76,42 +80,57 @@ func seedRBAC(db *gorm.DB) error {
 		}
 	}
 
-	// Assign all permissions to super_admin
-	var superAdminRole models.Role
-	if err := db.Where("name = ?", "super_admin").First(&superAdminRole).Error; err == nil {
-		var allPerms []models.Permission
-		db.Find(&allPerms)
-		for _, p := range allPerms {
-			var existing models.RolePermission
-			if err := db.Where("role_id = ? AND permission_id = ?", superAdminRole.ID, p.ID).First(&existing).Error; err == gorm.ErrRecordNotFound {
-				db.Create(&models.RolePermission{RoleID: superAdminRole.ID, PermissionID: p.ID})
+	// Assign all permissions to super_admin and admin
+	for _, roleName := range []string{"super_admin", "admin"} {
+		var role models.Role
+		if err := db.Where("name = ?", roleName).First(&role).Error; err == nil {
+			var allPerms []models.Permission
+			db.Find(&allPerms)
+			for _, p := range allPerms {
+				var existing models.RolePermission
+				if err := db.Where("role_id = ? AND permission_id = ?", role.ID, p.ID).First(&existing).Error; err == gorm.ErrRecordNotFound {
+					db.Create(&models.RolePermission{RoleID: role.ID, PermissionID: p.ID})
+				}
 			}
 		}
 	}
 
-	// Assign limited permissions to admin
-	var adminRole models.Role
-	if err := db.Where("name = ?", "admin").First(&adminRole).Error; err == nil {
-		adminPerms := []string{
-			"employee-view", "employee-create", "employee-edit", "employee-delete",
-			"insurance-view", "insurance-create", "insurance-edit",
-			"dormitory-view", "dormitory-create", "dormitory-edit", "dormitory-delete",
-			"archives-view", "archives-create", "archives-edit", "archives-delete",
+	// manager: 查看/编辑员工和档案
+	var managerRole models.Role
+	if err := db.Where("name = ?", "manager").First(&managerRole).Error; err == nil {
+		managerPerms := []string{
+			"employee-view", "employee-create", "employee-edit",
+			"archives-view", "archives-create", "archives-edit",
+		}
+		assignPermissionsToRole(db, managerRole.ID, managerPerms)
+	}
+
+	// editor: 仅查看和编辑（所有业务模块的 view + edit）
+	var editorRole models.Role
+	if err := db.Where("name = ?", "editor").First(&editorRole).Error; err == nil {
+		editorPerms := []string{
+			"employee-view", "employee-edit",
+			"insurance-view", "insurance-edit",
+			"dormitory-view", "dormitory-edit",
+			"archives-view", "archives-edit",
+			"announcements-view", "announcements-edit",
 			"settings-view", "settings-edit",
-			"announcements-view", "announcements-create", "announcements-edit",
-			"backups-view", "backups-create",
-			"users-view",
 		}
-		for _, ap := range adminPerms {
-			var perm models.Permission
-			db.Where("module = ? AND action = ?", ap[:len(ap)-5], ap[len(ap)-4:]).First(&perm)
-			if perm.ID > 0 {
-				var existing models.RolePermission
-				if err := db.Where("role_id = ? AND permission_id = ?", adminRole.ID, perm.ID).First(&existing).Error; err == gorm.ErrRecordNotFound {
-					db.Create(&models.RolePermission{RoleID: adminRole.ID, PermissionID: perm.ID})
-				}
-			}
+		assignPermissionsToRole(db, editorRole.ID, editorPerms)
+	}
+
+	// viewer: 仅查看（所有业务模块的 view）
+	var viewerRole models.Role
+	if err := db.Where("name = ?", "viewer").First(&viewerRole).Error; err == nil {
+		viewerPerms := []string{
+			"employee-view",
+			"insurance-view",
+			"dormitory-view",
+			"archives-view",
+			"announcements-view",
+			"settings-view",
 		}
+		assignPermissionsToRole(db, viewerRole.ID, viewerPerms)
 	}
 
 	// Assign limited permissions to user
@@ -124,18 +143,28 @@ func seedRBAC(db *gorm.DB) error {
 			"archives-view", "archives-create",
 			"announcements-view",
 		}
-		for _, up := range userPerms {
-			var perm models.Permission
-			db.Where("module = ? AND action = ?", up[:len(up)-5], up[len(up)-4:]).First(&perm)
-			if perm.ID > 0 {
-				var existing models.RolePermission
-				if err := db.Where("role_id = ? AND permission_id = ?", userRole.ID, perm.ID).First(&existing).Error; err == gorm.ErrRecordNotFound {
-					db.Create(&models.RolePermission{RoleID: userRole.ID, PermissionID: perm.ID})
-				}
-			}
-		}
+		assignPermissionsToRole(db, userRole.ID, userPerms)
 	}
 
 	log.Println("RBAC data seeded successfully")
 	return nil
+}
+
+// assignPermissionsToRole 根据 module-action 字符串列表为角色分配权限
+func assignPermissionsToRole(db *gorm.DB, roleID uint, perms []string) {
+	for _, permKey := range perms {
+		parts := strings.SplitN(permKey, "-", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		module, action := parts[0], parts[1]
+		var perm models.Permission
+		db.Where("module = ? AND action = ?", module, action).First(&perm)
+		if perm.ID > 0 {
+			var existing models.RolePermission
+			if err := db.Where("role_id = ? AND permission_id = ?", roleID, perm.ID).First(&existing).Error; err == gorm.ErrRecordNotFound {
+				db.Create(&models.RolePermission{RoleID: roleID, PermissionID: perm.ID})
+			}
+		}
+	}
 }

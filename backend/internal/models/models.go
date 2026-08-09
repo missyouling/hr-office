@@ -41,6 +41,7 @@ type User struct {
 	Password        string     `json:"-" gorm:"not null"` // Password hash, never returned in JSON
 	FullName        string     `json:"full_name"`
 	CompanyID       string     `json:"company_id" gorm:"index"`
+	Department      string     `json:"department" gorm:"size:150"` // 所属部门（用于数据隔离）
 	Role            string     `json:"role" gorm:"default:user"`
 	Active          bool       `json:"active" gorm:"default:true"`
 	EmailVerified   bool       `json:"email_verified" gorm:"default:false;index"`

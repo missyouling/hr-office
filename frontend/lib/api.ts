@@ -2779,6 +2779,71 @@ export async function fetchKnowledgeSessions(): Promise<Array<{ id: string; ques
   return request("/knowledge/sessions");
 }
 
+// ============ 用户反馈 API ============
+
+export interface ChatFeedback {
+  id: number;
+  user_id: number;
+  message_id: string;
+  session_id?: string;
+  rating: string;
+  comment: string;
+  reply: string;
+  replied_at?: string;
+  created_at: string;
+  updated_at: string;
+  username?: string;
+  full_name?: string;
+}
+
+export interface ChatFeedbackStats {
+  total: number;
+  positive: number;
+  negative: number;
+  positive_rate: number;
+  recent_negative: ChatFeedback[];
+}
+
+export interface ChatFeedbackListResponse {
+  items: ChatFeedback[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export async function submitFeedback(data: {
+  message_id: string;
+  session_id?: string;
+  rating: string;
+  comment?: string;
+}): Promise<ChatFeedback> {
+  return request<ChatFeedback>("/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function listFeedback(params?: { rating?: string; page?: number }): Promise<ChatFeedbackListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.rating) searchParams.set("rating", params.rating);
+  if (params?.page) searchParams.set("page", String(params.page));
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return request<ChatFeedbackListResponse>(`/feedback${query}`);
+}
+
+export async function replyFeedback(id: number, reply: string): Promise<ChatFeedback> {
+  return request<ChatFeedback>(`/feedback/${id}/reply`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reply }),
+  });
+}
+
+export async function fetchFeedbackStats(): Promise<ChatFeedbackStats> {
+  return request<ChatFeedbackStats>("/feedback/stats");
+}
+
 // 档案标签列表
 export interface ArchiveTag {
   id: number;

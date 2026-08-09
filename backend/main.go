@@ -463,6 +463,7 @@ func main() {
 		&models.OCRJob{},
 		&models.ChatMessage{},
 		&models.ChatSession{},
+		&models.ChatFeedback{},
 		&models.ModelUsageLog{},
 		&api.SystemLog{},
 		&api.LogBackup{},
@@ -657,6 +658,7 @@ func main() {
 		// Protected routes with Supabase JWT auth first, then audit logging
 		apiRouter.Group(func(protectedRouter chi.Router) {
 			protectedRouter.Use(supabase.SupabaseJWTMiddleware())
+			protectedRouter.Use(auditmw.DepartmentContext(db))
 			protectedRouter.Use(auditmw.AuditMiddleware(auditService))
 
 			// Auth profile routes
