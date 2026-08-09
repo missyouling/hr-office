@@ -104,6 +104,13 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
+// Flush 实现 http.Flusher 接口，支持 SSE 流式响应
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 // determineActionFromPath determines the audit action based on HTTP method and path
 func determineActionFromPath(method, path string) (models.ActionType, string, *string) {
 	pathParts := strings.Split(strings.Trim(path, "/"), "/")
