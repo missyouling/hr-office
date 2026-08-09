@@ -22,7 +22,7 @@ interface ArchiveTableRendererProps {
   onEdit: (row: Record<string, unknown> & { id: number }) => void;
   onDelete: (id: number) => void;
   onView?: (row: Record<string, unknown> & { id: number }) => void;
-  selectedIds?: Set<number>;
+  selectedIds?: number[];
   onSelect?: (id: number) => void;
   onSelectAll?: () => void;
   selectAll?: boolean;
@@ -68,12 +68,12 @@ export const ArchiveTableRenderer: React.FC<ArchiveTableRendererProps> = ({
             data.map((row) => (
               <TableRow
                 key={row.id}
-                className={selectedIds?.has(row.id) ? "bg-muted/50" : ""}
+                className={selectedIds?.includes(row.id) ? "bg-muted/50" : ""}
               >
                 {(onSelect || onSelectAll) && (
                   <TableCell>
                     <Checkbox
-                      checked={selectedIds?.has(row.id)}
+                      checked={selectedIds?.includes(row.id)}
                       onCheckedChange={() => onSelect?.(row.id)}
                     />
                   </TableCell>

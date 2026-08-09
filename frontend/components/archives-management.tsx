@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Search, Download, Upload, Printer, FileText,
   X, File, Image, Video, FileUp, Share2, Link2,
@@ -90,8 +90,14 @@ export function ArchivesManagement() {
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
 
   // 多选相关
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [selectAll, setSelectAll] = useState(false);
+
+  // 组件卸载标记，防止异步回调更新已卸载组件的 state
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // 文件夹树 & 标签筛选
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
@@ -251,10 +257,10 @@ export function ArchivesManagement() {
   // 全选逻辑
   useEffect(() => {
     if (selectAll) {
-      setSelectedIds(new Set(filteredDocuments.map(d => d.id)));
-    } else if (selectedIds.size === filteredDocuments.length && filteredDocuments.length > 0) {
+      setSelectedIds(filteredDocuments.map(d => d.id));
+    } else if (selectedIds.length === filteredDocuments.length && filteredDocuments.length > 0) {
       // 已经全部选中了，不需要改
-    } else if (!selectAll && selectedIds.size === filteredDocuments.length) {
+    } else if (!selectAll && selectedIds.length === filteredDocuments.length) {
       // 保持当前选择
     }
   }, [selectAll, filteredDocuments]);
@@ -289,6 +295,7 @@ export function ArchivesManagement() {
   };
 
   const loadDocuments = async () => {
+    if (!mountedRef.current) return;
     setLoading(true);
     try {
       const params: Record<string, string | number | string[]> = { page, page_size: pageSize };
@@ -314,12 +321,12 @@ export function ArchivesManagement() {
     }
   };
 
-  const handleTabChange = (value: string) => {
+  const handleTabChange = useCallback((value: string) => {
     setActiveTab(value);
     setPage(1);
-    setSelectedIds(new Set());
+    setSelectedIds([]);
     setSelectAll(false);
-  };
+  }, []);
 
   const handleSearch = () => {
     setPage(1);
@@ -328,23 +335,20 @@ export function ArchivesManagement() {
 
   // 选中/取消选中单个
   const toggleSelect = (id: number) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-    setSelectAll(newSet.size === filteredDocuments.length);
+    const next = selectedIds.includes(id)
+      ? selectedIds.filter(i => i !== id)
+      : [...selectedIds, id];
+    setSelectedIds(next);
+    setSelectAll(next.length === filteredDocuments.length);
   };
 
   // 全选/取消全选
   const toggleSelectAll = () => {
     if (selectAll) {
-      setSelectedIds(new Set());
+      setSelectedIds([]);
       setSelectAll(false);
     } else {
-      setSelectedIds(new Set(filteredDocuments.map(d => d.id)));
+      setSelectedIds(filteredDocuments.map(d => d.id));
       setSelectAll(true);
     }
   };
@@ -458,11 +462,7 @@ export function ArchivesManagement() {
     try {
       await deleteDocument(docId);
       toast.success("删除成功");
-      setSelectedIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(docId);
-        return newSet;
-      });
+      setSelectedIds(prev => prev.filter(id => id !== docId));
       loadDocuments();
     } catch (error) {
       console.error("删除失败:", error);
@@ -884,14 +884,14 @@ export function ArchivesManagement() {
 
   // 批量下载
   const handleBatchDownload = async () => {
-    if (selectedIds.size === 0) {
+    if (selectedIds.length === 0) {
       toast.error("请先选择要下载的文件");
       return;
     }
 
     try {
       toast.loading("正在打包下载...");
-      const blob = await batchDownloadDocuments(Array.from(selectedIds));
+      const blob = await batchDownloadDocuments(selectedIds);
 
       // 创建下载链接
       const url = URL.createObjectURL(blob);
@@ -917,13 +917,13 @@ export function ArchivesManagement() {
       toast.error("请输入标签名称");
       return;
     }
-    if (selectedIds.size === 0) {
+    if (selectedIds.length === 0) {
       toast.error("请先选择文档");
       return;
     }
 
     setBulkTagProcessing(true);
-    const ids = Array.from(selectedIds);
+    const ids = selectedIds;
     let successCount = 0;
     let failCount = 0;
 
@@ -954,31 +954,31 @@ export function ArchivesManagement() {
   };
 
   // 文件夹选择
-  const handleFolderSelect = (path: string | null) => {
+  const handleFolderSelect = useCallback((path: string | null) => {
     setSelectedFolderPath(path);
     setPage(1);
-    setSelectedIds(new Set());
+    setSelectedIds([]);
     setSelectAll(false);
-  };
+  }, []);
 
   // 标签筛选
-  const handleTagFilter = (tagNames: string[]) => {
+  const handleTagFilter = useCallback((tagNames: string[]) => {
     setSelectedTagNames(tagNames);
     setPage(1);
-    setSelectedIds(new Set());
+    setSelectedIds([]);
     setSelectAll(false);
-  };
+  }, []);
 
   // 生成分享链接
   const handleShare = async () => {
-    if (selectedIds.size === 0) {
+    if (selectedIds.length === 0) {
       toast.error("请先选择要分享的文件");
       return;
     }
 
     setIsGeneratingLink(true);
     try {
-      const links = await generateShareLink(Array.from(selectedIds), parseInt(shareExpiry));
+      const links = await generateShareLink(selectedIds, parseInt(shareExpiry));
       setShareLinks(links.map(l => ({ ...l, copied: false })));
       setIsShareOpen(true);
     } catch (error) {
@@ -1081,21 +1081,21 @@ export function ArchivesManagement() {
             <span className="text-sm text-muted-foreground">
               {loading ? "加载中..." : `共 ${total} 条记录`}
             </span>
-            {selectedIds.size > 0 && <Badge variant="default">已选择 {selectedIds.size}</Badge>}
+            {selectedIds.length > 0 && <Badge variant="default">已选择 {selectedIds.length}</Badge>}
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={handleOpenUpload}>
                 <Upload className="h-4 w-4 mr-2" />
                 上传
               </Button>
-              {selectedIds.size > 0 && (
+              {selectedIds.length > 0 && (
                 <>
                   <Button variant="outline" onClick={handleBatchDownload}>
                     <Download className="h-4 w-4 mr-2" />
-                    下载 ({selectedIds.size})
+                    下载 ({selectedIds.length})
                   </Button>
                   <Button variant="outline" onClick={handleShare}>
                     <Share2 className="h-4 w-4 mr-2" />
-                    分享 ({selectedIds.size})
+                    分享 ({selectedIds.length})
                   </Button>
                 </>
               )}
@@ -1110,10 +1110,10 @@ export function ArchivesManagement() {
         </div>
 
         {/* 批量操作栏 */}
-        {selectedIds.size > 0 && (
+        {selectedIds.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5">
             <span className="text-sm font-medium text-primary">
-              已选择 {selectedIds.size} 个文档
+              已选择 {selectedIds.length} 个文档
             </span>
             <span className="text-xs text-muted-foreground">—</span>
             <Dialog open={isBulkTagOpen} onOpenChange={setIsBulkTagOpen}>
@@ -1127,7 +1127,7 @@ export function ArchivesManagement() {
                 <DialogHeader>
                   <DialogTitle>批量设置标签</DialogTitle>
                   <DialogDescription>
-                    为选中的 {selectedIds.size} 个文档统一设置标签。已输入标签名即可自动创建或关联。
+                    为选中的 {selectedIds.length} 个文档统一设置标签。已输入标签名即可自动创建或关联。
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3 py-2">
@@ -1301,7 +1301,7 @@ export function ArchivesManagement() {
       {/* 分页 */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          共 {total} 条记录，第 {page} 页，已选择 {selectedIds.size} 项
+          共 {total} 条记录，第 {page} 页，已选择 {selectedIds.length} 项
         </div>
         <div className="flex items-center gap-2">
           <Button
