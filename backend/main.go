@@ -213,8 +213,93 @@ func relaxSocialInsuranceConstraints(db *gorm.DB) {
 		return
 	}
 	if err := db.Exec("ALTER TABLE social_insurance_records ALTER COLUMN batch_id DROP NOT NULL").Error; err != nil {
-		log.Printf("failed to relax social insurance batch constraint: %v", err)
+		log.Printf("failed to relax social insurance constraint: %v", err)
 	}
+}
+
+// ensureKnowledgeBaseInfrastructure 确保知识库基础设施可用
+// 在 GORM AutoMigrate 之后执行：
+//  1. 启用 pgvector 扩展
+//  2. 为 document_chunks 添加 embedding 向量列（GORM 不原生支持 vector 类型）
+//  3. 创建 HNSW 向量索引
+//  4. 添加 tsvector 全文搜索列及 GIN 索引
+func ensureKnowledgeBaseInfrastructure(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	if !strings.EqualFold(db.Dialector.Name(), "postgres") {
+		return
+	}
+
+	// 1. 启用 pgvector 扩展
+	if err := db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
+		log.Printf("[kb-infra] failed to enable vector extension: %v", err)
+		return
+	}
+
+	// 2. 为 document_chunks 添加 embedding 列
+	if err := db.Exec("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding vector(768)").Error; err != nil {
+		log.Printf("[kb-infra] failed to add embedding column: %v", err)
+	}
+
+	// 3. 创建 HNSW 向量索引
+	if err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_chunk_embedding_hnsw
+		ON document_chunks USING hnsw (embedding vector_cosine_ops)
+		WITH (m = 16, ef_construction = 64)
+	`).Error; err != nil {
+		log.Printf("[kb-infra] failed to create HNSW index: %v", err)
+	}
+
+	// 4. 为 documents 添加 tsvector 列 + 触发器
+	if err := db.Exec("ALTER TABLE documents ADD COLUMN IF NOT EXISTS content_tsv tsvector").Error; err != nil {
+		log.Printf("[kb-infra] failed to add documents content_tsv: %v", err)
+	}
+	if err := db.Exec(`
+		CREATE OR REPLACE FUNCTION documents_tsvector_trigger() RETURNS trigger AS $$
+		BEGIN
+			NEW.content_tsv := to_tsvector('simple', COALESCE(NEW.content_text, '') || ' ' || COALESCE(NEW.file_name, ''));
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql
+	`).Error; err != nil {
+		log.Printf("[kb-infra] failed to create documents tsvector trigger function: %v", err)
+	}
+	if err := db.Exec("DROP TRIGGER IF EXISTS trg_documents_tsvector ON documents").Error; err != nil {
+		log.Printf("[kb-infra] failed to drop old documents trigger: %v", err)
+	}
+	if err := db.Exec("CREATE TRIGGER trg_documents_tsvector BEFORE INSERT OR UPDATE OF content_text, file_name ON documents FOR EACH ROW EXECUTE FUNCTION documents_tsvector_trigger()").Error; err != nil {
+		log.Printf("[kb-infra] failed to create documents tsvector trigger: %v", err)
+	}
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_documents_content_tsv ON documents USING GIN (content_tsv)").Error; err != nil {
+		log.Printf("[kb-infra] failed to create documents tsvector GIN index: %v", err)
+	}
+
+	// 5. 为 document_chunks 添加 tsvector 列 + 触发器
+	if err := db.Exec("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS content_tsv tsvector").Error; err != nil {
+		log.Printf("[kb-infra] failed to add chunks content_tsv: %v", err)
+	}
+	if err := db.Exec(`
+		CREATE OR REPLACE FUNCTION chunks_tsvector_trigger() RETURNS trigger AS $$
+		BEGIN
+			NEW.content_tsv := to_tsvector('simple', COALESCE(NEW.content, ''));
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql
+	`).Error; err != nil {
+		log.Printf("[kb-infra] failed to create chunks tsvector trigger function: %v", err)
+	}
+	if err := db.Exec("DROP TRIGGER IF EXISTS trg_chunks_tsvector ON document_chunks").Error; err != nil {
+		log.Printf("[kb-infra] failed to drop old chunks trigger: %v", err)
+	}
+	if err := db.Exec("CREATE TRIGGER trg_chunks_tsvector BEFORE INSERT OR UPDATE OF content ON document_chunks FOR EACH ROW EXECUTE FUNCTION chunks_tsvector_trigger()").Error; err != nil {
+		log.Printf("[kb-infra] failed to create chunks tsvector trigger: %v", err)
+	}
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_chunks_content_tsv ON document_chunks USING GIN (content_tsv)").Error; err != nil {
+		log.Printf("[kb-infra] failed to create chunks tsvector GIN index: %v", err)
+	}
+
+	log.Println("[kb-infra] knowledge base infrastructure initialized successfully")
 }
 
 func dedupeUserPreferences(db *gorm.DB) error {
@@ -358,6 +443,9 @@ func main() {
 		&models.ArchiveFieldDefinition{},
 		&models.CodeRule{},
 		&models.CodeRulePlaceholder{},
+		&models.ArchiveConfig{},
+		&models.ArchiveTag{},
+		&models.DocumentTagLink{},
 		&models.StorageModuleConfig{},
 		&models.StorageConfig{},
 		&models.StorageRule{},
@@ -367,11 +455,14 @@ func main() {
 		&models.SMTPConfig{},
 		&models.DocumentContent{},
 		&models.DocumentEmbedding{},
+		&models.DocumentChunk{},
+		&models.ChunkRevision{},
 		&models.ModelConfig{},
 		&models.DocumentTypeField{},
 		&models.TypeDefaultColumn{},
 		&models.OCRJob{},
 		&models.ChatMessage{},
+		&models.ChatSession{},
 		&models.ModelUsageLog{},
 		&api.SystemLog{},
 		&api.LogBackup{},
@@ -383,6 +474,7 @@ func main() {
 	ensureUserPreferenceIndex(db)
 	ensureModelUsageLogsTable(db)
 	relaxSocialInsuranceConstraints(db)
+	ensureKnowledgeBaseInfrastructure(db)
 
 	// Seed document categories
 	if err := seedDocumentCategories(db); err != nil {

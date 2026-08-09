@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
 
 	"siapp/internal/auth"
+	"siapp/internal/models"
 )
 
 // ingestDocumentRequest 文档入知识库请求
@@ -171,8 +174,8 @@ func (h *Handler) knowledgeStats(w http.ResponseWriter, r *http.Request) {
 		Where("user_id = ?", userID).
 		Count(&stats.TotalDocuments)
 
-	// 统计向量数
-	h.db.Table("document_embeddings").
+	// 统计向量数（新表 document_chunks）
+	h.db.Table("document_chunks").
 		Where("doc_id IN (SELECT id FROM documents WHERE user_id = ?)", userID).
 		Count(&stats.TotalEmbeddings)
 
@@ -182,6 +185,167 @@ func (h *Handler) knowledgeStats(w http.ResponseWriter, r *http.Request) {
 		Count(&stats.TotalChatMessages)
 
 	respondJSON(w, http.StatusOK, stats)
+}
+
+// ============================================================
+// SSE 流式问答（P2）
+// ============================================================
+
+// chatKnowledgeStream SSE 流式问答
+// POST /api/knowledge/chat/stream
+func (h *Handler) chatKnowledgeStream(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	var req chatKnowledgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request payload", err)
+		return
+	}
+	if strings.TrimSpace(req.Question) == "" {
+		respondError(w, http.StatusBadRequest, "question is required", nil)
+		return
+	}
+
+	h.chatService.StreamChat(w, userID, req.SessionID, req.Question)
+}
+
+// ============================================================
+// 会话管理（P2）
+// ============================================================
+
+// listSessions GET /api/knowledge/sessions
+func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	var sessions []models.ChatSession
+	if err := h.db.Where("user_id = ?", userID).
+		Order("is_pinned DESC, updated_at DESC").
+		Find(&sessions).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list sessions", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, sessions)
+}
+
+// updateSession PUT /api/knowledge/sessions/{sessionID}
+func (h *Handler) updateSession(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+	sessionID := chi.URLParam(r, "sessionID")
+
+	var req struct {
+		Title    *string `json:"title"`
+		IsPinned *bool   `json:"is_pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	var session models.ChatSession
+	if err := h.db.Where("id = ? AND user_id = ?", sessionID, userID).First(&session).Error; err != nil {
+		respondError(w, http.StatusNotFound, "session not found", err)
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Title != nil {
+		updates["title"] = *req.Title
+	}
+	if req.IsPinned != nil {
+		updates["is_pinned"] = *req.IsPinned
+		if *req.IsPinned {
+			now := time.Now()
+			updates["pinned_at"] = &now
+		} else {
+			updates["pinned_at"] = nil
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := h.db.Model(&session).Updates(updates).Error; err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to update session", err)
+			return
+		}
+	}
+
+	respondJSON(w, http.StatusOK, session)
+}
+
+// deleteSession DELETE /api/knowledge/sessions/{sessionID}
+func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+	sessionID := chi.URLParam(r, "sessionID")
+
+	result := h.db.Where("id = ? AND user_id = ?", sessionID, userID).Delete(&models.ChatSession{})
+	if result.Error != nil {
+		respondError(w, http.StatusInternalServerError, "failed to delete session", err)
+		return
+	}
+	if result.RowsAffected == 0 {
+		respondError(w, http.StatusNotFound, "session not found", nil)
+		return
+	}
+
+	// 同时删除关联的消息
+	h.db.Where("session_id = ?", sessionID).Delete(&models.ChatMessage{})
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "session deleted"})
+}
+
+// ============================================================
+// Chunk 级搜索（P2）
+// ============================================================
+
+// searchChunks GET /api/knowledge/search/chunks?q=xxx&limit=20
+func (h *Handler) searchChunks(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		respondError(w, http.StatusBadRequest, "query parameter 'q' is required", nil)
+		return
+	}
+
+	limitStr := strings.TrimSpace(r.URL.Query().Get("limit"))
+	limit := 20
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	results, err := h.retrievalService.SearchChunks(userID, query, limit)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "chunk search failed", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"query":   query,
+		"results": results,
+		"count":   len(results),
+	})
 }
 
 // globalSearch 全局搜索

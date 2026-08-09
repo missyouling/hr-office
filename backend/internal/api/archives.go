@@ -2312,3 +2312,364 @@ func (h *Handler) saveColumnConfig(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusOK, config)
 }
+
+// ============================================================
+// 标签管理 API（P1 — 知识组织）
+// ============================================================
+
+// listArchiveTags GET /api/archives/tags
+func (h *Handler) listArchiveTags(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	tags, err := h.tagService.ListTags(userID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list tags", err)
+		return
+	}
+	if tags == nil {
+		tags = []models.TagWithCount{}
+	}
+	respondJSON(w, http.StatusOK, tags)
+}
+
+// createArchiveTag POST /api/archives/tags
+func (h *Handler) createArchiveTag(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	var req struct {
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		respondError(w, http.StatusBadRequest, "tag name is required", nil)
+		return
+	}
+	if req.Color == "" {
+		req.Color = "#3b82f6"
+	}
+
+	tag, err := h.tagService.CreateTag(userID, req.Name, req.Color)
+	if err != nil {
+		respondError(w, http.StatusConflict, "failed to create tag", err)
+		return
+	}
+	respondJSON(w, http.StatusCreated, tag)
+}
+
+// deleteArchiveTag DELETE /api/archives/tags/{tagID}
+func (h *Handler) deleteArchiveTag(w http.ResponseWriter, r *http.Request) {
+	tagIDStr := chi.URLParam(r, "tagID")
+	tagID, err := strconv.ParseUint(tagIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid tag ID", err)
+		return
+	}
+	if err := h.tagService.DeleteTag(uint(tagID)); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to delete tag", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"message": "tag deleted"})
+}
+
+// setDocumentTags POST /api/archives/documents/{docID}/tags
+func (h *Handler) setDocumentTags(w http.ResponseWriter, r *http.Request) {
+	docIDStr := chi.URLParam(r, "docID")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid document ID", err)
+		return
+	}
+
+	var req struct {
+		TagNames []string `json:"tag_names"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	if err := h.tagService.SetDocumentTags(uint(docID), req.TagNames); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to set tags", err)
+		return
+	}
+
+	// 同步更新旧 tags JSON 字段（向后兼容）
+	tagsJSON, _ := json.Marshal(req.TagNames)
+	h.db.Model(&models.Document{}).Where("id = ?", docID).Update("tags", string(tagsJSON))
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{"document_id": docID, "tag_names": req.TagNames})
+}
+
+// getDocumentTags GET /api/archives/documents/{docID}/tags
+func (h *Handler) getDocumentTags(w http.ResponseWriter, r *http.Request) {
+	docIDStr := chi.URLParam(r, "docID")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid document ID", err)
+		return
+	}
+	tags, err := h.tagService.GetDocumentTags(uint(docID))
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get tags", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, tags)
+}
+
+// ============================================================
+// 文件夹树 API（P1 — 知识组织）
+// ============================================================
+
+// getFolderTree GET /api/archives/folders?category_code=WS
+func (h *Handler) getFolderTree(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+	categoryCode := r.URL.Query().Get("category_code")
+
+	tree, err := service.BuildFolderTree(h.db, userID, categoryCode)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to build folder tree", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, tree)
+}
+
+// updateDocumentFolder PUT /api/archives/documents/{docID}/folder
+func (h *Handler) updateDocumentFolder(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+	docIDStr := chi.URLParam(r, "docID")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid document ID", err)
+		return
+	}
+
+	var req struct {
+		FolderPath string `json:"folder_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	// 验证文档存在且属于用户
+	var doc models.Document
+	if err := h.db.Where("id = ? AND user_id = ?", docID, userID).First(&doc).Error; err != nil {
+		respondError(w, http.StatusNotFound, "document not found", err)
+		return
+	}
+
+	// 更新 folder_path
+	if err := h.db.Model(&doc).Update("folder_path", req.FolderPath).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to update folder", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"document_id": doc.ID,
+		"folder_path": req.FolderPath,
+	})
+}
+
+// ============================================================
+// 知识库配置 API（P1 — Category 扩展字段）
+// ============================================================
+
+// updateCategoryKBConfig PUT /api/archives/categories/{categoryID}/kb-config
+func (h *Handler) updateCategoryKBConfig(w http.ResponseWriter, r *http.Request) {
+	categoryIDStr := chi.URLParam(r, "categoryID")
+	categoryID, err := strconv.ParseUint(categoryIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid category ID", err)
+		return
+	}
+
+	var req struct {
+		EmbeddingModelID *uint           `json:"embedding_model_id"`
+		IndexingStrategy *datatypes.JSON `json:"indexing_strategy"`
+		ChunkingConfig   *datatypes.JSON `json:"chunking_config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	var category models.DocumentCategory
+	if err := h.db.First(&category, categoryID).Error; err != nil {
+		respondError(w, http.StatusNotFound, "category not found", err)
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.EmbeddingModelID != nil {
+		updates["embedding_model_id"] = *req.EmbeddingModelID
+	}
+	if req.IndexingStrategy != nil {
+		updates["indexing_strategy"] = *req.IndexingStrategy
+	}
+	if req.ChunkingConfig != nil {
+		updates["chunking_config"] = *req.ChunkingConfig
+	}
+
+	if len(updates) == 0 {
+		respondError(w, http.StatusBadRequest, "no fields to update", nil)
+		return
+	}
+
+	if err := h.db.Model(&category).Updates(updates).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to update KB config", err)
+		return
+	}
+
+	// 返回更新后的分类
+	h.db.First(&category, categoryID)
+	respondJSON(w, http.StatusOK, category)
+}
+
+// ============ 分块管理 API ============
+
+// listDocumentChunks 获取指定文档的分块列表
+// GET /api/archives/documents/{docID}/chunks
+func (h *Handler) listDocumentChunks(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	docIDStr := chi.URLParam(r, "docID")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid document ID", err)
+		return
+	}
+
+	// 验证文档属于当前用户
+	var doc models.Document
+	if err := h.db.Where("id = ? AND user_id = ?", docID, userID).First(&doc).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			respondError(w, http.StatusNotFound, "document not found", nil)
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to verify document", err)
+		}
+		return
+	}
+
+	var chunks []models.DocumentChunk
+	if err := h.db.Where("doc_id = ?", docID).Order("chunk_index ASC").Find(&chunks).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list chunks", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, chunks)
+}
+
+// updateDocumentChunk 更新分块内容并触发向量重索引
+// PUT /api/archives/chunks/{chunkID}
+func (h *Handler) updateDocumentChunk(w http.ResponseWriter, r *http.Request) {
+	editorID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	chunkIDStr := chi.URLParam(r, "chunkID")
+	chunkID, err := strconv.ParseUint(chunkIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid chunk ID", err)
+		return
+	}
+
+	var req struct {
+		Content          string `json:"content"`
+		ExpectedRevision int    `json:"expected_revision"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	if err := h.chunkService.UpdateChunk(uint(chunkID), editorID, req.Content, req.ExpectedRevision); err != nil {
+		if strings.Contains(err.Error(), "revision conflict") {
+			respondError(w, http.StatusConflict, err.Error(), err)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to update chunk", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "chunk updated"})
+}
+
+// listChunkRevisions 获取分块的所有版本快照
+// GET /api/archives/chunks/{chunkID}/revisions
+func (h *Handler) listChunkRevisions(w http.ResponseWriter, r *http.Request) {
+	chunkIDStr := chi.URLParam(r, "chunkID")
+	chunkID, err := strconv.ParseUint(chunkIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid chunk ID", err)
+		return
+	}
+
+	revisions, err := h.chunkService.ListChunkRevisions(uint(chunkID))
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list chunk revisions", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, revisions)
+}
+
+// revertDocumentChunk 将分块回滚到指定历史版本
+// POST /api/archives/chunks/{chunkID}/revert
+func (h *Handler) revertDocumentChunk(w http.ResponseWriter, r *http.Request) {
+	editorID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+
+	chunkIDStr := chi.URLParam(r, "chunkID")
+	chunkID, err := strconv.ParseUint(chunkIDStr, 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid chunk ID", err)
+		return
+	}
+
+	var req struct {
+		TargetRevision int `json:"target_revision"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	if err := h.chunkService.RevertChunk(uint(chunkID), editorID, req.TargetRevision); err != nil {
+		if strings.Contains(err.Error(), "revision conflict") {
+			respondError(w, http.StatusConflict, err.Error(), err)
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to revert chunk", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "chunk reverted"})
+}

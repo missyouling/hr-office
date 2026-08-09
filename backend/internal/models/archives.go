@@ -6,7 +6,7 @@ import (
 	"gorm.io/datatypes"
 )
 
-// DocumentCategory 一级分类
+// DocumentCategory 一级分类（也是知识库）
 type DocumentCategory struct {
 	ID            uint                  `json:"id" gorm:"primaryKey"`
 	UserID        *uint                 `json:"user_id" gorm:"index"`
@@ -16,8 +16,14 @@ type DocumentCategory struct {
 	Description   string                `json:"description" gorm:"size:500"`
 	SubCategories []DocumentSubCategory `json:"sub_categories" gorm:"foreignKey:CategoryID;constraint:OnDelete:CASCADE"`
 	SortOrder     int                   `json:"sort_order" gorm:"default:0"`
-	CreatedAt     time.Time             `json:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at"`
+
+	// 知识库扩展（P1 — 知识组织）
+	EmbeddingModelID *uint          `json:"embedding_model_id" gorm:"index"`  // 绑定 embedding 模型，NULL 用全局默认
+	IndexingStrategy datatypes.JSON `json:"indexing_strategy" gorm:"type:jsonb"` // {"vector_enabled":true,"keyword_enabled":true}
+	ChunkingConfig   datatypes.JSON `json:"chunking_config" gorm:"type:jsonb"`   // {"max_chunk_size":800,"overlap":100,"enable_parent_child":false}
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // DocumentSubCategory 二级分类
@@ -55,7 +61,9 @@ type Document struct {
 	DocumentType    string     `json:"document_type" gorm:"size:100"`   // 一级分类名称
 	SubType         string     `json:"sub_type" gorm:"size:100"`        // 二级分类名称
 	Summary         string     `json:"summary" gorm:"type:text"`        // 摘要描述
-	Tags            string     `json:"tags" gorm:"type:text"`          // 标签数组 JSON 字符串
+	Tags            string     `json:"tags" gorm:"type:text"`          // 标签数组 JSON 字符串（保留向后兼容，新系统用 document_tag_links）
+	FolderPath      string     `json:"folder_path" gorm:"size:1024;default:''"` // 库内相对目录（如 "2026/合同"），空=根目录
+	TagLinks        []DocumentTagLink `json:"tag_links,omitempty" gorm:"foreignKey:DocumentID"` // 新标签系统（查询时加载）
 	SignedDate      *time.Time `json:"signed_date"`                     // 签署/形成日期
 	ExpirationDate  *time.Time `json:"expiration_date"`                 // 到期日期
 	RetentionPeriod string     `json:"retention_period" gorm:"size:20"` // 保管期限: 永久/30年/10年

@@ -36,6 +36,8 @@ type Handler struct {
 	embeddingService *service.EmbeddingService
 	retrievalService *service.RetrievalService
 	chatService      *service.ChatService
+	tagService       *service.TagService
+	chunkService     *service.ChunkService
 	storageRouter    *storage.StorageRouter
 	uploadBaseDir    string
 	uploadBaseURL    string
@@ -181,6 +183,7 @@ func NewHandler(db *gorm.DB) *Handler {
 	embSvc := service.NewEmbeddingService(db)
 	retSvc := service.NewRetrievalService(db, embSvc)
 	chatSvc := service.NewChatService(db, retSvc)
+	tagSvc := service.NewTagService(db)
 
 	return &Handler{
 		db:               db,
@@ -189,6 +192,8 @@ func NewHandler(db *gorm.DB) *Handler {
 		embeddingService: embSvc,
 		retrievalService: retSvc,
 		chatService:      chatSvc,
+		tagService:       tagSvc,
+		chunkService:   service.NewChunkService(db, embSvc),
 		storageRouter:    storage.NewStorageRouter(db),
 		uploadBaseDir:    uploadDir,
 		uploadBaseURL:    uploadURL,
@@ -370,6 +375,26 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		// 列配置管理
 		ar.Get("/column-config", h.listColumnConfig)
 		ar.Post("/column-config", h.saveColumnConfig)
+
+		// 标签管理（P1 — 知识组织）
+		ar.Get("/tags", h.listArchiveTags)
+		ar.Post("/tags", h.createArchiveTag)
+		ar.Delete("/tags/{tagID}", h.deleteArchiveTag)
+		ar.Post("/documents/{docID}/tags", h.setDocumentTags)
+		ar.Get("/documents/{docID}/tags", h.getDocumentTags)
+
+		// 文件夹树（P1 — 知识组织）
+		ar.Get("/folders", h.getFolderTree)
+		ar.Put("/documents/{docID}/folder", h.updateDocumentFolder)
+
+		// 知识库配置（P1 — Category 扩展字段）
+		ar.Put("/categories/{categoryID}/kb-config", h.updateCategoryKBConfig)
+
+		// Chunk 编辑与版本管理（P2 — 问答体验）
+		ar.Get("/documents/{docID}/chunks", h.listDocumentChunks)
+		ar.Put("/chunks/{chunkID}", h.updateDocumentChunk)
+		ar.Get("/chunks/{chunkID}/revisions", h.listChunkRevisions)
+		ar.Post("/chunks/{chunkID}/revert", h.revertDocumentChunk)
 		ar.Put("/column-config", h.saveColumnConfig)
 	})
 
@@ -385,8 +410,13 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/knowledge", func(kr chi.Router) {
 		kr.Post("/ingest", h.ingestDocument)
 		kr.Get("/search", h.searchKnowledge)
+		kr.Get("/search/chunks", h.searchChunks)
 		kr.Post("/chat", h.chatKnowledge)
+		kr.Post("/chat/stream", h.chatKnowledgeStream)
 		kr.Get("/stats", h.knowledgeStats)
+		kr.Get("/sessions", h.listSessions)
+		kr.Put("/sessions/{sessionID}", h.updateSession)
+		kr.Delete("/sessions/{sessionID}", h.deleteSession)
 	})
 
 	// 模型配置
