@@ -425,26 +425,46 @@ func (h *Handler) uploadDocumentFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upload file using GlobalManager
-	_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, newFilename, file, header.Size)
-	if err != nil {
-		http.Error(w, "failed to upload file: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// For backward compatibility, also store the file path locally
 	relativePath := fmt.Sprintf("documents/%d/%s/%s", userID, time.Now().Format("2006-01"), newFilename)
-	fullPath := filepath.Join(h.uploadBaseDir, relativePath)
-	if err := ensureDir(filepath.Dir(fullPath)); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 
-	// Re-read the file from storage for local backup
-	if _, err := file.Seek(0, io.SeekStart); err == nil {
-		if err := saveFile(file, fullPath); err != nil {
+	if resolvedRoute.StorageConfig == nil {
+		// 本地存储兜底：直接写入磁盘
+		fullPath := filepath.Join(h.uploadBaseDir, relativePath)
+		if err := ensureDir(filepath.Dir(fullPath)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		dst, err := os.Create(fullPath)
+		if err != nil {
+			http.Error(w, "failed to create file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer dst.Close()
+		if _, err := io.Copy(dst, file); err != nil {
+			http.Error(w, "failed to write file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// 使用 GlobalManager 上传
+		_, err = storage.GlobalManager.UploadFile(r.Context(), resolvedRoute.StorageID, userID, newFilename, file, header.Size)
+		if err != nil {
+			http.Error(w, "failed to upload file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// For backward compatibility, also store the file path locally
+		fullPath := filepath.Join(h.uploadBaseDir, relativePath)
+		if err := ensureDir(filepath.Dir(fullPath)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Re-read the file from storage for local backup
+		if _, err := file.Seek(0, io.SeekStart); err == nil {
+			if err := saveFile(file, fullPath); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 

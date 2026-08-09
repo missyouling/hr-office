@@ -80,6 +80,7 @@ func (r *StorageRouter) resolveFromRule(ctx context.Context, rule models.Storage
 }
 
 // resolveFallback 规则查询失败时的降级策略
+// 优先级: 模块默认 → 全局默认 → 本地存储兜底
 func (r *StorageRouter) resolveFallback(ctx context.Context, req ResolveRequest) (*ResolvedRoute, error) {
 	// 1. 查询该模块的默认存储（通过 StorageModuleConfig）
 	route, err := r.resolveModuleDefault(ctx, req)
@@ -88,7 +89,25 @@ func (r *StorageRouter) resolveFallback(ctx context.Context, req ResolveRequest)
 	}
 
 	// 2. 使用全局默认存储
-	return r.resolveGlobalDefault(ctx, req)
+	route, err = r.resolveGlobalDefault(ctx, req)
+	if err == nil {
+		return route, nil
+	}
+
+	// 3. 兜底：本地存储（无需数据库配置）
+	basePath := "/" + req.ModuleCode
+	if req.ResourceType != "" {
+		basePath += "/" + req.ResourceType
+	}
+	fullPath := buildFullPath(basePath, req.Filename)
+
+	return &ResolvedRoute{
+		StorageConfig: nil, // 表示使用本地默认存储
+		StorageType:   "local",
+		BasePath:      basePath,
+		FullPath:      fullPath,
+		StorageID:     0,
+	}, nil
 }
 
 // resolveModuleDefault 使用模块默认存储
