@@ -24,6 +24,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { fetchAnnouncements, type Announcement } from "@/lib/api";
 import { ChatPanel } from "@/components/chat-panel";
 import { GlobalSearch } from "@/components/global-search";
+import { KnowledgeStats } from "@/components/knowledge-stats";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -182,6 +183,9 @@ function LandingContent() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-8 pb-6">
+      {/* 知识库统计卡片 */}
+      <KnowledgeStats />
+
       {/* 欢迎卡 + 公告轮播 */}
       <div className="rounded-[32px] bg-gradient-to-r from-[#0a5cff] via-[#3361ff] to-[#7a2adf] p-6 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.35)]">
         <div className="flex items-center justify-between">

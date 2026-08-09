@@ -1782,6 +1782,8 @@ export async function fetchDocuments(params?: {
   sort_direction?: "asc" | "desc";
   page?: number;
   page_size?: number;
+  folder_path?: string;
+  tag_names?: string[];
 }): Promise<DocumentListResponse> {
   const query = new URLSearchParams();
   if (params?.category_code) query.set("category_code", params.category_code);
@@ -1793,6 +1795,10 @@ export async function fetchDocuments(params?: {
   if (params?.sort_direction) query.set("sort_direction", params.sort_direction);
   if (params?.page) query.set("page", String(params.page));
   if (params?.page_size) query.set("page_size", String(params.page_size));
+  if (params?.folder_path !== undefined) query.set("folder_path", params.folder_path);
+  if (params?.tag_names && params.tag_names.length > 0) {
+    params.tag_names.forEach((name) => query.append("tag_names", name));
+  }
 
   return request(`/archives/documents?${query}`);
 }
@@ -2648,14 +2654,140 @@ export async function searchKnowledge(query: string, limit?: number): Promise<{ 
   return request(`/knowledge/search?${params}`);
 }
 
-// AI 问答
+// AI 问答（非流式）
 export async function chatWithKnowledge(question: string, sessionId?: string): Promise<ChatResponse> {
   return request("/knowledge/chat", { method: "POST", body: JSON.stringify({ question, session_id: sessionId }) });
+}
+
+// SSE 流式知识库问答
+export async function chatKnowledgeStream(
+  question: string,
+  sessionId: string,
+  onToken: (token: string) => void,
+  onDone: () => void,
+  onError: (error: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const token = localStorage.getItem("token");
+  const apiBase = getApiBase();
+  const url = `${apiBase}/knowledge/chat/stream`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        question,
+        session_id: sessionId || "",
+      }),
+      signal,
+    });
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      onDone();
+      return;
+    }
+    onError(`网络请求失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    return;
+  }
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      detail = await response.text();
+    } catch {
+      detail = response.statusText;
+    }
+    onError(`请求失败 (${response.status}): ${detail}`);
+    return;
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    onError("无法读取响应流");
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6)) as {
+              type: string;
+              content?: string;
+            };
+            if (data.type === "token" && data.content !== undefined) {
+              onToken(data.content);
+            } else if (data.type === "done") {
+              onDone();
+              return;
+            } else if (data.type === "error") {
+              onError(data.content || "未知错误");
+              return;
+            }
+          } catch {
+            // 忽略解析错误的行
+          }
+        }
+      }
+    }
+    // 如果循环正常结束（流关闭）但没有收到 done 事件
+    onDone();
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      onDone();
+      return;
+    }
+    onError(`流读取错误: ${err instanceof Error ? err.message : "未知错误"}`);
+  }
+}
+
+// 获取会话列表
+export async function fetchSessions(): Promise<ChatSession[]> {
+  return request<ChatSession[]>("/knowledge/sessions");
+}
+
+// 删除会话
+export async function deleteChatSession(sessionId: number): Promise<{ message: string }> {
+  return request<{ message: string }>(`/knowledge/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
 }
 
 // 知识库统计
 export async function getKnowledgeStats(): Promise<{ documents: number; embeddings: number; messages: number }> {
   return request("/knowledge/stats");
+}
+
+// 知识库会话列表
+export async function fetchKnowledgeSessions(): Promise<Array<{ id: string; question: string; created_at: string }>> {
+  return request("/knowledge/sessions");
+}
+
+// 档案标签列表
+export interface ArchiveTag {
+  id: number;
+  name: string;
+  document_count: number;
+}
+
+export async function fetchArchiveTags(): Promise<ArchiveTag[]> {
+  return request("/archives/tags");
 }
 
 // 全局搜索
@@ -2736,6 +2868,20 @@ export interface ChatResponse {
   answer: string;
   sources: SearchResult[];
   session_id: string;
+}
+
+export interface ChatSession {
+  id: number;
+  user_id: number;
+  title: string;
+  session_id: string;
+  is_pinned: boolean;
+  pinned_at: string | null;
+  scope_config: unknown;
+  context_config: unknown;
+  summary: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ModelConfig {
@@ -3115,4 +3261,49 @@ export async function deleteStorageRuleEnhanced(id: number): Promise<void> {
   await request(`/admin/storage/rules/${id}`, {
     method: "DELETE",
   }, false);
+}
+
+// ============ 档案文件夹树 API ============
+
+export interface FolderNode {
+  path: string;
+  name: string;
+  document_count: number;
+  total_count: number;
+  children?: FolderNode[];
+}
+
+export interface FolderTreeResult {
+  root_document_count: number;
+  total_document_count: number;
+  folders: FolderNode[];
+}
+
+export async function fetchArchivesFolders(categoryCode: string): Promise<FolderTreeResult> {
+  return request(`/archives/folders?category_code=${encodeURIComponent(categoryCode)}`);
+}
+
+// ============ 档案标签 API ============
+
+export interface TagWithCount {
+  id: number;
+  name: string;
+  color: string;
+  document_count: number;
+}
+
+export async function fetchArchivesTags(): Promise<TagWithCount[]> {
+  return request("/archives/tags");
+}
+
+export async function fetchDocumentTags(docId: number): Promise<TagWithCount[]> {
+  return request(`/archives/documents/${docId}/tags`);
+}
+
+export async function setDocumentTags(docId: number, tagNames: string[]): Promise<{ document_id: number; tag_names: string[] }> {
+  return request(`/archives/documents/${docId}/tags`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tag_names: tagNames }),
+  });
 }

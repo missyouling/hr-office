@@ -5,7 +5,7 @@ import {
   Search, Download, Upload, Printer, FileText,
   X, File, Image, Video, FileUp, Share2, Link2,
   Copy, Check, Loader2, Trash, RefreshCw, Save, ChevronLeft, ChevronRight,
-  Settings
+  Settings, Tag, Plus
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ import {
   fetchStorageLocations,
   fetchFieldsBySubCategory,
   fetchColumnConfig, saveColumnConfig,
+  setDocumentTags,
   type Document, type DocumentCategory, type DocumentSubCategory, type StorageLocation,
   type OCRExtractResult
 } from "@/lib/api";
@@ -36,6 +37,8 @@ import { Progress } from "@/components/ui/progress";
 
 import { ArchiveFormRenderer } from "./archive-form-renderer";
 import { ArchiveTableRenderer } from "./archive-table-renderer";
+import { FolderTree } from "./folder-tree";
+import { TagFilter } from "./tag-filter";
 import { generateFormSchema, generateTableSchema, type FormFieldSchema, type TableColumnSchema } from "@/lib/archive-schema";
 
 const RETENTION_OPTIONS = [
@@ -89,6 +92,15 @@ export function ArchivesManagement() {
   // 多选相关
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
+
+  // 文件夹树 & 标签筛选
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
+
+  // 批量标签操作
+  const [isBulkTagOpen, setIsBulkTagOpen] = useState(false);
+  const [bulkTagInput, setBulkTagInput] = useState("");
+  const [bulkTagProcessing, setBulkTagProcessing] = useState(false);
 
   // 弹窗状态
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -234,7 +246,7 @@ export function ArchivesManagement() {
   // 加载文档列表
   useEffect(() => {
     loadDocuments();
-  }, [page, activeTab, filterRetentionPeriod, filterStatus, sortField, sortDirection]);
+  }, [page, activeTab, filterRetentionPeriod, filterStatus, sortField, sortDirection, selectedFolderPath, selectedTagNames]);
 
   // 全选逻辑
   useEffect(() => {
@@ -279,7 +291,7 @@ export function ArchivesManagement() {
   const loadDocuments = async () => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = { page, page_size: pageSize };
+      const params: Record<string, string | number | string[]> = { page, page_size: pageSize };
       if (activeTab !== "all") params.category_code = activeTab;
       if (searchKeyword) params.keyword = searchKeyword;
       if (filterRetentionPeriod) params.retention_period = filterRetentionPeriod;
@@ -288,6 +300,8 @@ export function ArchivesManagement() {
         params.sort_field = sortField;
         params.sort_direction = sortDirection;
       }
+      if (selectedFolderPath !== null) params.folder_path = selectedFolderPath;
+      if (selectedTagNames.length > 0) params.tag_names = selectedTagNames;
 
       const response = await fetchDocuments(params as Parameters<typeof fetchDocuments>[0]);
       setFilteredDocuments(response.items);
@@ -896,6 +910,65 @@ export function ArchivesManagement() {
     }
   };
 
+  // 批量标签操作
+  const handleBulkTagApply = async () => {
+    const tagName = bulkTagInput.trim();
+    if (!tagName) {
+      toast.error("请输入标签名称");
+      return;
+    }
+    if (selectedIds.size === 0) {
+      toast.error("请先选择文档");
+      return;
+    }
+
+    setBulkTagProcessing(true);
+    const ids = Array.from(selectedIds);
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      for (const docId of ids) {
+        try {
+          await setDocumentTags(docId, [tagName]);
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+
+      if (failCount === 0) {
+        toast.success(`已为 ${successCount} 个文档设置标签「${tagName}」`);
+      } else {
+        toast.warning(`完成：${successCount} 个成功，${failCount} 个失败`);
+      }
+      setIsBulkTagOpen(false);
+      setBulkTagInput("");
+      loadDocuments();
+    } catch (error) {
+      console.error("批量标签操作失败:", error);
+      toast.error("批量操作失败");
+    } finally {
+      setBulkTagProcessing(false);
+    }
+  };
+
+  // 文件夹选择
+  const handleFolderSelect = (path: string | null) => {
+    setSelectedFolderPath(path);
+    setPage(1);
+    setSelectedIds(new Set());
+    setSelectAll(false);
+  };
+
+  // 标签筛选
+  const handleTagFilter = (tagNames: string[]) => {
+    setSelectedTagNames(tagNames);
+    setPage(1);
+    setSelectedIds(new Set());
+    setSelectAll(false);
+  };
+
   // 生成分享链接
   const handleShare = async () => {
     if (selectedIds.size === 0) {
@@ -988,7 +1061,17 @@ export function ArchivesManagement() {
   };
 
   return (
-    <Card>
+    <div className="flex h-[calc(100vh-12rem)] gap-0">
+      {/* 左侧栏：文件夹树 */}
+      <aside className="w-60 shrink-0 overflow-hidden rounded-l-xl border border-r-0 bg-card">
+        <FolderTree
+          categoryCode={activeTab === "all" ? (categoryTabs[0]?.code || "WS") : activeTab}
+          onSelect={handleFolderSelect}
+        />
+      </aside>
+
+      {/* 右侧主内容区 */}
+      <Card className="flex flex-1 flex-col overflow-hidden rounded-l-none border-l-0">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -1021,6 +1104,70 @@ export function ArchivesManagement() {
         </div>
       </CardHeader>
       <CardContent>
+        {/* 标签筛选栏 */}
+        <div className="mb-4 rounded-lg border bg-card/50 p-3">
+          <TagFilter selectedTags={selectedTagNames} onFilter={handleTagFilter} />
+        </div>
+
+        {/* 批量操作栏 */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5">
+            <span className="text-sm font-medium text-primary">
+              已选择 {selectedIds.size} 个文档
+            </span>
+            <span className="text-xs text-muted-foreground">—</span>
+            <Dialog open={isBulkTagOpen} onOpenChange={setIsBulkTagOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8">
+                  <Tag className="h-3.5 w-3.5 mr-1.5" />
+                  批量标签
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>批量设置标签</DialogTitle>
+                  <DialogDescription>
+                    为选中的 {selectedIds.size} 个文档统一设置标签。已输入标签名即可自动创建或关联。
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div>
+                    <Label htmlFor="bulk-tag-input">标签名称</Label>
+                    <Input
+                      id="bulk-tag-input"
+                      value={bulkTagInput}
+                      onChange={(e) => setBulkTagInput(e.target.value)}
+                      placeholder="输入标签名（如：合同、重要）"
+                      onKeyDown={(e) => e.key === "Enter" && handleBulkTagApply()}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsBulkTagOpen(false)}>
+                    取消
+                  </Button>
+                  <Button
+                    onClick={handleBulkTagApply}
+                    disabled={bulkTagProcessing || !bulkTagInput.trim()}
+                  >
+                    {bulkTagProcessing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        处理中...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        应用标签
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        )}
+
         {/* 搜索和筛选 */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div className="flex flex-1 flex-wrap items-center gap-4">
@@ -2131,5 +2278,9 @@ export function ArchivesManagement() {
       </Dialog>
     </CardContent>
     </Card>
+
+      {/* 批量标签对话框已内嵌在上方批量操作栏中 */}
+
+    </div>
   );
 }

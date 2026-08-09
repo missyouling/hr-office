@@ -103,6 +103,7 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("keyword")
 	retentionPeriod := r.URL.Query().Get("retention_period")
 	status := r.URL.Query().Get("status")
+	folderPath := r.URL.Query().Get("folder_path")
 
 	// 排序参数
 	sortField := r.URL.Query().Get("sort_field")
@@ -128,6 +129,19 @@ func (h *Handler) listDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	if status != "" {
 		query = query.Where("status = ?", status)
+	}
+	if folderPath != "" {
+		query = query.Where("folder_path = ?", folderPath)
+	}
+
+	// 标签筛选（多标签为 OR 关系：包含任一标签的文档）
+	tagNames := r.URL.Query()["tag_names"]
+	if len(tagNames) > 0 {
+		subQuery := h.db.Model(&models.DocumentTagLink{}).
+			Select("document_id").
+			Joins("JOIN archive_tags ON archive_tags.id = document_tag_links.tag_id").
+			Where("archive_tags.name IN ?", tagNames)
+		query = query.Where("documents.id IN (?)", subQuery)
 	}
 
 	// 排序

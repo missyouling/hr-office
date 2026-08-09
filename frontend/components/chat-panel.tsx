@@ -1,14 +1,43 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { MessageSquare, Send, Bot, User, FileText, X, Minimize2 } from "lucide-react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import {
+  MessageSquare,
+  Send,
+  Bot,
+  User,
+  X,
+  Plus,
+  Trash2,
+  Square,
+  FileText,
+  Search,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Clock,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { chatWithKnowledge } from "@/lib/api";
-import type { ChatResponse, SearchResult } from "@/lib/api";
+import { MarkdownContent } from "@/lib/markdown";
+import {
+  chatKnowledgeStream,
+  fetchSessions,
+  deleteChatSession,
+} from "@/lib/api";
+import type { SearchResult, ChatSession } from "@/lib/api";
+
+// ─── 类型定义 ────────────────────────────────────────────
 
 interface Message {
   id: string;
@@ -18,13 +47,62 @@ interface Message {
   timestamp: Date;
 }
 
+// ─── 工具函数 ────────────────────────────────────────────
+
+function getTimeLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} 小时前`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay} 天前`;
+  return d.toLocaleDateString("zh-CN");
+}
+
+// ─── 主组件 ──────────────────────────────────────────────
+
 export function ChatPanel() {
+  const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [showSessions, setShowSessions] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // ─── 加载会话列表 ──────────────────────────────────────
+
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const list = await fetchSessions();
+      setSessions(list);
+    } catch (error) {
+      console.error("加载会话列表失败:", error);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  // 打开面板时加载会话列表
+  useEffect(() => {
+    if (isOpen) {
+      loadSessions();
+      // 自动聚焦输入框
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isOpen, loadSessions]);
+
+  // ─── 自动滚动到底部 ────────────────────────────────────
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -32,13 +110,59 @@ export function ChatPanel() {
     }
   }, [messages]);
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+  // ─── 新建会话 ──────────────────────────────────────────
 
+  const handleNewSession = useCallback(() => {
+    setMessages([]);
+    setSessionId("");
+    setActiveSessionId(null);
+    setInputValue("");
+    inputRef.current?.focus();
+  }, []);
+
+  // ─── 切换会话 ──────────────────────────────────────────
+
+  const handleSelectSession = useCallback(
+    (session: ChatSession) => {
+      setActiveSessionId(session.id);
+      setSessionId(session.session_id);
+      setMessages([]);
+      setInputValue("");
+      inputRef.current?.focus();
+    },
+    [],
+  );
+
+  // ─── 删除会话 ──────────────────────────────────────────
+
+  const handleDeleteSession = useCallback(
+    async (e: React.MouseEvent, sess: ChatSession) => {
+      e.stopPropagation();
+      try {
+        await deleteChatSession(sess.id);
+        toast.success("会话已删除");
+        if (activeSessionId === sess.id) {
+          handleNewSession();
+        }
+        loadSessions();
+      } catch (error) {
+        console.error("删除会话失败:", error);
+        toast.error("删除会话失败");
+      }
+    },
+    [activeSessionId, handleNewSession, loadSessions],
+  );
+
+  // ─── 发送消息 ──────────────────────────────────────────
+
+  const handleSendMessage = useCallback(async () => {
+    if (!inputValue.trim() || isLoading) return;
+
+    const question = inputValue.trim();
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: "user",
-      content: inputValue,
+      content: question,
       timestamp: new Date(),
     };
 
@@ -46,44 +170,109 @@ export function ChatPanel() {
     setInputValue("");
     setIsLoading(true);
 
-    try {
-      const response: ChatResponse = await chatWithKnowledge(inputValue, sessionId);
+    // 创建 AbortController 用于停止生成
+    const abortController = new AbortController();
+    abortRef.current = abortController;
 
-      if (response.session_id && !sessionId) {
-        setSessionId(response.session_id);
-      }
+    // 预创建 AI 消息占位，SSE 流式填充内容
+    const assistantId = `msg-${Date.now()}-ai`;
+    const assistantMessage: Message = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
 
-      const assistantMessage: Message = {
-        id: `msg-${Date.now()}-ai`,
-        role: "assistant",
-        content: response.answer,
-        sources: response.sources,
-        timestamp: new Date(),
-      };
+    await chatKnowledgeStream(
+      question,
+      sessionId,
+      // onToken — 逐词追加到 AI 消息的 content 中
+      (token) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: m.content + token }
+              : m,
+          ),
+        );
+      },
+      // onDone — 流式完成
+      () => {
+        setSessionsLoading(false);
+        setIsLoading(false);
+        abortRef.current = null;
+        // 流式结束后刷新会话列表以获取新会话
+        loadSessions();
+        // 如果还没有 session_id，从列表中推断最新的
+        if (!sessionId) {
+          fetchSessions().then((list) => {
+            if (list.length > 0) {
+              const latest = list[0];
+              setSessionId(latest.session_id);
+              setActiveSessionId(latest.id);
+            }
+          }).catch(() => {});
+        }
+      },
+      // onError — 错误处理
+      (error) => {
+        console.error("流式聊天出错:", error);
+        toast.error(error);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: m.content || `错误: ${error}` }
+              : m,
+          ),
+        );
+        setIsLoading(false);
+        abortRef.current = null;
+      },
+      abortController.signal,
+    );
+  }, [inputValue, isLoading, sessionId, loadSessions]);
 
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error("Chat error:", error);
-      toast.error("Failed to get response from AI");
-    } finally {
+  // ─── 停止生成 ──────────────────────────────────────────
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
+  // ─── 键盘事件 ──────────────────────────────────────────
 
-  if (!isExpanded) {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSendMessage();
+      }
+    },
+    [handleSendMessage],
+  );
+
+  // ─── 会话列表组件（内嵌） ──────────────────────────────
+
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    });
+  }, [sessions]);
+
+  // ─── 浮动触发按钮 ──────────────────────────────────────
+
+  if (!isOpen) {
     return (
       <div className="fixed bottom-6 right-6 z-40">
         <Button
-          onClick={() => setIsExpanded(true)}
+          onClick={() => setIsOpen(true)}
           size="lg"
-          className="rounded-full w-14 h-14 shadow-lg"
+          className="rounded-full w-14 h-14 shadow-lg bg-blue-600 hover:bg-blue-700 transition-all hover:scale-105 active:scale-95"
         >
           <MessageSquare className="w-6 h-6" />
         </Button>
@@ -92,150 +281,384 @@ export function ChatPanel() {
   }
 
   return (
-    <Card className="fixed bottom-6 right-6 w-96 h-[500px] flex flex-col shadow-xl z-40 bg-white">
-      <div className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 text-blue-600" />
-          <h3 className="font-semibold">AI 问答</h3>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsExpanded(false)}
-            className="h-8 w-8 p-0"
-          >
-            <Minimize2 className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setMessages([]);
-              setSessionId("");
-            }}
-            className="h-8 w-8 p-0"
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
+    <>
+      {/* 背景遮罩 */}
+      <div
+        className="fixed inset-0 bg-black/20 z-40 transition-opacity"
+        onClick={() => setIsOpen(false)}
+      />
 
-      <ScrollArea className="flex-1 p-4 overflow-hidden">
-        <div className="space-y-4 pr-4">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-8">
-              <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
-              <p className="text-sm">开始提问，获取知识库中的答案</p>
+      {/* 侧滑面板 */}
+      <Card className="fixed inset-y-0 right-0 z-50 w-[880px] max-w-[95vw] flex flex-col shadow-2xl bg-white rounded-l-2xl border-l border-gray-200 animate-in slide-in-from-right duration-300">
+        {/* ─── 顶栏 ──────────────────────────────────────── */}
+        <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-blue-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-sm text-gray-900">AI 知识库问答</h2>
+              <p className="text-xs text-gray-500">基于档案与规章制度检索回答</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSessions(!showSessions)}
+              className="h-8 px-2 text-gray-500 hover:text-gray-700"
+              title={showSessions ? "隐藏会话列表" : "显示会话列表"}
+            >
+              {showSessions ? (
+                <PanelLeftClose className="w-4 h-4" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsOpen(false)}
+              className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* ─── 主体区域 ──────────────────────────────────── */}
+        <div className="flex flex-1 min-h-0">
+          {/* ── 会话列表侧栏 ──────────────────────────────── */}
+          {showSessions && (
+            <div className="w-60 border-r flex flex-col bg-gray-50/50 shrink-0">
+              {/* 顶部操作栏 */}
+              <div className="p-3 border-b flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                  <Clock className="w-3 h-3" />
+                  历史会话
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleNewSession}
+                  className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                  title="新建会话"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* 会话列表 */}
+              <ScrollArea className="flex-1">
+                <div className="p-2 space-y-0.5">
+                  {/* 当前新会话入口 */}
+                  {!activeSessionId && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 cursor-default">
+                      <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-3 h-3 text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium text-blue-700 truncate">
+                          新对话
+                        </p>
+                        <p className="text-[10px] text-blue-500">当前</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {sessionsLoading && sortedSessions.length === 0 && (
+                    <div className="px-3 py-6 text-center">
+                      <div className="flex justify-center gap-1">
+                        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" />
+                        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce delay-100" />
+                        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce delay-200" />
+                      </div>
+                    </div>
+                  )}
+
+                  {!sessionsLoading && sortedSessions.length === 0 && (
+                    <div className="px-3 py-8 text-center">
+                      <Search className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                      <p className="text-xs text-gray-400">暂无会话记录</p>
+                      <p className="text-[10px] text-gray-300 mt-1">
+                        开始提问即可创建
+                      </p>
+                    </div>
+                  )}
+
+                  {sortedSessions.map((sess) => (
+                    <div
+                      key={sess.id}
+                      onClick={() => handleSelectSession(sess)}
+                      className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all
+                        ${
+                          activeSessionId === sess.id
+                            ? "bg-blue-50 border border-blue-200"
+                            : "hover:bg-gray-100 border border-transparent"
+                        }`}
+                    >
+                      <div
+                        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0
+                          ${
+                            activeSessionId === sess.id
+                              ? "bg-blue-600 text-white"
+                              : "bg-gray-200 text-gray-500"
+                          }`}
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`text-xs font-medium truncate
+                            ${activeSessionId === sess.id ? "text-blue-700" : "text-gray-700"}`}
+                        >
+                          {sess.title || "未命名会话"}
+                        </p>
+                        <p className="text-[10px] text-gray-400">
+                          {getTimeLabel(sess.updated_at)}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => handleDeleteSession(e, sess)}
+                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50 shrink-0 transition-all"
+                        title="删除会话"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+
+              {/* 底部快捷操作 */}
+              <div className="p-3 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNewSession}
+                  className="w-full text-xs h-8 border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  新建对话
+                </Button>
+              </div>
             </div>
           )}
 
-           {messages.map((message) => (
-             <div
-               key={message.id}
-               className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-             >
-               <div
-                 className={`flex gap-2 max-w-[70%] ${
-                   message.role === "user" ? "flex-row-reverse" : "flex-row"
-                 }`}
-               >
-                <div
-                  className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                    message.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-700"
-                  }`}
-                >
-                  {message.role === "user" ? (
-                    <User className="w-4 h-4" />
-                  ) : (
-                    <Bot className="w-4 h-4" />
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <div
-                    className={`px-3 py-2 rounded-lg ${
-                      message.role === "user"
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 text-gray-900"
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap break-words">
-                      {message.content}
+          {/* ── 聊天主体区域 ──────────────────────────────── */}
+          <div className="flex-1 flex flex-col min-w-0">
+            <ScrollArea className="flex-1 px-5">
+              <div className="max-w-3xl mx-auto py-5 space-y-5">
+                {/* 空状态 */}
+                {messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center mb-4 shadow-sm">
+                      <Sparkles className="w-8 h-8 text-blue-600" />
+                    </div>
+                    <h3 className="text-base font-semibold text-gray-800 mb-1">
+                      知识库 AI 问答
+                    </h3>
+                    <p className="text-sm text-gray-500 max-w-xs">
+                      基于档案文档和规章制度，为您提供精准回答
                     </p>
-                  </div>
-
-                  {message.sources && message.sources.length > 0 && (
-                    <div className="space-y-1">
-                      {message.sources.map((source, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-blue-50 border border-blue-200 rounded p-2 text-xs cursor-pointer hover:bg-blue-100 transition"
+                    <div className="flex flex-wrap gap-2 mt-5 justify-center">
+                      {[
+                        "本月社保缴费标准是什么？",
+                        "员工入职需要哪些档案材料？",
+                        "公积金提取流程是怎样的？",
+                      ].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => {
+                            setInputValue(q);
+                            inputRef.current?.focus();
+                          }}
+                          className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
                         >
-                          <div className="flex items-start gap-2">
-                            <FileText className="w-3 h-3 mt-0.5 flex-shrink-0 text-blue-600" />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-blue-900 truncate">
-                                {source.title}
-                              </p>
-                              <p className="text-blue-700 line-clamp-2">
-                                {source.snippet}
-                              </p>
-                              <p className="text-blue-600 mt-1">
-                                相关度: {(source.score * 100).toFixed(0)}%
-                              </p>
-                            </div>
-                          </div>
-                        </div>
+                          {q}
+                        </button>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* 消息列表 */}
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex gap-3 ${
+                      message.role === "user" ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                    {/* AI 头像 */}
+                    {message.role === "assistant" && (
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mt-0.5 shadow-sm">
+                        <Bot className="w-4 h-4 text-white" />
+                      </div>
+                    )}
+
+                    <div
+                      className={`max-w-[80%] ${
+                        message.role === "user"
+                          ? "order-first"
+                          : ""
+                      }`}
+                    >
+                      {/* 用户消息气泡 */}
+                      {message.role === "user" ? (
+                        <div className="px-4 py-2.5 rounded-2xl rounded-br-md bg-blue-600 text-white shadow-sm">
+                          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
+                            {message.content}
+                          </p>
+                        </div>
+                      ) : (
+                        /* AI 消息 */
+                        <div className="space-y-2">
+                          <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-white border border-gray-100 shadow-sm">
+                            {message.content ? (
+                              <MarkdownContent content={message.content} />
+                            ) : (
+                              <div className="flex gap-1.5 py-1">
+                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" />
+                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-100" />
+                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-200" />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 引用溯源 */}
+                          {message.sources &&
+                            message.sources.length > 0 && (
+                              <SourcesCard sources={message.sources} />
+                            )}
+                        </div>
+                      )}
+
+                      {/* 时间戳 */}
+                      <p className="text-[10px] text-gray-400 mt-1 px-1">
+                        {message.timestamp.toLocaleTimeString("zh-CN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+
+                    {/* 用户头像 */}
+                    {message.role === "user" && (
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center mt-0.5">
+                        <User className="w-4 h-4 text-gray-600" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* 滚动锚点 */}
+                <div ref={scrollRef} />
+              </div>
+            </ScrollArea>
+
+            {/* ─── 底部输入栏 ─────────────────────────────── */}
+            <div className="border-t p-4 bg-white">
+              <div className="max-w-3xl mx-auto">
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1 relative">
+                    <Input
+                      ref={inputRef}
+                      placeholder="输入问题，基于知识库检索回答..."
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      disabled={isLoading}
+                      className="flex-1 h-11 pl-4 pr-12 rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-all text-sm"
+                    />
+                  </div>
+
+                  {isLoading ? (
+                    <Button
+                      onClick={handleStopGeneration}
+                      variant="outline"
+                      size="sm"
+                      className="h-11 px-4 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 transition-all"
+                    >
+                      <Square className="w-4 h-4 mr-1.5 fill-current" />
+                      停止
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleSendMessage}
+                      disabled={!inputValue.trim()}
+                      size="sm"
+                      className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 transition-all disabled:bg-gray-300"
+                    >
+                      <Send className="w-4 h-4" />
+                    </Button>
                   )}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-2 text-center">
+                  AI 回答基于知识库内容生成，请以原始文档为准
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+    </>
+  );
+}
+
+// ─── 引用溯源卡片子组件 ──────────────────────────────────
+
+function SourcesCard({ sources }: { sources: SearchResult[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="border border-blue-100 rounded-xl bg-blue-50/50 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-blue-50 transition-colors"
+      >
+        <div className="flex items-center gap-1.5">
+          <FileText className="w-3.5 h-3.5 text-blue-600" />
+          <span className="text-xs font-medium text-blue-700">
+            引用 {sources.length} 篇文档
+          </span>
+        </div>
+        {expanded ? (
+          <ChevronRight className="w-3.5 h-3.5 text-blue-500 rotate-90 transition-transform" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5 text-blue-500 transition-transform" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2 animate-in slide-in-from-top-1 duration-200">
+          {sources.map((source, idx) => (
+            <div
+              key={idx}
+              className="bg-white border border-blue-100 rounded-lg p-2.5"
+            >
+              <div className="flex items-start gap-2">
+                <FileText className="w-3 h-3 mt-0.5 flex-shrink-0 text-blue-500" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-800 truncate">
+                    {source.title}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 line-clamp-3 leading-relaxed">
+                    {source.snippet}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+                      相关度 {(source.score * 100).toFixed(0)}%
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
-
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="flex gap-2">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-gray-200">
-                  <Bot className="w-4 h-4 text-gray-700" />
-                </div>
-                <div className="bg-gray-100 px-3 py-2 rounded-lg">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div ref={scrollRef} />
         </div>
-      </ScrollArea>
-
-      <div className="border-t p-4 flex gap-2">
-        <Input
-          placeholder="输入问题..."
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={isLoading}
-          className="flex-1"
-        />
-        <Button
-          onClick={handleSendMessage}
-          disabled={isLoading || !inputValue.trim()}
-          size="sm"
-          className="px-3"
-        >
-          <Send className="w-4 h-4" />
-        </Button>
-      </div>
-    </Card>
+      )}
+    </div>
   );
 }
