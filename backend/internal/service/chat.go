@@ -197,6 +197,118 @@ func (s *ChatService) GetOrCreateSession(userID uint, sessionID string, question
 	return &session, nil
 }
 
+// SummarizeHistory 对历史消息生成摘要
+// 使用非流式 LLM 调用，返回简洁摘要
+func (s *ChatService) SummarizeHistory(userID uint, history []models.ChatMessage) (string, error) {
+	if len(history) == 0 {
+		return "", nil
+	}
+
+	// 构建摘要 prompt
+	var historyText strings.Builder
+	for _, msg := range history {
+		historyText.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+	}
+
+	systemPrompt := "你是一个对话摘要助手。请将以下对话历史压缩为一段简洁的摘要（不超过200字），保留关键信息和上下文。"
+	userPrompt := fmt.Sprintf("对话历史：\n%s\n请生成摘要：", historyText.String())
+
+	// 使用 callLLM 生成摘要
+	summary, err := s.callLLM(userID, systemPrompt, userPrompt)
+	if err != nil {
+		log.Printf("[chat] 生成摘要失败: %v", err)
+		return "", err
+	}
+	return summary, nil
+}
+
+// CompressContext 对历史消息执行智能压缩
+// 策略: 保留最近 recentCount 条消息，更早的压缩为摘要
+// 返回: (摘要文本, 最近消息列表, error)
+func (s *ChatService) CompressContext(session *models.ChatSession, userID uint, recentCount int) (string, []models.ChatMessage, error) {
+	// 加载所有历史消息
+	var allHistory []models.ChatMessage
+	if err := s.db.Where("user_id = ? AND session_id = ?", userID, session.SessionID).
+		Order("created_at ASC").
+		Find(&allHistory).Error; err != nil {
+		return "", nil, err
+	}
+
+	if len(allHistory) <= recentCount {
+		// 消息不足，无需压缩
+		return session.Summary, allHistory, nil
+	}
+
+	// 分割：旧消息 → 摘要，新消息保留
+	splitIdx := len(allHistory) - recentCount
+	oldMessages := allHistory[:splitIdx]
+	recentMessages := allHistory[splitIdx:]
+
+	// 生成摘要（包含已有摘要）
+	summary, err := s.SummarizeHistory(userID, oldMessages)
+	if err != nil {
+		// 降级：直接截断
+		log.Printf("[chat] 摘要失败，降级为截断: %v", err)
+		return session.Summary, recentMessages, nil
+	}
+
+	// 保存摘要到会话
+	session.Summary = summary
+	s.db.Model(session).Update("summary", summary)
+
+	return summary, recentMessages, nil
+}
+
+// RewriteQuery 检测追问意图并改写查询
+// 检测代词（他/她/这个/那个/这些）和省略句
+// 如果检测到追问，使用 LLM 融合历史上下文改写 query
+// 返回: (改写后的 query, 是否为追问, error)
+func (s *ChatService) RewriteQuery(userID uint, sessionID string, question string) (string, bool, error) {
+	// 快速规则检测
+	trimmed := strings.TrimSpace(question)
+	hasPronoun := false
+	pronouns := []string{"他", "她", "它", "这个", "那个", "这些", "那些", "这里", "那里", "这样", "那样", "这么", "那么", "这方面", "那方面"}
+	for _, p := range pronouns {
+		if strings.Contains(trimmed, p) {
+			hasPronoun = true
+			break
+		}
+	}
+
+	// 短句也可能是追问（如"为什么"、"具体呢"）
+	isShort := len([]rune(trimmed)) <= 6
+
+	if !hasPronoun && !isShort {
+		return question, false, nil
+	}
+
+	// 获取最后一条用户消息作为上下文
+	var lastMsg models.ChatMessage
+	if err := s.db.Where("user_id = ? AND session_id = ? AND role = ?", userID, sessionID, "user").
+		Order("created_at DESC").First(&lastMsg).Error; err != nil {
+		// 没有历史，直接返回原问题
+		return question, false, nil
+	}
+
+	// 使用 LLM 改写 query
+	systemPrompt := "你是一个查询改写助手。根据对话上下文，将用户的追问改写为完整、独立的问题。只返回改写后的问题，不要加任何解释或额外文字。"
+	userPrompt := fmt.Sprintf("上一条问题: %s\n当前追问: %s\n请改写为完整问题:", lastMsg.Content, trimmed)
+
+	rewritten, err := s.callLLM(userID, systemPrompt, userPrompt)
+	if err != nil {
+		log.Printf("[chat] query rewrite failed: %v", err)
+		return question, false, nil
+	}
+
+	rewritten = strings.TrimSpace(rewritten)
+	if rewritten == "" || rewritten == question {
+		return question, false, nil
+	}
+
+	log.Printf("[chat] query rewritten: %q -> %q", question, rewritten)
+	return rewritten, true, nil
+}
+
 // StreamChat 流式问答（SSE）
 // 1. 获取或创建会话
 // 2. 加载上下文配置，读取历史消息
@@ -230,10 +342,10 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		return
 	}
 
-	// 加载上下文配置，默认滑动窗口保留最近 10 条
+	// 加载上下文配置，默认智能摘要保留最近 10 条
 	ctxConfig := models.ContextConfig{
 		MaxTokens:           4000,
-		CompressionStrategy: "sliding_window",
+		CompressionStrategy: "smart_summarize",
 		RecentMessageCount:  10,
 	}
 	if len(session.ContextConfigJSON) > 0 {
@@ -242,9 +354,22 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		}
 	}
 
-	// 加载历史消息（滑动窗口策略）
+	// 追问意图识别：检测代词/省略句，融合历史上下文改写 query
+	rewritten, isFollowUp, err := s.RewriteQuery(userID, session.SessionID, question)
+	if err == nil && isFollowUp {
+		question = rewritten
+	}
+
+	// 加载历史消息：智能摘要策略优先，否则回退到滑动窗口
 	var history []models.ChatMessage
-	if ctxConfig.CompressionStrategy == "sliding_window" && ctxConfig.RecentMessageCount > 0 {
+	var summary string
+	if ctxConfig.CompressionStrategy == "smart_summarize" && ctxConfig.RecentMessageCount > 0 {
+		summary, history, err = s.CompressContext(session, userID, ctxConfig.RecentMessageCount)
+		if err != nil {
+			log.Printf("[chat] 智能压缩失败: %v", err)
+			summary, history = session.Summary, []models.ChatMessage{}
+		}
+	} else if ctxConfig.CompressionStrategy == "sliding_window" && ctxConfig.RecentMessageCount > 0 {
 		if err := s.db.Where("user_id = ? AND session_id = ?", userID, session.SessionID).
 			Order("created_at DESC").
 			Limit(ctxConfig.RecentMessageCount).
@@ -268,6 +393,11 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 
 	// 在 systemPrompt 中加入知识库范围说明
 	systemPrompt = s.enrichSystemPromptWithScope(systemPrompt, session)
+
+	// 如果有摘要，在 systemPrompt 中追加
+	if summary != "" {
+		systemPrompt = fmt.Sprintf("%s\n\n对话历史摘要：%s", systemPrompt, summary)
+	}
 
 	// 组装 LLM messages：system + 历史消息 + 当前问题
 	messages := []map[string]string{

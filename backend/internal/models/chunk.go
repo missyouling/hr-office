@@ -140,6 +140,9 @@ type ChatSession struct {
 	// {"max_tokens": 4000, "compression": "sliding_window", "recent_message_count": 10}
 	ContextConfigJSON datatypes.JSON `json:"context_config" gorm:"type:jsonb"`
 
+	// 对话历史摘要，用于上下文压缩
+	Summary string `json:"summary" gorm:"type:text"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
