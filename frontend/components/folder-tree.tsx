@@ -117,7 +117,8 @@ export function FolderTree({ categoryCode, onSelect }: FolderTreeProps) {
   useEffect(() => {
     setSelectedPath(null);
     onSelect(null);
-  }, [categoryCode, onSelect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryCode]);
 
   const handleSelect = (path: string | null) => {
     setSelectedPath(path);
