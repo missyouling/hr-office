@@ -318,9 +318,13 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Delete("/meter-readings/{readingID}", h.deleteDormMeterReading)
 
 		dr.Get("/bills", h.listDormBills)
-		dr.Post("/bills", h.createDormBill)
-		dr.Put("/bills/{billID}", h.updateDormBillStatus)
+		r.Post("/bills", h.createDormBill)
+		r.Put("/bills/{billID}", h.updateDormBillStatus)
 	})
+
+	// 办公用品与食堂管理模块（P6 合并：办公劳保 + 食堂）
+	NewOfficeSupplyHandler(h.db).RegisterOfficeSupplyRoutes(r)
+	RegisterCanteenRoutes(r, h.db)
 
 	// 档案管理
 	r.Route("/archives", func(ar chi.Router) {

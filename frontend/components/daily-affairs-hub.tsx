@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Truck, Utensils, Receipt, GraduationCap, Shield, Briefcase, ArrowLeft } from "lucide-react";
+import { FileText, Truck, Utensils, Receipt, GraduationCap, Shield, Briefcase, ArrowLeft, PackageOpen } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArchivesManagement } from "./archives-management";
+import OfficeSuppliesManagement from "./office-supply/OfficeSuppliesManagement";
+import CanteenManagement from "./canteen/CanteenManagement";
 
 interface DailyAffairsHubProps {
   onNavigate?: (module: string) => void;
@@ -18,6 +20,13 @@ const MODULES = [
     description: "文书、科技、电子、专门档案管理",
     icon: FileText,
     color: "bg-blue-500",
+  },
+  {
+    id: "office-supplies",
+    name: "办公劳保",
+    description: "办公用品字典、采购单、请款与分析",
+    icon: PackageOpen,
+    color: "bg-teal-500",
   },
   {
     id: "fleet",
@@ -88,6 +97,16 @@ export function DailyAffairsHub({ onNavigate }: DailyAffairsHubProps) {
         <ArchivesManagement />
       </div>
     );
+  }
+
+  // 办公劳保模块（P6 合并）
+  if (selectedModule === "office-supplies") {
+    return <OfficeSuppliesManagement onBack={handleBack} />;
+  }
+
+  // 食堂管理模块（P6 合并）
+  if (selectedModule === "canteen") {
+    return <CanteenManagement onBack={handleBack} />;
   }
 
   return (
