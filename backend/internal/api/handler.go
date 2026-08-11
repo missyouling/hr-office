@@ -471,14 +471,26 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/announcements", h.registerAnnouncementRoutes)
 
 	r.Route("/feedback", func(fr chi.Router) {
+		// 任何登录用户均可提交反馈（无需额外权限中间件）
 		fr.Post("/", h.submitFeedback)
-		fr.Get("/", h.listFeedback)
-		fr.Put("/{id}/reply", h.replyFeedback)
-		fr.Get("/stats", h.feedbackStats)
+
+		// manager 及以上可查看反馈列表 + 统计
+		fr.Group(func(mgr chi.Router) {
+			mgr.Use(middleware.RequireManagerOrAbove(h.db))
+			mgr.Get("/", h.listFeedback)
+			mgr.Get("/stats", h.feedbackStats)
+		})
+
+		// 仅 admin 可回复反馈
+		fr.With(middleware.RequireAdmin(h.db)).Put("/{id}/reply", h.replyFeedback)
 	})
+
+	// 发票管理（P7.3）
+	h.registerInvoiceRoutes(r)
 
 	r.Route("/rbac", h.registerRolePermissionRoutes)
 	r.Route("/users", h.registerUserRoleRoutes)
+	r.Route("/departments", h.registerDepartmentRoutes)
 
 	// 系统配置 (管理员)
 	r.Route("/admin", func(ar chi.Router) {

@@ -94,20 +94,8 @@ func (r *StorageRouter) resolveFallback(ctx context.Context, req ResolveRequest)
 		return route, nil
 	}
 
-	// 3. 兜底：本地存储（无需数据库配置）
-	basePath := "/" + req.ModuleCode
-	if req.ResourceType != "" {
-		basePath += "/" + req.ResourceType
-	}
-	fullPath := buildFullPath(basePath, req.Filename)
-
-	return &ResolvedRoute{
-		StorageConfig: nil, // 表示使用本地默认存储
-		StorageType:   "local",
-		BasePath:      basePath,
-		FullPath:      fullPath,
-		StorageID:     0,
-	}, nil
+	// 3. 无可用的存储配置，返回错误而非静默兜底
+	return nil, err
 }
 
 // resolveModuleDefault 使用模块默认存储

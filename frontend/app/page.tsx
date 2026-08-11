@@ -26,6 +26,7 @@ import { ChatPanel } from "@/components/chat-panel";
 import { GlobalSearch } from "@/components/global-search";
 import { KnowledgeStats } from "@/components/knowledge-stats";
 import { FeedbackPanel } from "@/components/feedback-panel";
+import { DepartmentManagement } from "@/components/admin/department-management";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -134,6 +135,8 @@ export default function HomePage() {
         return <SystemSettings />;
       case "feedback":
         return <FeedbackPanel />;
+      case "departments":
+        return <DepartmentManagement />;
       default:
         return <InsuranceManagement />;
     }

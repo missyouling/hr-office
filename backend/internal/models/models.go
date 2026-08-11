@@ -42,7 +42,8 @@ type User struct {
 	FullName        string     `json:"full_name"`
 	CompanyID       string     `json:"company_id" gorm:"index"`
 	Department      string     `json:"department" gorm:"size:150"` // 所属部门（用于数据隔离）
-	Role            string     `json:"role" gorm:"default:user"`
+	DepartmentID    *uint      `json:"department_id" gorm:"index"` // 部门ID（关联Department表，用于部门级数据隔离）
+	Role            string     `json:"role" gorm:"default:viewer"` // admin / manager / editor / viewer（兼容旧值 super_admin→admin, user→viewer）
 	Active          bool       `json:"active" gorm:"default:true"`
 	EmailVerified   bool       `json:"email_verified" gorm:"default:false;index"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`

@@ -334,3 +334,186 @@ func (h *Handler) getUserRoles(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, roles)
 }
+
+// ========== 部门管理 CRUD（P7.1 新增）==========
+
+type departmentPayload struct {
+	Name     string `json:"name"`
+	ParentID *uint  `json:"parent_id"`
+	Code     string `json:"code"`
+}
+
+type departmentMemberPayload struct {
+	UserID uint   `json:"user_id"`
+	Role   string `json:"role"` // leader / member
+}
+
+func (h *Handler) registerDepartmentRoutes(r chi.Router) {
+	r.Get("/", h.listDepartments)
+	r.Post("/", h.createDepartment)
+	r.Put("/{id}", h.updateDepartment)
+	r.Delete("/{id}", h.deleteDepartment)
+	r.Post("/{id}/members", h.assignUserToDepartment)
+	r.Get("/{id}/members", h.listDepartmentMembers)
+}
+
+// listDepartments 获取部门列表（支持按 UserID 多租户过滤）
+func (h *Handler) listDepartments(w http.ResponseWriter, r *http.Request) {
+	query := h.db.Order("id ASC")
+	// 多租户：如果请求中包含 user_id 查询参数，按此过滤
+	if userIDStr := r.URL.Query().Get("user_id"); userIDStr != "" {
+		query = query.Where("user_id = ?", userIDStr)
+	}
+
+	var departments []models.Department
+	if err := query.Find(&departments).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list departments", err)
+		return
+	}
+	writeJSON(w, departments)
+}
+
+// createDepartment 创建部门
+func (h *Handler) createDepartment(w http.ResponseWriter, r *http.Request) {
+	var payload departmentPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+	if payload.Name == "" {
+		respondError(w, http.StatusBadRequest, "部门名称不能为空", nil)
+		return
+	}
+
+	dept := models.Department{
+		Name:     payload.Name,
+		ParentID: payload.ParentID,
+		Code:     payload.Code,
+	}
+
+	if err := h.db.Create(&dept).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create department", err)
+		return
+	}
+	writeJSON(w, dept)
+}
+
+// updateDepartment 更新部门信息
+func (h *Handler) updateDepartment(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid id", err)
+		return
+	}
+
+	var dept models.Department
+	if err := h.db.First(&dept, id).Error; err != nil {
+		respondError(w, http.StatusNotFound, "department not found", err)
+		return
+	}
+
+	var payload departmentPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+
+	updates := map[string]interface{}{
+		"name":      payload.Name,
+		"parent_id": payload.ParentID,
+		"code":      payload.Code,
+	}
+	if err := h.db.Model(&dept).Updates(updates).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to update department", err)
+		return
+	}
+
+	h.db.First(&dept, id)
+	writeJSON(w, dept)
+}
+
+// deleteDepartment 删除部门（清理关联成员）
+func (h *Handler) deleteDepartment(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid id", err)
+		return
+	}
+
+	h.db.Transaction(func(tx *gorm.DB) error {
+		tx.Where("department_id = ?", id).Delete(&models.DepartmentMember{})
+		tx.Delete(&models.Department{}, id)
+		return nil
+	})
+
+	writeJSON(w, map[string]string{"message": "deleted"})
+}
+
+// assignUserToDepartment 将用户分配到部门
+func (h *Handler) assignUserToDepartment(w http.ResponseWriter, r *http.Request) {
+	deptID, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid department id", err)
+		return
+	}
+
+	var payload departmentMemberPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid payload", err)
+		return
+	}
+
+	// 验证部门存在
+	var dept models.Department
+	if err := h.db.First(&dept, deptID).Error; err != nil {
+		respondError(w, http.StatusNotFound, "department not found", err)
+		return
+	}
+
+	// 验证用户存在
+	var user models.User
+	if err := h.db.First(&user, payload.UserID).Error; err != nil {
+		respondError(w, http.StatusNotFound, "user not found", err)
+		return
+	}
+
+	// 更新用户的 DepartmentID
+	if err := h.db.Model(&user).Update("department_id", deptID).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to assign user to department", err)
+		return
+	}
+
+	// 创建部门成员记录（upsert：先删后建）
+	member := models.DepartmentMember{
+		DepartmentID: uint(deptID),
+		UserID:       payload.UserID,
+		Role:         payload.Role,
+	}
+	h.db.Where("department_id = ? AND user_id = ?", deptID, payload.UserID).Delete(&models.DepartmentMember{})
+	if err := h.db.Create(&member).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create department member", err)
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"message":       "user assigned to department",
+		"department_id": deptID,
+		"user_id":       payload.UserID,
+	})
+}
+
+// listDepartmentMembers 获取部门成员列表
+func (h *Handler) listDepartmentMembers(w http.ResponseWriter, r *http.Request) {
+	deptID, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid department id", err)
+		return
+	}
+
+	var members []models.DepartmentMember
+	if err := h.db.Where("department_id = ?", deptID).Find(&members).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list department members", err)
+		return
+	}
+	writeJSON(w, members)
+}

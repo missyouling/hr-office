@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -10,13 +11,15 @@ import (
 )
 
 func seedRBAC(db *gorm.DB) error {
+	// 4 角色体系（P7.1）：admin / manager / editor / viewer
+	// 保留 super_admin 和 user 作为向后兼容（不再作为主角色新分配）
 	roles := []models.Role{
-		{Name: "user", Label: "普通用户", Description: "基本功能访问", IsSystem: true},
-		{Name: "admin", Label: "管理员", Description: "系统管理权限", IsSystem: true},
-		{Name: "super_admin", Label: "超级管理员", Description: "完整控制权限", IsSystem: true},
-		{Name: "manager", Label: "部门经理", Description: "查看和编辑员工、档案数据", IsSystem: true},
-		{Name: "editor", Label: "编辑者", Description: "查看和编辑业务数据", IsSystem: true},
-		{Name: "viewer", Label: "只读用户", Description: "仅查看数据", IsSystem: true},
+		{Name: models.RoleAdmin, Label: "管理员", Description: "系统管理权限", IsSystem: true},
+		{Name: "super_admin", Label: "超级管理员（兼容）", Description: "完整控制权限（映射为 admin）", IsSystem: true},
+		{Name: models.RoleManager, Label: "部门经理", Description: "本部门全模块查看、创建、编辑", IsSystem: true},
+		{Name: models.RoleEditor, Label: "编辑者", Description: "全模块查看、编辑（不可创建/删除）", IsSystem: true},
+		{Name: models.RoleViewer, Label: "只读用户", Description: "仅查看数据", IsSystem: true},
+		{Name: "user", Label: "普通用户（兼容）", Description: "基本功能访问（旧版角色）", IsSystem: true},
 	}
 
 	for _, role := range roles {
@@ -95,33 +98,41 @@ func seedRBAC(db *gorm.DB) error {
 		}
 	}
 
-	// manager: 查看/编辑员工和档案
+	// manager: 所有业务模块查看、创建、编辑（不可删除）
+	// 部门经理可管理本部门的完整数据生命周期
 	var managerRole models.Role
-	if err := db.Where("name = ?", "manager").First(&managerRole).Error; err == nil {
+	if err := db.Where("name = ?", models.RoleManager).First(&managerRole).Error; err == nil {
 		managerPerms := []string{
 			"employee-view", "employee-create", "employee-edit",
+			"insurance-view", "insurance-create", "insurance-edit",
+			"dormitory-view", "dormitory-create", "dormitory-edit",
 			"archives-view", "archives-create", "archives-edit",
+			"announcements-view", "announcements-create", "announcements-edit",
+			"settings-view",
+			"backups-view",
+			"users-view",
 		}
 		assignPermissionsToRole(db, managerRole.ID, managerPerms)
 	}
 
-	// editor: 仅查看和编辑（所有业务模块的 view + edit）
+	// editor: 所有业务模块查看和编辑（不可创建、不可删除）
 	var editorRole models.Role
-	if err := db.Where("name = ?", "editor").First(&editorRole).Error; err == nil {
+	if err := db.Where("name = ?", models.RoleEditor).First(&editorRole).Error; err == nil {
 		editorPerms := []string{
 			"employee-view", "employee-edit",
 			"insurance-view", "insurance-edit",
 			"dormitory-view", "dormitory-edit",
 			"archives-view", "archives-edit",
 			"announcements-view", "announcements-edit",
-			"settings-view", "settings-edit",
+			"settings-view",
+			"backups-view",
 		}
 		assignPermissionsToRole(db, editorRole.ID, editorPerms)
 	}
 
-	// viewer: 仅查看（所有业务模块的 view）
+	// viewer: 仅查看所有业务模块
 	var viewerRole models.Role
-	if err := db.Where("name = ?", "viewer").First(&viewerRole).Error; err == nil {
+	if err := db.Where("name = ?", models.RoleViewer).First(&viewerRole).Error; err == nil {
 		viewerPerms := []string{
 			"employee-view",
 			"insurance-view",
@@ -129,21 +140,9 @@ func seedRBAC(db *gorm.DB) error {
 			"archives-view",
 			"announcements-view",
 			"settings-view",
+			"backups-view",
 		}
 		assignPermissionsToRole(db, viewerRole.ID, viewerPerms)
-	}
-
-	// Assign limited permissions to user
-	var userRole models.Role
-	if err := db.Where("name = ?", "user").First(&userRole).Error; err == nil {
-		userPerms := []string{
-			"employee-view",
-			"insurance-view",
-			"dormitory-view",
-			"archives-view", "archives-create",
-			"announcements-view",
-		}
-		assignPermissionsToRole(db, userRole.ID, userPerms)
 	}
 
 	log.Println("RBAC data seeded successfully")
@@ -167,4 +166,50 @@ func assignPermissionsToRole(db *gorm.DB, roleID uint, perms []string) {
 			}
 		}
 	}
+}
+
+// seedDepartments 初始化默认部门数据（总经办 / 业务部）
+func seedDepartments(db *gorm.DB) error {
+	depts := []models.Department{
+		{Name: "总经办", Code: "HQ", ParentID: nil},
+		{Name: "业务部", Code: "BIZ", ParentID: nil},
+	}
+
+	var createdIDs []uint
+	for _, dept := range depts {
+		var existing models.Department
+		if err := db.Where("name = ?", dept.Name).First(&existing).Error; err == gorm.ErrRecordNotFound {
+			if err := db.Create(&dept).Error; err != nil {
+				log.Printf("failed to create department %s: %v", dept.Name, err)
+				continue
+			}
+			createdIDs = append(createdIDs, dept.ID)
+		}
+	}
+
+	// 将 admin 用户分配到总经办（如果存在 admin 用户）
+	if len(createdIDs) > 0 {
+		var adminUser models.User
+		if err := db.Where("username = ?", "admin").First(&adminUser).Error; err == nil {
+			var dept models.Department
+			if err := db.Where("name = ?", "总经办").First(&dept).Error; err == nil {
+				// 更新用户的 DepartmentID
+				db.Model(&adminUser).Update("department_id", dept.ID)
+				// 创建部门成员记录
+				member := models.DepartmentMember{
+					DepartmentID: dept.ID,
+					UserID:       adminUser.ID,
+					Role:         "leader",
+					JoinedAt:     time.Now(),
+				}
+				var existingMember models.DepartmentMember
+				if err := db.Where("department_id = ? AND user_id = ?", dept.ID, adminUser.ID).First(&existingMember).Error; err == gorm.ErrRecordNotFound {
+					db.Create(&member)
+				}
+			}
+		}
+	}
+
+	log.Println("Department seed completed")
+	return nil
 }

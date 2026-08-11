@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ArchivesManagement } from "./archives-management";
 import OfficeSuppliesManagement from "./office-supply/OfficeSuppliesManagement";
 import CanteenManagement from "./canteen/CanteenManagement";
+import InvoiceManagement from "./invoice/InvoiceManagement";
 
 interface DailyAffairsHubProps {
   onNavigate?: (module: string) => void;
@@ -107,6 +108,11 @@ export function DailyAffairsHub({ onNavigate }: DailyAffairsHubProps) {
   // 食堂管理模块（P6 合并）
   if (selectedModule === "canteen") {
     return <CanteenManagement onBack={handleBack} />;
+  }
+
+  // 发票管理模块（P7.3）
+  if (selectedModule === "invoice") {
+    return <InvoiceManagement onBack={handleBack} />;
   }
 
   return (

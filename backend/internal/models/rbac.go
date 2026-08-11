@@ -4,6 +4,27 @@ import (
 	"time"
 )
 
+// 系统内置角色名称常量（4 角色体系）
+const (
+	RoleAdmin   = "admin"
+	RoleManager = "manager"
+	RoleEditor  = "editor"
+	RoleViewer  = "viewer"
+)
+
+// 兼容映射：super_admin → admin（无需数据迁移）
+var legacyRoleMapping = map[string]string{
+	"super_admin": RoleAdmin,
+}
+
+// NormalizeRole 将旧的角色名称映射到新 4 角色体系
+func NormalizeRole(name string) string {
+	if mapped, ok := legacyRoleMapping[name]; ok {
+		return mapped
+	}
+	return name
+}
+
 type Role struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
 	Name        string    `json:"name" gorm:"size:50;uniqueIndex;not null"`

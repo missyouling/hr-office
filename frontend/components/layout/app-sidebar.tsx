@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText } from "lucide-react";
+import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText, Building2 } from "lucide-react";
 
 import { useAuth } from "@/lib/supabase/auth-context";
 import { toast } from "sonner";
@@ -29,6 +29,8 @@ const NAV_ITEMS: NavMainItem[] = [
 ];
 
 const SYSTEM_SETTINGS_ITEM: NavMainItem = { id: "system", label: "系统设置", icon: Settings };
+const FEEDBACK_ITEM: NavMainItem = { id: "feedback", label: "反馈管理", icon: MessageSquareText };
+const DEPARTMENTS_ITEM: NavMainItem = { id: "departments", label: "部门管理", icon: Building2 };
 
 const HELP_LINKS: [] = [];
 
@@ -50,10 +52,14 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
   // 系统设置仅 admin/super_admin 可见，合并到主菜单
   const showSystemSettings = user?.role === "admin" || user?.role === "super_admin";
   const showFeedback = user?.role === "admin" || user?.role === "super_admin";
-  const FEEDBACK_ITEM: NavMainItem = { id: "feedback", label: "反馈管理", icon: MessageSquareText };
-  const allNavItems = showSystemSettings
-    ? [...availableNavItems, SYSTEM_SETTINGS_ITEM, ...(showFeedback ? [FEEDBACK_ITEM] : [])]
-    : availableNavItems;
+  const showDepartments = user?.role === "admin" || user?.role === "super_admin";
+
+  const allNavItems = [
+    ...availableNavItems,
+    ...(showDepartments ? [DEPARTMENTS_ITEM] : []),
+    ...(showSystemSettings ? [SYSTEM_SETTINGS_ITEM] : []),
+    ...(showFeedback ? [FEEDBACK_ITEM] : []),
+  ];
 
   const handleLogout = async () => {
     try {

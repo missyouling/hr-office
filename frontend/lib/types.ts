@@ -14,6 +14,7 @@ export interface User {
   full_name: string;
   active: boolean;
   role: "user" | "admin" | "super_admin";
+  department_id?: number | null;  // P7.1 部门级权限：关联 Department 表
   created_at: string;
   updated_at: string;
 }

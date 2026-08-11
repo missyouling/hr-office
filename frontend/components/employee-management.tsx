@@ -121,6 +121,7 @@ import { createReportPdf } from "@/lib/pdf";
 import { useAuth } from "@/lib/auth";
 import { parseListPreference, sanitizeSortPreference, type TableSortState } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
+import { PermissionGate } from "@/components/permission-gate";
 import type {
   SocialInsuranceTemplateOptions,
   EmployeeImportConflict,
@@ -6642,10 +6643,12 @@ const exportInsuranceChanges = async (
                     <>
                       <Dialog open={showAddEmployee} onOpenChange={setShowAddEmployee}>
                         <DialogTrigger asChild>
-                          <Button>
-                            <Plus className="h-4 w-4 mr-2" />
-                            新增
-                          </Button>
+                          <PermissionGate resource="employee" action="create">
+                            <Button>
+                              <Plus className="h-4 w-4 mr-2" />
+                              新增
+                            </Button>
+                          </PermissionGate>
                         </DialogTrigger>
                         <DialogContent className={RESPONSIVE_DIALOG_CLASS}>
                           <DialogHeader>
@@ -7059,7 +7062,9 @@ const exportInsuranceChanges = async (
                             <Button variant="outline" onClick={() => setShowAddEmployee(false)}>
                               取消
                             </Button>
-                            <Button onClick={handleAddEmployee}>添加员工</Button>
+                            <PermissionGate resource="employee" action="create">
+                              <Button onClick={handleAddEmployee}>添加员工</Button>
+                            </PermissionGate>
                           </DialogFooter>
                         </DialogContent>
                       </Dialog>
@@ -7160,14 +7165,16 @@ const exportInsuranceChanges = async (
                         <Printer className="h-4 w-4 mr-2" />
                         打印
                       </Button>
-                      <Button
-                        variant="destructive"
-                        disabled={selectedEmployeeIds.length === 0 || deletingEmployees}
-                        onClick={() => setShowBatchDeleteConfirm(true)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {deletingEmployees ? "删除中..." : "删除"}
-                      </Button>
+                      <PermissionGate resource="employee" action="delete">
+                        <Button
+                          variant="destructive"
+                          disabled={selectedEmployeeIds.length === 0 || deletingEmployees}
+                          onClick={() => setShowBatchDeleteConfirm(true)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          {deletingEmployees ? "删除中..." : "删除"}
+                        </Button>
+                      </PermissionGate>
                     </>
                   )}
                 </div>

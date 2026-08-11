@@ -437,6 +437,8 @@ func main() {
 		&models.Permission{},
 		&models.RolePermission{},
 		&models.UserRole{},
+		&models.Department{},
+		&models.DepartmentMember{},
 		&models.ShareLink{},
 		&models.ArchiveSharedField{},
 		&models.ArchiveFieldGroup{},
@@ -490,6 +492,8 @@ func main() {
 		&api.LogBackup{},
 		&api.AlertRule{},
 		&api.BackupSettings{},
+		// 发票管理（P7.3）
+		&models.Invoice{},
 	); err != nil {
 		log.Printf("auto migrate warning: %v", err)
 	}
@@ -516,6 +520,11 @@ func main() {
 	// Seed RBAC
 	if err := seedRBAC(db); err != nil {
 		log.Printf("seed RBAC: %v", err)
+	}
+
+	// Seed departments（P7.1 新增）
+	if err := seedDepartments(db); err != nil {
+		log.Printf("seed departments: %v", err)
 	}
 
 	// Initialize default admin user
