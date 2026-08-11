@@ -449,9 +449,9 @@ func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([
 
 // rrfMerge RRF (Reciprocal Rank Fusion) 合并两路检索结果
 func (s *RetrievalService) rrfMerge(fullText, vector []SearchResult) []SearchResult {
-	scoreMap := make(map[uint]float64)   // docID -> RRF score
+	scoreMap := make(map[uint]float64)    // docID -> RRF score
 	docMap := make(map[uint]SearchResult) // docID -> result
-	typeMap := make(map[uint]string)     // docID -> match_type
+	typeMap := make(map[uint]string)      // docID -> match_type
 
 	// 全文搜索结果（权重 0.5）
 	for i, result := range fullText {

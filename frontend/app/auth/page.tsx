@@ -220,16 +220,17 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      const { token, user: userPayload } = await backendLogin({
+      const response = await backendLogin({
         username,
         password: loginData.password,
       });
+      const { token, user: userPayload, refresh_token } = response;
 
       if (!token || !userPayload) {
         throw new Error("登录失败，请稍后重试");
       }
 
-      setAuthSession(token, userPayload as User);
+      setAuthSession(token, userPayload as User, refresh_token);
       toast.success("登录成功");
       router.push("/");
     } catch (error) {

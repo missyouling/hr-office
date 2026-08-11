@@ -394,6 +394,7 @@ func main() {
 
 	if err := db.AutoMigrate(
 		&models.User{},
+		&models.AuthToken{},
 		&models.PasswordResetToken{},
 		&models.EmailVerificationToken{},
 		&models.Period{},
@@ -494,6 +495,9 @@ func main() {
 		&api.BackupSettings{},
 		// 发票管理（P7.3）
 		&models.Invoice{},
+		&models.KnowledgeBase{},
+		&models.KBAccessRule{},
+		&models.KBFieldMask{},
 	); err != nil {
 		log.Printf("auto migrate warning: %v", err)
 	}
@@ -520,6 +524,11 @@ func main() {
 	// Seed RBAC
 	if err := seedRBAC(db); err != nil {
 		log.Printf("seed RBAC: %v", err)
+	}
+
+	// Seed knowledge bases
+	if err := seedKnowledgeBases(db); err != nil {
+		log.Printf("seed knowledge bases: %v", err)
 	}
 
 	// Seed departments（P7.1 新增）
@@ -556,7 +565,7 @@ func main() {
 
 	// Create handlers
 	handler := api.NewHandler(db)
-	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailVerificationService, emailService)
+	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailVerificationService, emailService, auditmw.NewLoginRateLimiter())
 	auditHandler := api.NewAuditHandler(db, auditService)
 	monitoringHandler := api.NewMonitoringHandler(db, monitoringService)
 
@@ -675,6 +684,7 @@ func main() {
 			publicRouter.Post("/auth/register", authHandler.Register)
 			publicRouter.Post("/auth/check-availability", authHandler.CheckAccountAvailability)
 			publicRouter.Post("/auth/login", authHandler.Login)
+			publicRouter.Post("/auth/refresh", authHandler.Refresh)
 			publicRouter.Post("/auth/request-password-reset", authHandler.RequestPasswordReset)
 			publicRouter.Post("/auth/reset-password", authHandler.ResetPassword)
 			publicRouter.Get("/auth/validate-reset-token", authHandler.ValidatePasswordResetToken)

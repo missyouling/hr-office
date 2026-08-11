@@ -162,6 +162,113 @@ function getApiBase(): string {
 
 const API_BASE = getApiBase();
 
+// ========== Token 刷新模块（P8.0 401 自动拦截） ==========
+
+let isRefreshing = false
+let failedQueue: Array<{ resolve: (value: unknown) => void; reject: (reason?: unknown) => void }> = []
+
+/** 尝试使用 refresh_token 获取新的 access token */
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem("refresh_token")
+  if (!refreshToken) return null
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!res.ok) throw new Error("refresh failed")
+    const data = await res.json()
+    // 更新本地存储的 token 和 refresh_token
+    if (data.token) {
+      localStorage.setItem("token", data.token)
+    }
+    if (data.refresh_token) {
+      localStorage.setItem("refresh_token", data.refresh_token)
+    }
+    return data.token || null
+  } catch {
+    // refresh 失败 → 清空认证状态 → 跳转登录
+    localStorage.removeItem("token")
+    localStorage.removeItem("refresh_token")
+    localStorage.removeItem("user")
+    window.location.href = "/auth"
+    return null
+  }
+}
+
+/** 处理等待刷新完成的请求队列 */
+function processQueue(error: unknown, token: string | null = null) {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error)
+    else resolve(token)
+  })
+  failedQueue = []
+}
+
+/**
+ * 带 401 自动刷新的 fetch 包装器
+ * 仅用于非认证端点的 API 调用，避免 /auth/login、/auth/register、/auth/refresh 死循环
+ */
+async function fetchWithAuth(input: RequestInfo, init?: RequestInit): Promise<Response> {
+  const token = localStorage.getItem("token")
+  // 合并现有 headers，添加 Authorization
+  const baseHeaders: Record<string, string> = {}
+  if (init?.headers) {
+    if (init.headers instanceof Headers) {
+      init.headers.forEach((value, key) => { baseHeaders[key] = value })
+    } else if (Array.isArray(init.headers)) {
+      init.headers.forEach(([key, value]) => { baseHeaders[key] = value })
+    } else {
+      Object.assign(baseHeaders, init.headers)
+    }
+  }
+  if (token) {
+    baseHeaders["Authorization"] = `Bearer ${token}`
+  }
+
+  const res = await fetch(input, { ...init, headers: baseHeaders });
+
+  // 非 401 或无 token，直接返回
+  if (res.status !== 401 || !token) {
+    return res
+  }
+
+  // 正在刷新 token，排队等待
+  if (isRefreshing) {
+    return new Promise((resolve, reject) => {
+      failedQueue.push({
+        resolve: (newToken: unknown) => {
+          baseHeaders["Authorization"] = `Bearer ${newToken}`
+          resolve(fetch(input, { ...init, headers: baseHeaders }))
+        },
+        reject,
+      })
+    })
+  }
+
+  // 触发 token 刷新
+  isRefreshing = true
+  const newToken = await refreshAccessToken()
+  isRefreshing = false
+
+  if (newToken) {
+    processQueue(null, newToken)
+    baseHeaders["Authorization"] = `Bearer ${newToken}`
+    return fetch(input, { ...init, headers: baseHeaders })
+  }
+
+  // refresh 失败，拒绝所有排队请求
+  processQueue(new Error("Session expired"))
+  throw new Error("Session expired")
+}
+
+// ========== 基础请求函数 ==========
+
+/** 需要排除 401 自动刷新的认证端点（避免死循环） */
+const AUTH_ENDPOINT_PREFIXES = ["/auth/login", "/auth/register", "/auth/refresh"]
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -171,16 +278,12 @@ async function request<T>(
   console.log(`Making request to: ${url}`);
   console.log(`API_BASE is: ${API_BASE}`);
 
-  // Get token from localStorage for authenticated requests
-  const token = localStorage.getItem("token");
-  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  // 认证端点直接使用 fetch（不触发 401 拦截器），其他端点走 fetchWithAuth
+  const isAuthEndpoint = AUTH_ENDPOINT_PREFIXES.some((prefix) => path.startsWith(prefix))
+  const fetchFn = isAuthEndpoint ? fetch : fetchWithAuth
 
-  const res = await fetch(url, {
+  const res = await fetchFn(url, {
     ...init,
-    headers: {
-      ...authHeaders,
-      ...(init?.headers || {}),
-    },
     cache: "no-store",
   });
 
@@ -1545,7 +1648,7 @@ export async function getUserProfile(token: string): Promise<User> {
   });
 }
 
-export async function login(credentials: { username: string; password: string }): Promise<{ token: string; user: unknown }> {
+export async function login(credentials: { username: string; password: string }): Promise<{ token: string; user: unknown; refresh_token?: string }> {
   return request('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

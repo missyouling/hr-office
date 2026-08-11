@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/gorm"
 	"siapp/internal/auth"
+	"siapp/internal/middleware"
 	"siapp/internal/models"
 	"siapp/internal/service"
 )
@@ -24,16 +25,18 @@ type AuthHandler struct {
 	passwordResetService     *service.PasswordResetService
 	emailVerificationService *service.EmailVerificationService
 	emailService             *service.EmailService
+	rateLimiter              *middleware.LoginRateLimiter
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetService *service.PasswordResetService, emailVerificationService *service.EmailVerificationService, emailService *service.EmailService) *AuthHandler {
+func NewAuthHandler(db *gorm.DB, jwtManager *auth.JWTManager, passwordResetService *service.PasswordResetService, emailVerificationService *service.EmailVerificationService, emailService *service.EmailService, rateLimiter *middleware.LoginRateLimiter) *AuthHandler {
 	return &AuthHandler{
 		db:                       db,
 		jwtManager:               jwtManager,
 		passwordResetService:     passwordResetService,
 		emailVerificationService: emailVerificationService,
 		emailService:             emailService,
+		rateLimiter:              rateLimiter,
 	}
 }
 
@@ -117,36 +120,90 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find user by username
+	// 查找活跃用户
 	var user models.User
 	if err := h.db.Where("username = ? AND active = ?", req.Username, true).First(&user).Error; err != nil {
 		http.Error(w, `{"error":"用户名或密码错误"}`, http.StatusUnauthorized)
 		return
 	}
 
-	// Check password
+	// 获取客户端 IP
+	clientIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		clientIP = strings.Split(forwarded, ",")[0]
+	}
+
+	// 限流检查：账号锁定（连续 5 次失败 → 锁定 15 分钟）
+	if h.rateLimiter.IsUserLocked(req.Username) {
+		http.Error(w, `{"error":"账号已被锁定，请15分钟后再试"}`, http.StatusLocked)
+		return
+	}
+
+	// 限流检查：IP 频率限制（每分钟最多 10 次失败）
+	if h.rateLimiter.IsIPBlocked(clientIP) {
+		http.Error(w, `{"error":"请求过于频繁，请稍后再试"}`, http.StatusTooManyRequests)
+		return
+	}
+
+	// 校验密码
 	if !user.CheckPassword(req.Password) {
+		h.rateLimiter.RecordFailure(req.Username, clientIP)
+		if h.rateLimiter.IsUserLocked(req.Username) {
+			http.Error(w, `{"error":"账号已被锁定，请15分钟后再试"}`, http.StatusLocked)
+			return
+		}
 		http.Error(w, `{"error":"用户名或密码错误"}`, http.StatusUnauthorized)
 		return
 	}
 
-	// Check if email is verified
+	// 密码正确，清空限流计数
+	h.rateLimiter.Reset(req.Username, clientIP)
+
+	// 检查邮箱是否已验证
 	if !user.EmailVerified {
 		http.Error(w, `{"error":"请先验证邮箱地址后再登录"}`, http.StatusForbidden)
 		return
 	}
 
-	// Generate JWT token
-	token, err := h.jwtManager.GenerateToken(&user)
+	// 签发 access + refresh token 对
+	now := time.Now()
+	accessExpiry := now.Add(24 * time.Hour)
+	refreshExpiry := now.Add(7 * 24 * time.Hour)
+
+	accessToken, err := h.jwtManager.GenerateAccessToken(user.ID, user.Username)
 	if err != nil {
 		http.Error(w, `{"error":"生成登录令牌失败"}`, http.StatusInternalServerError)
 		return
 	}
 
-	// Return user and token
+	refreshToken, err := h.jwtManager.GenerateRefreshToken(user.ID)
+	if err != nil {
+		http.Error(w, `{"error":"生成刷新令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 入库 auth_tokens（事务保护）
+	tx := h.db.Begin()
+	if err := saveAuthToken(tx, user.ID, accessToken, "access", accessExpiry); err != nil {
+		tx.Rollback()
+		http.Error(w, `{"error":"保存令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := saveAuthToken(tx, user.ID, refreshToken, "refresh", refreshExpiry); err != nil {
+		tx.Rollback()
+		http.Error(w, `{"error":"保存刷新令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		http.Error(w, `{"error":"提交令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 返回用户信息和 token 对
 	response := models.AuthResponse{
-		Token: token,
-		User:  user,
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+		User:         user,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -298,15 +355,26 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-// Logout handles user logout (client-side token invalidation)
+// Logout handles user logout — 吊销所有 refresh token，access token 等自然过期
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	// In a JWT-based system, logout is typically handled client-side
-	// by removing the token from storage. Here we just return success.
-	// For more security, you could implement a token blacklist.
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		// 未登录也返回成功（幂等）
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"message": "已退出登录"})
+		return
+	}
+
+	// 吊销该用户所有未过期的 refresh token
+	now := time.Now()
+	h.db.Model(&models.AuthToken{}).
+		Where("user_id = ? AND type = ? AND is_revoked = ? AND expires_at > ?", userID, "refresh", false, now).
+		Update("is_revoked", true)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": "已退出登录"})
 }
 
 // ChangePassword handles password change for authenticated users
@@ -654,6 +722,113 @@ func (h *AuthHandler) CheckEmailVerificationStatus(w http.ResponseWriter, r *htt
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"email_verified": verified,
 	})
+}
+
+// saveAuthToken 将 access/refresh token 的 SHA-256 哈希写入 auth_tokens 表
+func saveAuthToken(tx *gorm.DB, userID uint, rawToken, tokenType string, expiresAt time.Time) error {
+	tokenHash := auth.HashToken(rawToken)
+	record := models.AuthToken{
+		UserID:    userID,
+		TokenHash: tokenHash,
+		Type:      tokenType,
+		ExpiresAt: expiresAt,
+	}
+	return tx.Create(&record).Error
+}
+
+// Refresh 使用 refresh token 续签新的 access + refresh 对（旋转机制）
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req models.RefreshTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.RefreshToken == "" {
+		http.Error(w, `{"error":"refresh_token 不能为空"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 验证 refresh token 的 JWT 签名与有效期
+	claims, err := h.jwtManager.ValidateToken(req.RefreshToken)
+	if err != nil {
+		http.Error(w, `{"error":"refresh_token 无效或已过期"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 确认 token 类型为 refresh（防止用 access token 续签）
+	if claims.ID != "refresh" {
+		http.Error(w, `{"error":"仅支持 refresh token 刷新"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 查库：refresh token 必须存在、未被吊销
+	tokenHash := auth.HashToken(req.RefreshToken)
+	var storedToken models.AuthToken
+	if err := h.db.Where("token_hash = ? AND type = ? AND is_revoked = ?", tokenHash, "refresh", false).
+		First(&storedToken).Error; err != nil {
+		http.Error(w, `{"error":"refresh_token 已被吊销或不存在"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 如果 refresh token 已过期，标记吊销并返回错误
+	if time.Now().After(storedToken.ExpiresAt) {
+		h.db.Model(&storedToken).Update("is_revoked", true)
+		http.Error(w, `{"error":"refresh_token 已过期"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 旧 refresh token 标记吊销（旋转）
+	h.db.Model(&storedToken).Update("is_revoked", true)
+
+	// 签发新的 access + refresh 对
+	now := time.Now()
+	accessExpiry := now.Add(24 * time.Hour)
+	refreshExpiry := now.Add(7 * 24 * time.Hour)
+
+	// 获取用户名
+	var user models.User
+	if err := h.db.First(&user, claims.UserID).Error; err != nil {
+		http.Error(w, `{"error":"用户不存在"}`, http.StatusUnauthorized)
+		return
+	}
+
+	newAccessToken, err := h.jwtManager.GenerateAccessToken(claims.UserID, user.Username)
+	if err != nil {
+		http.Error(w, `{"error":"生成新令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	newRefreshToken, err := h.jwtManager.GenerateRefreshToken(claims.UserID)
+	if err != nil {
+		http.Error(w, `{"error":"生成新刷新令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 入库新 token 对
+	tx := h.db.Begin()
+	if err := saveAuthToken(tx, claims.UserID, newAccessToken, "access", accessExpiry); err != nil {
+		tx.Rollback()
+		http.Error(w, `{"error":"保存新令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := saveAuthToken(tx, claims.UserID, newRefreshToken, "refresh", refreshExpiry); err != nil {
+		tx.Rollback()
+		http.Error(w, `{"error":"保存新刷新令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		http.Error(w, `{"error":"提交令牌失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	resp := models.RefreshTokenResponse{
+		AccessToken:  newAccessToken,
+		RefreshToken: newRefreshToken,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // ValidationError represents a validation error

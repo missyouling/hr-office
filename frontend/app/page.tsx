@@ -27,6 +27,7 @@ import { GlobalSearch } from "@/components/global-search";
 import { KnowledgeStats } from "@/components/knowledge-stats";
 import { FeedbackPanel } from "@/components/feedback-panel";
 import { DepartmentManagement } from "@/components/admin/department-management";
+import KnowledgeBaseManagement from "@/components/knowledge/KnowledgeBaseManagement";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -137,6 +138,8 @@ export default function HomePage() {
         return <FeedbackPanel />;
       case "departments":
         return <DepartmentManagement />;
+      case "knowledge":
+        return <KnowledgeBaseManagement />;
       default:
         return <InsuranceManagement />;
     }

@@ -12,7 +12,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (token: string, user: User) => void;
+  login: (token: string, user: User, refreshToken?: string) => void;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -27,6 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem("token");
+    localStorage.removeItem("refresh_token");
     localStorage.removeItem("user");
     setToken(null);
     setUser(null);
@@ -67,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("Auth initialization error:", error);
         // Clear invalid data from localStorage AND component state
         localStorage.removeItem("token");
+        localStorage.removeItem("refresh_token");
         localStorage.removeItem("user");
         setToken(null);
         setUser(null);
@@ -82,9 +84,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, [validateToken, router]);
 
-  const login = (newToken: string, newUser: User) => {
+  const login = (newToken: string, newUser: User, refreshToken?: string) => {
     localStorage.setItem("token", newToken);
     localStorage.setItem("user", JSON.stringify(newUser));
+    if (refreshToken) {
+      localStorage.setItem("refresh_token", refreshToken);
+    }
     setToken(newToken);
     setUser(newUser);
   };

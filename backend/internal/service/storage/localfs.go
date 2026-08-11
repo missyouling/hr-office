@@ -3,10 +3,12 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -47,7 +49,11 @@ func (d *LocalDriver) Test(ctx context.Context) (*HealthStatus, error) {
 }
 
 func (d *LocalDriver) Upload(ctx context.Context, path string, reader io.Reader, size int64) error {
-	fullPath := filepath.Join(d.config.RootPath, path)
+	// 路径遍历防护：验证路径不超出 RootPath 范围
+	fullPath, err := safePathUnderBase(d.config.RootPath, path)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return err
 	}
@@ -61,12 +67,20 @@ func (d *LocalDriver) Upload(ctx context.Context, path string, reader io.Reader,
 }
 
 func (d *LocalDriver) Download(ctx context.Context, path string) (io.ReadCloser, error) {
-	fullPath := filepath.Join(d.config.RootPath, path)
+	// 路径遍历防护
+	fullPath, err := safePathUnderBase(d.config.RootPath, path)
+	if err != nil {
+		return nil, err
+	}
 	return os.Open(fullPath)
 }
 
 func (d *LocalDriver) Delete(ctx context.Context, path string) error {
-	fullPath := filepath.Join(d.config.RootPath, path)
+	// 路径遍历防护
+	fullPath, err := safePathUnderBase(d.config.RootPath, path)
+	if err != nil {
+		return err
+	}
 	return os.Remove(fullPath)
 }
 
@@ -100,6 +114,23 @@ func (d *LocalDriver) Exists(ctx context.Context, path string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// safePathUnderBase 校验并返回 base 目录下 target 路径的绝对路径
+// 若 target 包含路径遍历序列（如 ../），返回错误
+func safePathUnderBase(base, target string) (string, error) {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("resolve base path: %w", err)
+	}
+	absTarget, err := filepath.Abs(filepath.Join(base, target))
+	if err != nil {
+		return "", fmt.Errorf("resolve target path: %w", err)
+	}
+	if !strings.HasPrefix(absTarget, absBase) {
+		return "", errors.New("path traversal detected: path escapes base directory")
+	}
+	return absTarget, nil
 }
 
 // GetCapacity returns disk capacity for the local storage path

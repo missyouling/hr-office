@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -16,9 +17,9 @@ import (
 
 // WebDAVConfig holds configuration for WebDAV storage
 type WebDAVConfig struct {
-	URL      string `json:"webdav_url"`
-	Username string `json:"webdav_username"`
-	Password string `json:"webdav_password"`
+	URL       string `json:"webdav_url"`
+	Username  string `json:"webdav_username"`
+	Password  string `json:"webdav_password"`
 	Directory string `json:"directory"`
 }
 
@@ -36,6 +37,11 @@ func (d *WebDAVDriver) Init(config []byte) error {
 	}
 	if d.config.URL == "" {
 		return fmt.Errorf("webdav url is required")
+	}
+	// SSRF 防护：校验 endpoint 不指向内网地址
+	if err := ValidateEndpoint(d.config.URL); err != nil {
+		log.Printf("[WebDAVDriver] SSRF check failed for URL %s: %v", d.config.URL, err)
+		return fmt.Errorf("endpoint rejected by SSRF policy: %w", err)
 	}
 	d.client = &http.Client{Timeout: 30 * time.Second}
 	return nil
@@ -71,10 +77,9 @@ func (d *WebDAVDriver) Test(ctx context.Context) (*HealthStatus, error) {
 	return &HealthStatus{Healthy: false, Message: fmt.Sprintf("webdav returned status %d", resp.StatusCode), LatencyMs: latency, CheckedAt: time.Now()}, nil
 }
 
-func (d *WebDAVDriver) buildURL(path string) string {
+func (d *WebDAVDriver) buildURL(filePath string) string {
 	baseURL := d.config.URL
-	fmt.Printf("[WebDAV buildURL] original URL: %s, path: %s, directory: %s\n", baseURL, path, d.config.Directory)
-	
+
 	if !strings.HasSuffix(baseURL, "/dav") && !strings.HasSuffix(baseURL, "/dav/") {
 		if strings.HasSuffix(baseURL, "/") {
 			baseURL = baseURL + "dav"
@@ -82,24 +87,25 @@ func (d *WebDAVDriver) buildURL(path string) string {
 			baseURL = baseURL + "/dav"
 		}
 	}
-	fmt.Printf("[WebDAV buildURL] after /dav: %s\n", baseURL)
-	
+
 	dir := strings.Trim(d.config.Directory, "/")
 	if dir != "" {
 		baseURL = baseURL + "/" + dir
 	}
-	fmt.Printf("[WebDAV buildURL] after directory: %s\n", baseURL)
-	
-	if path != "" {
-		path = strings.Trim(path, "/")
-		baseURL = baseURL + "/" + path
+
+	if filePath != "" {
+		filePath = strings.Trim(filePath, "/")
+		baseURL = baseURL + "/" + filePath
 	}
-	fmt.Printf("[WebDAV buildURL] final URL: %s\n", baseURL)
 	return baseURL
 }
 
-func (d *WebDAVDriver) Upload(ctx context.Context, path string, reader io.Reader, size int64) error {
-	url := d.buildURL(path)
+func (d *WebDAVDriver) Upload(ctx context.Context, filePath string, reader io.Reader, size int64) error {
+	// 路径遍历防护
+	if err := ValidateStoragePath(filePath); err != nil {
+		return err
+	}
+	url := d.buildURL(filePath)
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, reader)
 	if err != nil {
 		return err
@@ -118,8 +124,12 @@ func (d *WebDAVDriver) Upload(ctx context.Context, path string, reader io.Reader
 	return fmt.Errorf("webdav upload failed with status %d", resp.StatusCode)
 }
 
-func (d *WebDAVDriver) Download(ctx context.Context, path string) (io.ReadCloser, error) {
-	url := d.buildURL(path)
+func (d *WebDAVDriver) Download(ctx context.Context, filePath string) (io.ReadCloser, error) {
+	// 路径遍历防护
+	if err := ValidateStoragePath(filePath); err != nil {
+		return nil, err
+	}
+	url := d.buildURL(filePath)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -138,8 +148,12 @@ func (d *WebDAVDriver) Download(ctx context.Context, path string) (io.ReadCloser
 	return resp.Body, nil
 }
 
-func (d *WebDAVDriver) Delete(ctx context.Context, path string) error {
-	url := d.buildURL(path)
+func (d *WebDAVDriver) Delete(ctx context.Context, filePath string) error {
+	// 路径遍历防护
+	if err := ValidateStoragePath(filePath); err != nil {
+		return err
+	}
+	url := d.buildURL(filePath)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
@@ -223,13 +237,13 @@ func (d *WebDAVDriver) List(ctx context.Context, prefix string) ([]FileInfo, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		fmt.Printf("[WebDAV List] Rate limited (429) at URL: %s\n", listURL)
+		log.Printf("[WebDAV List] Rate limited (429) at URL: %s\n", listURL)
 		return []FileInfo{}, nil
 	}
 
 	if resp.StatusCode != http.StatusMultiStatus && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("[WebDAV List] Failed PROPFIND - Status: %d, URL: %s, Auth: %v, Response: %s\n",
+		log.Printf("[WebDAV List] Failed PROPFIND - Status: %d, URL: %s, Auth: %v, Response: %s\n",
 			resp.StatusCode, listURL, d.config.Username != "", truncateString(string(body), 300))
 		return nil, fmt.Errorf("PROPFIND returned status %d: %s", resp.StatusCode, string(body))
 	}
@@ -237,7 +251,7 @@ func (d *WebDAVDriver) List(ctx context.Context, prefix string) ([]FileInfo, err
 	var ms multiStatus
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if err := xml.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&ms); err != nil {
-		fmt.Printf("[WebDAV List] XML parse error at URL: %s, Error: %v, Response: %s\n",
+		log.Printf("[WebDAV List] XML parse error at URL: %s, Error: %v, Response: %s\n",
 			listURL, err, truncateString(string(bodyBytes), 300))
 		return []FileInfo{}, nil
 	}

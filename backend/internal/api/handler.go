@@ -488,6 +488,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	// 发票管理（P7.3）
 	h.registerInvoiceRoutes(r)
 
+	// 知识库管理（P8.2）
+	RegisterKnowledgeBaseRoutes(r, h.db)
+
 	r.Route("/rbac", h.registerRolePermissionRoutes)
 	r.Route("/users", h.registerUserRoleRoutes)
 	r.Route("/departments", h.registerDepartmentRoutes)

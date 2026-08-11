@@ -280,8 +280,8 @@ func TestUploadWithRulePriority(t *testing.T) {
 	exactConfig := createTestStorageConfig(t, ctx.db, "Exact Rule Storage", "webdav", false)
 
 	createTestModuleConfig(t, ctx.db, "archives", "Archives", "/archives")
-	createTestStorageRule(t, ctx.db, moduleConfig.ID, "archives", "", 5)                   // Module default
-	createTestStorageRule(t, ctx.db, exactConfig.ID, "archives", "employee_photos", 10)   // Exact rule
+	createTestStorageRule(t, ctx.db, moduleConfig.ID, "archives", "", 5)                // Module default
+	createTestStorageRule(t, ctx.db, exactConfig.ID, "archives", "employee_photos", 10) // Exact rule
 
 	// Execute: Upload with exact rule match
 	router := NewStorageRouter(ctx.db)
@@ -384,7 +384,7 @@ func TestUploadConcurrent(t *testing.T) {
 
 	config := createTestStorageConfig(t, ctx.db, "Concurrent Storage", "local", true)
 	router := NewStorageRouter(ctx.db)
-	
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	results := make([]*ResolvedRoute, 10)
@@ -403,7 +403,7 @@ func TestUploadConcurrent(t *testing.T) {
 			}
 
 			result, err := router.Resolve(context.Background(), req)
-			
+
 			mu.Lock()
 			results[idx] = result
 			errors[idx] = err
@@ -432,7 +432,7 @@ func TestUploadConcurrent(t *testing.T) {
 			t.Errorf("concurrent upload %d: expected filename in path, got '%s'",
 				i, results[i].FullPath)
 		}
-		
+
 		successCount++
 	}
 
@@ -450,7 +450,7 @@ func TestUploadConcurrent(t *testing.T) {
 		}
 		pathSet[result.FullPath] = true
 	}
-	
+
 	t.Logf("Concurrent test: %d/%d uploads succeeded (SQLite :memory: limitations)", successCount, 10)
 }
 
@@ -534,7 +534,7 @@ func TestResolveWithDisabledRule(t *testing.T) {
 
 	config := createTestStorageConfig(t, ctx.db, "Rule Storage", "s3", false)
 	defaultConfig := createTestStorageConfig(t, ctx.db, "Default Storage", "local", true)
-	
+
 	disabledRule := createTestStorageRule(t, ctx.db, config.ID, "archives", "employee_photos", 10)
 	disabledRule.Enabled = false
 	ctx.db.Save(disabledRule)
@@ -555,7 +555,7 @@ func TestResolveWithDisabledRule(t *testing.T) {
 	if result.StorageID != defaultConfig.ID {
 		t.Errorf("expected default config ID %d (rule disabled), got %d", defaultConfig.ID, result.StorageID)
 	}
-	
+
 	t.Logf("Correctly fallback to default storage ID %d (disabled rule skipped)", defaultConfig.ID)
 }
 

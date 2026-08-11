@@ -1,0 +1,48 @@
+# WeKnora docreader 文档解析微服务编排
+# 用法：docker compose -f docker-compose.yml -f docker-compose.docreader.yml up -d
+version: "3.8"
+
+services:
+  docreader:
+    # ---- 方式 A：本地构建（推荐，从 WeKnora 源码构建）----
+    build:
+      context: /home/WeKnora/docreader
+      dockerfile: /home/hr-office/deploy/docreader/Dockerfile
+    # ---- 方式 B：使用预构建镜像（如果可用）----
+    # image: weknora/docreader:latest
+    container_name: hr-office-docreader
+    ports:
+      - "50051:50051"  # gRPC（WeKnora 原生协议）
+      - "50052:50052"  # HTTP 桥接（hr-office 调用入口）
+    environment:
+      # gRPC 配置
+      - PORT=50051
+      - DOCREADER_GRPC_PORT=50051
+      - GRPC_MAX_WORKERS=4
+      - MAX_FILE_SIZE_MB=50
+      # HTTP 桥接配置
+      - HTTP_PORT=50052
+      # 日志级别
+      - LOG_LEVEL=INFO
+      # 认证（禁用，内网通信无需 Token）
+      # - GRPC_AUTH_TOKEN=
+    volumes:
+      # 共享临时目录（用于大文件解析中间产物）
+      - docreader_data:/tmp/docreader
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:50052/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - siapp-network
+
+volumes:
+  docreader_data:
+    driver: local
+
+networks:
+  siapp-network:
+    external: true

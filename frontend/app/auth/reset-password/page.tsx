@@ -1,30 +1,55 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
+import { validatePasswordResetToken, resetPassword } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [token, setToken] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
-  const router = useRouter()
-  const supabase = useMemo(() => createClient(), [])
+  const [tokenValid, setTokenValid] = useState(false)
 
+  // 从 URL 获取 token 并验证
   useEffect(() => {
-    // 检查是否有有效的重置令牌
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        router.push('/auth?error=invalid_token')
-      }
-    })
-  }, [router, supabase])
+    const tokenParam = searchParams.get('token')
+
+    if (!tokenParam) {
+      setLoading(false)
+      setError('重置链接无效：缺少重置令牌')
+      return
+    }
+
+    setToken(tokenParam)
+
+    // 调用后端验证 token 有效性
+    validatePasswordResetToken(tokenParam)
+      .then((result) => {
+        if (!result.valid) {
+          setError('重置链接已过期或无效')
+          return
+        }
+        setTokenValid(true)
+      })
+      .catch((err) => {
+        console.error('Token 验证失败:', err)
+        setError('重置链接已过期或无效')
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [searchParams])
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,29 +65,63 @@ export default function ResetPasswordPage() {
       return
     }
 
-    setLoading(true)
+    setSubmitting(true)
 
-    const { error } = await supabase.auth.updateUser({
-      password: password,
-    })
-
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
+    try {
+      await resetPassword({ token, newPassword: password })
       setSuccess(true)
+      toast.success('密码重置成功')
       setTimeout(() => {
         router.push('/auth')
       }, 2000)
+    } catch (err) {
+      console.error('密码重置失败:', err)
+      const message = err instanceof Error ? err.message : '密码重置失败，请重试'
+      setError(message)
+      toast.error(message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
+  // 加载中状态
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="text-muted-foreground">正在验证重置令牌...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Token 无效 / 验证失败
+  if (!tokenValid) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Card className="w-[400px]">
+          <CardHeader>
+            <CardTitle className="text-red-600">链接无效</CardTitle>
+            <CardDescription>{error || '重置链接已过期或无效'}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button className="w-full" onClick={() => router.push('/auth')}>
+              返回登录
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // 重置成功
   if (success) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-[400px]">
           <CardHeader>
-            <CardTitle>密码重置成功</CardTitle>
+            <CardTitle className="text-green-600">密码重置成功</CardTitle>
             <CardDescription>
               您的密码已成功重置，即将跳转到登录页面...
             </CardDescription>
@@ -72,14 +131,13 @@ export default function ResetPasswordPage() {
     )
   }
 
+  // 密码重置表单
   return (
     <div className="flex min-h-screen items-center justify-center">
       <Card className="w-[400px]">
         <CardHeader>
           <CardTitle>重置密码</CardTitle>
-          <CardDescription>
-            请输入您的新密码
-          </CardDescription>
+          <CardDescription>请输入您的新密码</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleResetPassword} className="space-y-4">
@@ -118,13 +176,30 @@ export default function ResetPasswordPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={loading}
+              disabled={submitting}
             >
-              {loading ? '重置中...' : '重置密码'}
+              {submitting ? '重置中...' : '重置密码'}
             </Button>
           </form>
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center space-y-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+            <p className="text-muted-foreground">加载中...</p>
+          </div>
+        </div>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
   )
 }

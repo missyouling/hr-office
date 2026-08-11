@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText, Building2 } from "lucide-react";
+import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText, Building2, BookOpen } from "lucide-react";
 
 import { useAuth } from "@/lib/supabase/auth-context";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ const NAV_ITEMS: NavMainItem[] = [
   { id: "insurance", label: "社保管理", icon: Calculator },
   { id: "dormitory", label: "宿舍管理", icon: BedDouble },
   { id: "daily-affairs", label: "日常事务", icon: FolderOpen },
+  { id: "knowledge", label: "知识库", icon: BookOpen },
 ];
 
 const SYSTEM_SETTINGS_ITEM: NavMainItem = { id: "system", label: "系统设置", icon: Settings };

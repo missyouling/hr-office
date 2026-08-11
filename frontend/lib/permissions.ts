@@ -16,7 +16,8 @@ export type ResourceType =
   | "department"
   | "office-supply"
   | "canteen"
-  | "invoice";
+  | "invoice"
+  | "knowledge_base";
 
 /** 操作类型 */
 export type ActionType = "view" | "create" | "edit" | "delete" | "approve" | "submit" | "reject";
@@ -58,6 +59,7 @@ const PERMISSION_MATRIX: Record<Role, Partial<Record<ResourceType, ActionType[]>
     "office-supply": FULL,
     canteen: FULL,
     invoice: FULL,
+    knowledge_base: FULL,
   },
   admin: {
     employee: FULL,
@@ -70,6 +72,7 @@ const PERMISSION_MATRIX: Record<Role, Partial<Record<ResourceType, ActionType[]>
     "office-supply": FULL,
     canteen: FULL,
     invoice: FULL,
+    knowledge_base: FULL,
   },
   manager: {
     employee: VIEW_EDIT,
@@ -81,6 +84,7 @@ const PERMISSION_MATRIX: Record<Role, Partial<Record<ResourceType, ActionType[]>
     "office-supply": VIEW_EDIT,
     canteen: VIEW_EDIT,
     invoice: ["view", "create", "edit", "delete", "submit", "approve", "reject"],
+    knowledge_base: VIEW_EDIT,
   },
   editor: {
     employee: VIEW_EDIT,
@@ -91,6 +95,7 @@ const PERMISSION_MATRIX: Record<Role, Partial<Record<ResourceType, ActionType[]>
     "office-supply": VIEW_EDIT,
     canteen: VIEW_EDIT,
     invoice: ["view", "create", "edit", "delete", "submit"],
+    knowledge_base: VIEW_EDIT,
   },
   viewer: {
     employee: VIEW_ONLY,
@@ -101,6 +106,7 @@ const PERMISSION_MATRIX: Record<Role, Partial<Record<ResourceType, ActionType[]>
     "office-supply": VIEW_ONLY,
     canteen: VIEW_ONLY,
     invoice: VIEW_ONLY,
+    knowledge_base: VIEW_ONLY,
   },
 };
 

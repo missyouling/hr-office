@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -27,15 +30,21 @@ type JWTManager struct {
 	tokenDuration time.Duration
 }
 
-// NewJWTManager creates a new JWT manager
+// NewJWTManager creates a new JWT manager.
+// 安全策略：如果已配置 Supabase JWT（SUPABASE_JWT_SECRET），说明认证走 Supabase JWKS，
+// 本地 JWT 仅作为兼容降级，此时允许不设 JWT_SECRET_KEY（使用进程唯一随机密钥）。
+// 否则 JWT_SECRET_KEY 必须显式配置，生产环境绝不允许默认密钥。
 func NewJWTManager() *JWTManager {
 	secretKey := os.Getenv("JWT_SECRET_KEY")
 	if secretKey == "" {
-		secretKey = "your-secret-key-change-this-in-production"
+		// Supabase 模式下认证走 JWKS，本地 JWT 仅作降级兼容，允许不设 JWT_SECRET_KEY
+		if os.Getenv("SUPABASE_JWT_SECRET") == "" {
+			log.Fatal("JWT_SECRET_KEY is not set — 自建认证模式下必须配置 JWT_SECRET_KEY")
+		}
 	}
 
 	durationStr := os.Getenv("JWT_TOKEN_DURATION")
-	duration := 24 * time.Hour // Default to 24 hours
+	duration := 24 * time.Hour // 默认 24 小时
 	if durationStr != "" {
 		if d, err := time.ParseDuration(durationStr); err == nil {
 			duration = d
@@ -48,17 +57,33 @@ func NewJWTManager() *JWTManager {
 	}
 }
 
-// GenerateToken generates a new JWT token for the user
+// GenerateToken generates a new JWT access token for the user（24h 有效期）
 func (j *JWTManager) GenerateToken(user *models.User) (string, error) {
+	return j.generateTokenWithExpiry(user.ID, user.Username, "access", j.tokenDuration)
+}
+
+// GenerateAccessToken 生成 access token（24h），用于 API 鉴权
+func (j *JWTManager) GenerateAccessToken(userID uint, username string) (string, error) {
+	return j.generateTokenWithExpiry(userID, username, "access", j.tokenDuration)
+}
+
+// GenerateRefreshToken 生成 refresh token（7 天），用于续签 access token
+func (j *JWTManager) GenerateRefreshToken(userID uint) (string, error) {
+	return j.generateTokenWithExpiry(userID, "", "refresh", 7*24*time.Hour)
+}
+
+// generateTokenWithExpiry 签发带自定义过期时间的 JWT
+func (j *JWTManager) generateTokenWithExpiry(userID uint, username, tokenType string, ttl time.Duration) (string, error) {
 	claims := JWTClaims{
-		UserID:   user.ID,
-		Username: user.Username,
+		UserID:   userID,
+		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(j.tokenDuration)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "siapp",
-			Subject:   strconv.Itoa(int(user.ID)),
+			Subject:   strconv.Itoa(int(userID)),
+			ID:        tokenType, // jwt.ID 字段存放 token 类型（"access"|"refresh"）
 		},
 	}
 
@@ -177,4 +202,10 @@ func GetUsernameFromContext(ctx context.Context) (string, error) {
 		return "", errors.New("username not found in context")
 	}
 	return username, nil
+}
+
+// HashToken 对 token 原文做 SHA-256 哈希，用于入库存储
+func HashToken(rawToken string) string {
+	hash := sha256.Sum256([]byte(rawToken))
+	return hex.EncodeToString(hash[:])
 }

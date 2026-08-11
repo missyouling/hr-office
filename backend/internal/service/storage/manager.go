@@ -45,7 +45,14 @@ func (m *StorageManager) Init() error {
 	defer m.mu.Unlock()
 
 	for _, config := range configs {
-		driver, err := m.registry.Create(config.Type, []byte(config.Config))
+		// 解密配置（若未加密则直接返回原文）
+		rawConfig := []byte(config.Config)
+		decryptedConfig, err := DecryptConfig(rawConfig, aesKey)
+		if err != nil {
+			log.Printf("[StorageManager] failed to decrypt config %d (%s): %v", config.ID, config.Name, err)
+			continue
+		}
+		driver, err := m.registry.Create(config.Type, decryptedConfig)
 		if err != nil {
 			log.Printf("[StorageManager] failed to initialize driver for config %d (%s): %v", config.ID, config.Name, err)
 			continue
@@ -75,7 +82,13 @@ func (m *StorageManager) GetDriver(configID uint) (Driver, error) {
 		return nil, fmt.Errorf("storage config is disabled")
 	}
 
-	driver, err := m.registry.Create(config.Type, []byte(config.Config))
+	// 解密配置（若未加密则直接返回原文）
+	rawConfig := []byte(config.Config)
+	decryptedConfig, decErr := DecryptConfig(rawConfig, aesKey)
+	if decErr != nil {
+		return nil, fmt.Errorf("failed to decrypt config: %w", decErr)
+	}
+	driver, err := m.registry.Create(config.Type, decryptedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize driver: %w", err)
 	}
@@ -134,59 +147,15 @@ func (m *StorageManager) UploadFile(ctx context.Context, configID uint, userID u
 	hash.Write(fileData)
 	etag := hex.EncodeToString(hash.Sum(nil))
 
-	// Attempt upload to primary storage
+	// 尝试上传到主存储
 	uploadErr := driver.Upload(ctx, storagePath, io.NopCloser(bytes.NewReader(fileData)), size)
-	
-	// If upload failed and primary storage is not local, attempt failover to local
+
+	// 上传失败直接返回 error，不再静默降级到本地存储
+	// 理由：静默 fallback 会导致用户无法感知文件被放到非预期存储中，造成数据分散与安全风险
+	// 调用方应根据错误信息决定是否需要手动切换到备选存储重试
 	if uploadErr != nil {
-		log.Printf("[StorageManager] upload to config %d failed: %v, attempting failover to local storage", configID, uploadErr)
-		
-		if driver.Type() != "local" {
-			// Get default local storage config
-			var localConfig models.StorageConfig
-			if err := m.db.Where("user_id = ? AND type = ? AND enabled = ?", userID, "local", true).
-				First(&localConfig).Error; err != nil {
-				return nil, fmt.Errorf("primary upload failed and no local fallback available: %w", uploadErr)
-			}
-
-			localDriver, err := m.GetDriver(localConfig.ID)
-			if err != nil {
-				return nil, fmt.Errorf("primary upload failed and failed to get local driver: %w", uploadErr)
-			}
-
-			// Attempt upload to local fallback
-			if err := localDriver.Upload(ctx, storagePath, io.NopCloser(bytes.NewReader(fileData)), size); err != nil {
-				return nil, fmt.Errorf("both primary and fallback uploads failed: primary=%w, fallback=%w", uploadErr, err)
-			}
-
-			// Create SysFile record with fallback flags
-			sysFile := &models.SysFile{
-				StorageType:     localDriver.Type(),
-				Path:            storagePath,
-				OriginalName:    filename,
-				Size:            size,
-				ContentType:     contentType,
-				ETag:            etag,
-				StorageConfigID: &localConfig.ID,
-				CreatedBy:       &userID,
-				IsFallback:      true,
-				PrimaryConfigID: &configID,
-				MigrationStatus: "pending",
-			}
-
-			if err := m.db.Create(sysFile).Error; err != nil {
-				if delErr := localDriver.Delete(ctx, storagePath); delErr != nil {
-					log.Printf("[StorageManager] failed to delete fallback file after metadata creation error: %v", delErr)
-				}
-				return nil, fmt.Errorf("failed to create file metadata: %w", err)
-			}
-
-			log.Printf("[StorageManager] file uploaded to local fallback storage (config %d), marked for migration", localConfig.ID)
-			return sysFile, nil
-		}
-		
-		// If primary is already local, return the error
-		return nil, fmt.Errorf("failed to upload file to local storage: %w", uploadErr)
+		log.Printf("[StorageManager] upload to config %d (%s) failed: %v", configID, driver.Type(), uploadErr)
+		return nil, fmt.Errorf("failed to upload file to storage config %d: %w", configID, uploadErr)
 	}
 
 	sysFile := &models.SysFile{
@@ -292,7 +261,13 @@ func (m *StorageManager) RefreshDriver(configID uint) error {
 		return fmt.Errorf("storage config not found: %w", err)
 	}
 
-	driver, err := m.registry.Create(config.Type, []byte(config.Config))
+	// 解密配置（若未加密则直接返回原文）
+	rawConfig := []byte(config.Config)
+	decryptedConfig, err := DecryptConfig(rawConfig, aesKey)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt config: %w", err)
+	}
+	driver, err := m.registry.Create(config.Type, decryptedConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize driver: %w", err)
 	}

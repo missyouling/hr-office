@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -37,6 +38,12 @@ func (d *S3Driver) Init(configBytes []byte) error {
 	}
 	if d.config.Endpoint == "" || d.config.Bucket == "" {
 		return fmt.Errorf("s3 endpoint and bucket are required")
+	}
+
+	// SSRF 防护：校验 endpoint 不指向内网地址
+	if err := ValidateEndpoint(d.config.Endpoint); err != nil {
+		log.Printf("[S3Driver] SSRF check failed for endpoint %s: %v", d.config.Endpoint, err)
+		return fmt.Errorf("endpoint rejected by SSRF policy: %w", err)
 	}
 
 	if d.config.Region == "" {
@@ -96,6 +103,10 @@ func (d *S3Driver) Test(ctx context.Context) (*HealthStatus, error) {
 }
 
 func (d *S3Driver) Upload(ctx context.Context, path string, reader io.Reader, size int64) error {
+	// 路径遍历防护
+	if err := ValidateStoragePath(path); err != nil {
+		return err
+	}
 	_, err := d.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(d.config.Bucket),
 		Key:           aws.String(path),
@@ -109,6 +120,10 @@ func (d *S3Driver) Upload(ctx context.Context, path string, reader io.Reader, si
 }
 
 func (d *S3Driver) Download(ctx context.Context, path string) (io.ReadCloser, error) {
+	// 路径遍历防护
+	if err := ValidateStoragePath(path); err != nil {
+		return nil, err
+	}
 	result, err := d.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(d.config.Bucket),
 		Key:    aws.String(path),
@@ -120,6 +135,10 @@ func (d *S3Driver) Download(ctx context.Context, path string) (io.ReadCloser, er
 }
 
 func (d *S3Driver) Delete(ctx context.Context, path string) error {
+	// 路径遍历防护
+	if err := ValidateStoragePath(path); err != nil {
+		return err
+	}
 	_, err := d.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(d.config.Bucket),
 		Key:    aws.String(path),

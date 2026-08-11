@@ -63,9 +63,45 @@ services:
     networks:
       - siapp-network
 
+  # ============================================================
+  # WeKnora docreader 文档解析微服务
+  # 支持 Word/Excel/PPT/Markdown/PDF 等多格式文档解析
+  # 构建方式：从 /home/WeKnora/docreader 源码构建，添加 HTTP 桥接
+  # 如需禁用，注释掉此节即可
+  # ============================================================
+  docreader:
+    build:
+      context: /home/WeKnora/docreader
+      dockerfile: /home/hr-office/deploy/docreader/Dockerfile
+    container_name: hr-office-docreader
+    ports:
+      - "50051:50051"  # gRPC（WeKnora 原生协议）
+      - "50052:50052"  # HTTP 桥接（hr-office 调用入口 /parse, /health）
+    environment:
+      - PORT=50051
+      - DOCREADER_GRPC_PORT=50051
+      - GRPC_MAX_WORKERS=4
+      - MAX_FILE_SIZE_MB=50
+      - HTTP_PORT=50052
+      - LOG_LEVEL=INFO
+    volumes:
+      - docreader_data:/tmp/docreader
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:50052/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - siapp-network
+
 volumes:
   # 持久化后端数据
   backend_data:
+    driver: local
+  # docreader 临时数据
+  docreader_data:
     driver: local
 
 networks:

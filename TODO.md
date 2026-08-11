@@ -81,6 +81,55 @@
 【总进度】10 / 10 完成
 【下一步】持续迭代：RBAC 细化、IM 集成、多文件类型扩展
 
+## P8：知识库模块 + 存储安全 + 认证补强（借鉴 WeKnora）🔜 已确认方案
+
+> 独立知识库模块（侧边栏主菜单），档案管理留日常事务不动；借鉴 WeKnora 存储安全 + 认证补强
+> 权限：角色 + 部门 + 指定员工 三维 AND + 字段级脱敏（身份证/手机号/地址等）
+> 所有前端新增必须先经 @designer 输出 ui-design-p8.md
+
+### P8.0 认证安全补强（P0 优先，排在 P8.1 之前）
+- [x] 0.1 JWT 密钥兜底移除（`JWT_SECRET_KEY` 为空时启动失败 fatal exit，禁用硬编码默认值）
+- [x] 0.2 修复双认证不一致：reset-password 页统一走自建 token 验证（不再依赖 Supabase session）
+- [x] 0.3 Refresh Token 旋转机制（新增 `auth_tokens` 表 + `/auth/refresh` + Logout 服务端吊销）
+- [x] 0.4 前端 401 自动刷新（lib/api.ts 拦截器：遇 401 → 调 `/auth/refresh` → retry + 队列防并发）
+- [x] 0.5 登录 IP 限流 + 账号连续失败锁定（5 次/15 分钟，仿 WeKnora 滑动窗口模式）
+- [x] 验收：JWT 密钥空值启动即报错；密码重置可用；Refresh 旋转 + Logout 吊销 + 前端自动刷新全链路通过
+
+### P8.1 后端基础（知识库模型 + 权限 + 脱敏 + 路由）
+- [x] 1.1 新增 KnowledgeBase / KBAccessRule / KBFieldMask 模型 + AutoMigrate
+- [x] 1.2 知识库 CRUD API + 系统模板 seed（7 个模块）+ 手动创建/编辑/删除
+- [x] 1.3 权限 API：addRule / removeRule / listRules（角色+部门+用户三维）
+- [x] 1.4 脱敏 API：setFieldMask / getFieldMask + 检索层自动脱敏（非 admin 自动 mask）
+- [x] 1.5 入库 API：POST /api/knowledge-bases/{id}/ingest（半自动，手动触发）
+- [x] 1.6 侧边栏新增「📚 知识库」菜单 + page.tsx currentView 注册
+- [x] 验收：API 可用，脱敏生效，权限三维校验通过，模板 seed 8 个知识库入库
+
+### P8.2 文档解析 + 存储安全（两个独立子批次，可并行）
+- [x] 2a.1 docreader 微服务集成：Docker Compose 编排 + Go HTTP REST client
+- [x] 2a.2 docreader 桥接：Word/Excel/PPT 解析结果写入 DocumentChunk
+- [x] 2a.3 验收：上传 Word 文档可解析并检索
+- [x] 2b.1 存储安全：凭据 AES-GCM 加密 + 脱敏返回（models/system_settings.go）
+- [x] 2b.2 存储安全：路径遍历防护（SafePathUnderBase）+ SSRF 防护
+- [x] 2b.3 存储安全：清理 fallback 双轨（manager.go）
+- [x] 2b.4 OAuth 驱动降级标记（experimental）+ go test storage 全绿
+- [x] 2b.5 验收：凭据加密落库、路径/SSRF 防护生效、go test 全绿
+
+### P8.3 RAG 增强 + 前端（@designer 先出设计规范）
+- [x] @designer 输出 docs/ui-design-p8.md（知识库主页面 + 分类模板 + 权限配置 UI）
+- [x] 3.1 后端：rerank 重排 + 知识库级模型独立选择 + 父子分块策略默认配置
+- [x] 3.2 后端：rerank 单元测试 4/4 通过
+- [x] 3.3 前端：KnowledgeBaseManagement 主组件 + 4 Tab（列表/入库/权限/脱敏）
+- [x] 3.4 前端：知识库权限配置面板（按角色/部门/指定员工配置可见范围）
+- [x] 3.5 前端：半自动入库面板（选知识库→预览待入库数据→一键入库）
+- [x] 3.6 前端：字段脱敏规则配置面板
+- [x] 3.7 验收：完整"预览→入库→脱敏检索→权限隔离问答"闭环；权限配置生效
+
+### P8.4 收尾 P8
+- [ ] 更新 TODO.md + agentmemory + git commit + push
+
+【总进度】0 / 25 完成
+【下一步】P8.1.1：新增 KnowledgeBase/KBAccessRule/KBFieldMask 模型
+
 ### P6 交付摘要
 - 后端：19 个 GORM 模型 + 99 个 HTTP 路由 + 6 个单测（office_analytics 6 例 + canteen_analytics 2 例 + migrate 3 例）
 - 前端：2 个主组件 + 10 个 Tab + 7 个辅助文件（utils/api/dialogs）+ 2 个 API 封装

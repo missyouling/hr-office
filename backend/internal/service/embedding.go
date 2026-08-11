@@ -132,17 +132,17 @@ func (s *EmbeddingService) GenerateEmbedding(userID uint, text string) ([]float6
 // recordUsage 异步记录模型用量
 func (s *EmbeddingService) recordUsage(userID uint, config *models.ModelConfig, status string, inputTokens, outputTokens, durationMs int, errMsg string) {
 	usageLog := &models.ModelUsageLog{
-		UserID:      userID,
-		ConfigID:    config.ID,
-		ModelName:   config.ModelName,
-		Provider:    config.Provider,
-		ConfigType:  "embedding",
-		InputTokens: inputTokens,
+		UserID:       userID,
+		ConfigID:     config.ID,
+		ModelName:    config.ModelName,
+		Provider:     config.Provider,
+		ConfigType:   "embedding",
+		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
-		TotalTokens: inputTokens + outputTokens,
-		Status:      status,
-		ErrorMsg:    errMsg,
-		DurationMs:  durationMs,
+		TotalTokens:  inputTokens + outputTokens,
+		Status:       status,
+		ErrorMsg:     errMsg,
+		DurationMs:   durationMs,
 	}
 	usageLog.CostUSD = usageLog.CalculateCost()
 	if err := s.db.Create(usageLog).Error; err != nil {
@@ -196,12 +196,21 @@ func DefaultChunkConfig() ChunkConfig {
 //  2. 记录 StartAt/EndAt 原文坐标
 //  3. 生成 ContentHash
 //  4. 通过 raw SQL 写入 pgvector，同时存储 JSON 副本
+//
+// kbID=0 时使用全局默认 embedding 模型
 func (s *EmbeddingService) IngestDocument(userID uint, docID uint, content string) error {
-	return s.IngestDocumentWithConfig(userID, docID, content, DefaultChunkConfig())
+	return s.IngestDocumentWithConfig(userID, docID, content, 0, DefaultChunkConfig())
+}
+
+// IngestDocumentForKB 使用知识库级 embedding 模型摄入文档
+// 当 kbID > 0 时，查 knowledge_bases.embedding_model_id 选择对应的嵌入模型
+func (s *EmbeddingService) IngestDocumentForKB(userID uint, docID uint, kbID uint, content string) error {
+	return s.IngestDocumentWithConfig(userID, docID, content, kbID, DefaultChunkConfig())
 }
 
 // IngestDocumentWithConfig 使用自定义分块配置摄入文档
-func (s *EmbeddingService) IngestDocumentWithConfig(userID uint, docID uint, content string, cfg ChunkConfig) error {
+// kbID > 0 时，优先使用知识库绑定的 embedding 模型
+func (s *EmbeddingService) IngestDocumentWithConfig(userID uint, docID uint, content string, kbID uint, cfg ChunkConfig) error {
 	if strings.TrimSpace(content) == "" {
 		return fmt.Errorf("content cannot be empty")
 	}
@@ -227,6 +236,15 @@ func (s *EmbeddingService) IngestDocumentWithConfig(userID uint, docID uint, con
 	// 分块处理（带 ContextHeader 和坐标）
 	chunks := s.splitContentWithContext(content, cfg)
 
+	// 获取嵌入模型配置：知识库级 > 用户级全局默认
+	embedCfg, embedModelName, err := s.getEmbeddingConfigForKB(kbID, userID)
+	if err != nil {
+		log.Printf("[embedding] 获取嵌入模型配置失败: %v，跳过向量化", err)
+	}
+	if embedCfg == nil {
+		log.Printf("[embedding] 未找到可用的嵌入模型配置，跳过向量化")
+	}
+
 	// 清除旧数据
 	if err := s.db.Where("doc_id = ?", docID).Delete(&models.DocumentChunk{}).Error; err != nil {
 		return fmt.Errorf("failed to delete old chunks: %v", err)
@@ -234,21 +252,30 @@ func (s *EmbeddingService) IngestDocumentWithConfig(userID uint, docID uint, con
 
 	// 为每个块生成向量并写入
 	for idx, chunk := range chunks {
-		// 用 EmbeddingContent（ContextHeader + Content）做向量化
-		vecText := chunk.EmbeddingContent()
-		vec, err := s.GenerateEmbedding(userID, vecText)
-		if err != nil {
-			log.Printf("[embedding] failed to generate embedding for chunk %d: %v", idx, err)
+		var vec []float64
+		var vecErr error
+
+		if embedCfg != nil {
+			// 使用知识库级或用户级嵌入模型配置
+			vec, vecErr = s.generateEmbeddingWithConfig(userID, chunk.EmbeddingContent(), embedCfg)
+		} else {
+			// fallback：使用原有用户级查找
+			vec, vecErr = s.GenerateEmbedding(userID, chunk.EmbeddingContent())
+		}
+
+		if vecErr != nil {
+			log.Printf("[embedding] failed to generate embedding for chunk %d: %v", idx, vecErr)
 			chunk.IndexStatus = models.IndexStatusFailed
 		}
-		if len(vec) == 0 {
+		if len(vec) == 0 && chunk.IndexStatus != models.IndexStatusFailed {
 			chunk.IndexStatus = models.IndexStatusFailed
 		}
+
+		chunk.ModelName = embedModelName
 
 		// ContentHash
 		hash := sha256.Sum256([]byte(chunk.Content))
 		chunk.ContentHash = fmt.Sprintf("%x", hash)
-		chunk.ModelName = "embedding-model"
 		chunk.CreatedAt = time.Now()
 		chunk.UpdatedAt = time.Now()
 
@@ -400,13 +427,13 @@ func (s *EmbeddingService) splitContentWithContext(content string, cfg ChunkConf
 		}
 
 		chunk := &models.DocumentChunk{
-			ChunkIndex:     i,
-			ChunkType:      models.ChunkTypeText,
-			Content:        content,
-			SourceContent:  content, // 初始源内容 = 内容
-			ContextHeader:  cand.ContextHeader,
-			StartAt:        cand.StartAt,
-			EndAt:          cand.EndAt,
+			ChunkIndex:      i,
+			ChunkType:       models.ChunkTypeText,
+			Content:         content,
+			SourceContent:   content, // 初始源内容 = 内容
+			ContextHeader:   cand.ContextHeader,
+			StartAt:         cand.StartAt,
+			EndAt:           cand.EndAt,
 			ContentRevision: 1,
 			IndexStatus:     models.IndexStatusReady,
 		}
@@ -491,11 +518,11 @@ func (s *EmbeddingService) buildParentChildChunks(chunks []*models.DocumentChunk
 			}
 
 			parentChunk := &models.DocumentChunk{
-				ChunkIndex: -(i + 1), // 负数区分父块
-				ChunkType:  models.ChunkTypeParent,
-				Content:    parentContent,
-				StartAt:    start,
-				EndAt:      chunk.EndAt,
+				ChunkIndex:      -(i + 1), // 负数区分父块
+				ChunkType:       models.ChunkTypeParent,
+				Content:         parentContent,
+				StartAt:         start,
+				EndAt:           chunk.EndAt,
 				ContentRevision: 1,
 				IndexStatus:     models.IndexStatusReady,
 			}
@@ -520,6 +547,149 @@ func extractTextRange(text string, start, end int) string {
 		return ""
 	}
 	return string(runes[start:end])
+}
+
+// ============================================================
+// 知识库级嵌入模型选择
+// ============================================================
+
+// getEmbeddingConfigForKB 获取知识库绑定的嵌入模型配置
+// 优先级：kbID > 0 且 KnowledgeBase.EmbeddingModelID 非空 → 使用对应 ModelConfig
+// 否则 fallback 到用户级全局默认 embedding 模型
+// 返回：配置、模型名称、错误
+func (s *EmbeddingService) getEmbeddingConfigForKB(kbID uint, userID uint) (*models.ModelConfig, string, error) {
+	if kbID > 0 {
+		var kb models.KnowledgeBase
+		if err := s.db.First(&kb, kbID).Error; err == nil {
+			if kb.EmbeddingModelID != nil {
+				var cfg models.ModelConfig
+				if err := s.db.First(&cfg, *kb.EmbeddingModelID).Error; err == nil {
+					log.Printf("[embedding] 使用知识库 %d 绑定的嵌入模型: %s (config_id=%d)", kbID, cfg.ModelName, cfg.ID)
+					return &cfg, cfg.ModelName, nil
+				}
+				log.Printf("[embedding] 知识库 %d 的嵌入模型配置 %d 未找到，fallback 到用户默认配置", kbID, *kb.EmbeddingModelID)
+			}
+		}
+	}
+
+	// fallback 到用户级全局默认配置
+	cfg, err := s.GetEmbeddingConfig(userID)
+	if err != nil {
+		return nil, "embedding-model", err
+	}
+	if cfg == nil {
+		return nil, "embedding-model", nil
+	}
+	return cfg, cfg.ModelName, nil
+}
+
+// GetEmbeddingConfigByKB 获取知识库绑定的嵌入模型配置（公开方法，供外部调用）
+func (s *EmbeddingService) GetEmbeddingConfigByKB(kbID uint) (*models.ModelConfig, error) {
+	if kbID == 0 {
+		return nil, nil
+	}
+
+	var kb models.KnowledgeBase
+	if err := s.db.First(&kb, kbID).Error; err != nil {
+		return nil, fmt.Errorf("知识库 %d 不存在: %w", kbID, err)
+	}
+
+	if kb.EmbeddingModelID == nil {
+		return nil, nil // 知识库未绑定嵌入模型
+	}
+
+	var cfg models.ModelConfig
+	if err := s.db.First(&cfg, *kb.EmbeddingModelID).Error; err != nil {
+		return nil, fmt.Errorf("知识库 %d 绑定的模型配置 %d 未找到: %w", kbID, *kb.EmbeddingModelID, err)
+	}
+	return &cfg, nil
+}
+
+// generateEmbeddingWithConfig 使用指定模型配置生成向量（绕过用户级配置查找）
+func (s *EmbeddingService) generateEmbeddingWithConfig(userID uint, text string, config *models.ModelConfig) ([]float64, error) {
+	if config == nil {
+		return []float64{}, fmt.Errorf("嵌入模型配置为空")
+	}
+	if strings.TrimSpace(text) == "" {
+		return []float64{}, fmt.Errorf("文本不能为空")
+	}
+
+	return s.callEmbeddingAPI(userID, text, config)
+}
+
+// callEmbeddingAPI 调用嵌入模型 API（与 GenerateEmbedding 相同的 API 调用逻辑）
+func (s *EmbeddingService) callEmbeddingAPI(userID uint, text string, config *models.ModelConfig) ([]float64, error) {
+	startTime := time.Now()
+
+	reqBody := map[string]interface{}{
+		"input": text,
+		"model": config.ModelName,
+	}
+
+	reqBodyJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return []float64{}, fmt.Errorf("序列化请求失败: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", config.APIEndpoint, bytes.NewReader(reqBodyJSON))
+	if err != nil {
+		return []float64{}, fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if config.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.APIKey))
+	}
+
+	resp, err := s.httpClient.Do(req)
+	elapsed := time.Since(startTime)
+
+	if err != nil {
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		log.Printf("[embedding] API 调用失败: %v", err)
+		return []float64{}, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)))
+		log.Printf("[embedding] API 返回 %d: %s", resp.StatusCode, string(body))
+		return []float64{}, nil
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		log.Printf("[embedding] 响应解析失败: %v", err)
+		return []float64{}, nil
+	}
+
+	inputTokens := 0
+	if usage, ok := result["usage"].(map[string]interface{}); ok {
+		if pt, ok := usage["prompt_tokens"].(float64); ok {
+			inputTokens = int(pt)
+		}
+	}
+
+	vec := []float64{}
+	if data, ok := result["data"].([]interface{}); ok && len(data) > 0 {
+		if item, ok := data[0].(map[string]interface{}); ok {
+			if embedding, ok := item["embedding"].([]interface{}); ok {
+				vec = make([]float64, len(embedding))
+				for i, v := range embedding {
+					if f, ok := v.(float64); ok {
+						vec[i] = f
+					}
+				}
+				go s.recordUsage(userID, config, "success", inputTokens, 0, int(elapsed.Milliseconds()), "")
+				return vec, nil
+			}
+		}
+	}
+
+	go s.recordUsage(userID, config, "failed", inputTokens, 0, int(elapsed.Milliseconds()), "响应中无 embedding 数据")
+	return []float64{}, nil
 }
 
 // ============================================================
