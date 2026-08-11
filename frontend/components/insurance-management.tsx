@@ -276,7 +276,7 @@ interface InsuranceManagementProps {
   className?: string;
 }
 
-export function InsuranceManagement({ className }: InsuranceManagementProps) {
+export function InsuranceManagement({}: InsuranceManagementProps) {
   // State declarations
   const [periods, setPeriods] = useState<Period[]>([]);
   const [periodsLoading, setPeriodsLoading] = useState(true);

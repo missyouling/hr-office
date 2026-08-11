@@ -1,7 +1,7 @@
 // 办公劳保模块 API 封装（直接 fetch，后续可迁移到 lib/api-office.ts）
 "use client";
 
-import { useAuth } from "@/lib/auth";
+import type { OfficeCategory, OfficeSupplier, OfficeSupply, OfficePurchase, OfficePaymentRequest } from "@/lib/api-office";
 
 const BASE = "/api/office";
 
@@ -35,10 +35,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // 用品字典
 export const suppliesApi = {
-  list: (params?: Record<string, unknown>) => request<{ items: any[]; total?: number }>(`/supplies?${toQuery(params)}`),
-  get: (id: number) => request<any>(`/supplies/${id}`),
-  create: (data: any) => request<any>("/supplies", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: any) => request<any>(`/supplies/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: (params?: Record<string, unknown>) => request<{ items: OfficeSupply[]; total?: number }>(`/supplies?${toQuery(params)}`),
+  get: (id: number) => request<OfficeSupply>(`/supplies/${id}`),
+  create: (data: Partial<OfficeSupply>) => request<OfficeSupply>("/supplies", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<OfficeSupply>) => request<OfficeSupply>(`/supplies/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/supplies/${id}`, { method: "DELETE" }),
   listUnits: () => request<{ units: string[] }>("/supplies/units"),
   importCsv: (csvText: string) => request<{ ok: number; err: number }>("/supplies/import", { method: "POST", body: JSON.stringify({ csv: csvText }) }),
@@ -52,48 +52,48 @@ export const suppliesApi = {
 
 // 用品分类
 export const categoriesApi = {
-  list: () => request<{ items: any[] }>("/categories"),
-  create: (data: any) => request<any>("/categories", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: any) => request<any>(`/categories/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: () => request<{ items: OfficeCategory[] }>("/categories"),
+  create: (data: Partial<OfficeCategory>) => request<OfficeCategory>("/categories", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<OfficeCategory>) => request<OfficeCategory>(`/categories/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/categories/${id}`, { method: "DELETE" }),
 };
 
 // 供应商
 export const suppliersApi = {
-  list: () => request<{ items: any[] }>("/suppliers"),
-  create: (data: any) => request<any>("/suppliers", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: any) => request<any>(`/suppliers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: () => request<{ items: OfficeSupplier[] }>("/suppliers"),
+  create: (data: Partial<OfficeSupplier>) => request<OfficeSupplier>("/suppliers", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<OfficeSupplier>) => request<OfficeSupplier>(`/suppliers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/suppliers/${id}`, { method: "DELETE" }),
 };
 
 // 采购单
 export const purchasesApi = {
-  list: (params?: Record<string, unknown>) => request<{ items: any[]; total?: number; total_sum?: number; min_date?: string; max_date?: string }>(`/purchases?${toQuery(params)}`),
-  get: (id: number) => request<any>(`/purchases/${id}`),
-  create: (data: any) => request<any>("/purchases", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: any) => request<any>(`/purchases/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: (params?: Record<string, unknown>) => request<{ items: OfficePurchase[]; total?: number; total_sum?: number; min_date?: string; max_date?: string }>(`/purchases?${toQuery(params)}`),
+  get: (id: number) => request<OfficePurchase>(`/purchases/${id}`),
+  create: (data: Partial<OfficePurchase>) => request<OfficePurchase>("/purchases", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<OfficePurchase>) => request<OfficePurchase>(`/purchases/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/purchases/${id}`, { method: "DELETE" }),
-  unpaid: () => request<{ items: any[] }>("/purchases/unpaid"),
-  searchBySupply: (keyword: string) => request<{ items: any[] }>(`/purchases/search-by-supply?keyword=${encodeURIComponent(keyword)}`),
+  unpaid: () => request<{ items: OfficePurchase[] }>("/purchases/unpaid"),
+  searchBySupply: (keyword: string) => request<{ items: OfficePurchase[] }>(`/purchases/search-by-supply?keyword=${encodeURIComponent(keyword)}`),
 };
 
 // 请款单
 export const paymentRequestsApi = {
-  list: (params?: Record<string, unknown>) => request<{ items: any[]; total?: number }>(`/payment-requests?${toQuery(params)}`),
-  get: (id: number) => request<any>(`/payment-requests/${id}`),
-  create: (data: any) => request<any>("/payment-requests", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: any) => request<any>(`/payment-requests/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: (params?: Record<string, unknown>) => request<{ items: OfficePaymentRequest[]; total?: number }>(`/payment-requests?${toQuery(params)}`),
+  get: (id: number) => request<OfficePaymentRequest>(`/payment-requests/${id}`),
+  create: (data: Partial<OfficePaymentRequest>) => request<OfficePaymentRequest>("/payment-requests", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<OfficePaymentRequest>) => request<OfficePaymentRequest>(`/payment-requests/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => request<void>(`/payment-requests/${id}`, { method: "DELETE" }),
 };
 
 // 数据分析
 export const analyticsApi = {
-  summary: (params: any) => request<any>(`/analytics/summary?${toQuery(params)}`),
-  categoryTrend: (params: any) => request<any>(`/analytics/category-trend?${toQuery(params)}`),
-  trend: (params: any) => request<any>(`/analytics/trend?${toQuery(params)}`),
-  topItems: (params: any) => request<any>(`/analytics/top-items?${toQuery(params)}`),
-  priceAnomaly: (params: any) => request<any>(`/analytics/price-anomaly?${toQuery(params)}`),
-  suggestions: (params: any) => request<any>(`/analytics/suggestions?${toQuery(params)}`),
+  summary: (params: Record<string, unknown>) => request<Record<string, unknown>>(`/analytics/summary?${toQuery(params)}`),
+  categoryTrend: (params: Record<string, unknown>) => request<Record<string, unknown>>(`/analytics/category-trend?${toQuery(params)}`),
+  trend: (params: Record<string, unknown>) => request<Record<string, unknown>>(`/analytics/trend?${toQuery(params)}`),
+  topItems: (params: Record<string, unknown>) => request<Record<string, unknown>>(`/analytics/top-items?${toQuery(params)}`),
+  priceAnomaly: (params: Record<string, unknown>) => request<Record<string, unknown>>(`/analytics/price-anomaly?${toQuery(params)}`),
+  suggestions: (params: Record<string, unknown>) => request<Record<string, unknown>>(`/analytics/suggestions?${toQuery(params)}`),
 };
 
 function toQuery(params?: Record<string, unknown>): string {

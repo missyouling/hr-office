@@ -161,6 +161,8 @@ export function ModelSettings() {
 
   useEffect(() => {
     loadConfigs();
+    // 按需调用：loadConfigs 为组件内部函数，首次挂载时执行一次即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 

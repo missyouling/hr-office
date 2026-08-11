@@ -1786,7 +1786,7 @@ const RESPONSIVE_FIELD_GRID_CLASS =
   "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [&>div]:min-w-0 [&>div]:w-full sm:[&>div]:min-w-[260px]";
 const CALLBACK_PERSONAL_MAP_STORAGE_KEY = "insurance-callback-map";
 
-export function EmployeeManagement({ className }: EmployeeManagementProps) {
+export function EmployeeManagement({}: EmployeeManagementProps) {
   // 状态管理
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [resignedEmployees, setResignedEmployees] = useState<Employee[]>([]);

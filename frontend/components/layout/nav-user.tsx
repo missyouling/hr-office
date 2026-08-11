@@ -32,6 +32,7 @@ export function NavUser({ displayName, subLine }: NavUserProps) {
               title={subLine ? `${displayName} | ${subLine}` : displayName}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted shadow-sm transition hover:opacity-90"
             >
+              {/* eslint-disable-next-line @next/next/no-img-element -- 头像URL动态生成（DiceBear API），无需 next/image 优化 */}
               <img
                 src={user?.full_name ? getDefaultAvatar(user.full_name) : getDefaultAvatar(displayName)}
                 alt="avatar"
@@ -53,6 +54,7 @@ export function NavUser({ displayName, subLine }: NavUserProps) {
             onClick={() => setIsPreferencesOpen(true)}
             className="flex h-[46px] w-full items-center gap-2 rounded-md bg-muted px-3 text-foreground transition hover:bg-muted/80"
           >
+            {/* eslint-disable-next-line @next/next/no-img-element -- 头像URL动态生成（DiceBear API），无需 next/image 优化 */}
             <img
               src={user?.full_name ? getDefaultAvatar(user.full_name) : getDefaultAvatar(displayName)}
               alt="avatar"

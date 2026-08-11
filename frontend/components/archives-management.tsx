@@ -252,6 +252,8 @@ export function ArchivesManagement() {
   // 加载文档列表
   useEffect(() => {
     loadDocuments();
+    // 按需调用：loadDocuments 内部依赖的所有变量已在依赖数组中，无需额外声明
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, activeTab, filterRetentionPeriod, filterStatus, sortField, sortDirection, selectedFolderPath, selectedTagNames]);
 
   // 全选逻辑
@@ -263,6 +265,8 @@ export function ArchivesManagement() {
     } else if (!selectAll && selectedIds.length === filteredDocuments.length) {
       // 保持当前选择
     }
+    // selectedIds.length 仅用于逻辑判断，加入依赖会导致循环更新
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectAll, filteredDocuments]);
 
   // 保存打印设置到 localStorage
@@ -1046,6 +1050,7 @@ export function ArchivesManagement() {
   // 获取文件类型图标
   const getFileIcon = (fileType?: string) => {
     if (!fileType) return <File className="h-8 w-8 text-muted-foreground" />;
+    // eslint-disable-next-line jsx-a11y/alt-text -- lucide-react 的 Image 图标组件，非 HTML img
     if (fileType.startsWith('image/')) return <Image className="h-8 w-8 text-blue-500" />;
     if (fileType === 'application/pdf') return <FileText className="h-8 w-8 text-red-500" />;
     if (fileType.startsWith('video/')) return <Video className="h-8 w-8 text-purple-500" />;
@@ -1364,6 +1369,7 @@ export function ArchivesManagement() {
                 {/* 图片预览 */}
                 {previewDoc?.file_type === "image" && (
                   <div className="flex h-full items-center justify-center overflow-auto p-4 bg-muted/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- 图片预览为动态Blob URL，无需 next/image 优化 */}
                     <img
                       src={previewUrl}
                       alt={previewDoc?.file_name}
@@ -1556,7 +1562,7 @@ export function ArchivesManagement() {
                         await uploadDocumentFile(duplicateFileInfo.existingDoc.id, duplicateFileInfo.newFile);
                         toast.success("文件已覆盖");
                         loadDocuments();
-                      } catch (error) {
+                      } catch {
                         toast.error("操作失败");
                       }
                     }

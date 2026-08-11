@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText, Building2, BookOpen } from "lucide-react";
 
 import { useAuth } from "@/lib/supabase/auth-context";
-import { toast } from "sonner";
 
 import {
   Sidebar,
@@ -41,7 +40,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 }
 
 export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarProps) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const availableNavItems = NAV_ITEMS.filter((item) => {
     if (item.id === "organization" || item.id === "audit" || item.id === "monitoring") {
@@ -61,16 +60,6 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
     ...(showSystemSettings ? [SYSTEM_SETTINGS_ITEM] : []),
     ...(showFeedback ? [FEEDBACK_ITEM] : []),
   ];
-
-  const handleLogout = async () => {
-    try {
-      logout();
-      toast.success("已退出登录");
-    } catch (error) {
-      console.error("Logout error", error);
-      toast.error("退出登录失败");
-    }
-  };
 
   return (
     <Sidebar collapsible="icon" variant="inset" className="relative" style={{ "--sidebar-width": "16rem", "--sidebar-width-icon": "3.5rem" } as React.CSSProperties} {...props}>

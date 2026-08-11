@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { X, User, Palette, Lock, Camera, Sun, Moon, Monitor, Bell, Layout } from "lucide-react";
+import { User, Palette, Lock, Camera, Sun, Moon, Monitor, Bell, Layout } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -213,6 +213,7 @@ export function UserPreferencesDialog({ open, onOpenChange }: UserPreferencesDia
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element -- 头像URL动态生成（DiceBear API），无需 next/image 优化 */}
             <img
               src={user?.full_name ? getDefaultAvatar(user.full_name) : getDefaultAvatar(username)}
               alt="avatar"
@@ -253,6 +254,7 @@ export function UserPreferencesDialog({ open, onOpenChange }: UserPreferencesDia
           <TabsContent value="profile" className="space-y-4 pt-4">
             <div className="flex items-center gap-4">
               <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element -- 头像URL动态生成（DiceBear API），无需 next/image 优化 */}
                 <img
                   src={user?.full_name ? getDefaultAvatar(user.full_name) : getDefaultAvatar(username)}
                   alt="avatar"

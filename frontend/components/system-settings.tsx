@@ -19,7 +19,6 @@ import {
   deleteAnnouncement,
   type Announcement,
   fetchDocumentCategories,
-  fetchFieldDefinitions,
   createFieldDefinition,
   updateFieldDefinition,
   deleteFieldDefinition,
@@ -55,10 +54,6 @@ import {
   updateStorageConfig,
   deleteStorageConfig,
   testStorageConnection,
-  uploadStorageFile,
-  listStorageFiles,
-  deleteStorageFile,
-  getStorageFileDownloadUrl,
   listNotificationConfigs,
   createNotificationConfig,
   updateNotificationConfig,
@@ -77,7 +72,7 @@ import {
   deleteStorageRuleEnhanced,
   listStorageDirectoriesEnhanced,
 } from "@/lib/api";
-import type { AuditLog, StorageConfig, SysFile, StorageModuleConfig, StorageRule } from "@/lib/types";
+import type { StorageConfig, StorageModuleConfig, StorageRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 
@@ -95,7 +90,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RefreshCw, Download, Eye, Plus, Trash2, Edit, Upload, HardDrive, Cloud, Server, Pencil, ShieldCheck, Search, Settings2, Info, Sliders, Circle, Database } from "lucide-react";
+import { RefreshCw, Eye, Plus, Trash2, Edit, HardDrive, Cloud, Server, ShieldCheck, Search, Settings2, Info, Sliders, Circle, Database } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
@@ -152,320 +147,7 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
   },
 ];
 
-// 用于 flat 查找
-const SETTINGS_TABS = SETTINGS_TAB_GROUPS.flatMap((g) => g.items);
 
-// 根据 tab id 查找所属分组
-function getGroupForTab(tabId: string): SettingsTabGroup | undefined {
-  return SETTINGS_TAB_GROUPS.find((g) => g.items.some((item) => item.id === tabId));
-}
-
-// 模型配置 Tab
-function ModelConfigTab() {
-  const [activeTab, setActiveTab] = useState<"chat" | "embedding" | "rerank">("chat");
-  const [testing, setTesting] = useState<Record<string, boolean>>({});
-  const [statuses, setStatuses] = useState<Record<string, "idle" | "success" | "error">>({});
-
-  // 通用大模型配置
-  const [chatConfig, setChatConfig] = useState({
-    provider: "openai",
-    api_key: "",
-    model: "gpt-4o",
-    endpoint: "",
-    enabled: false,
-  });
-
-  // 向量模型配置
-  const [embeddingConfig, setEmbeddingConfig] = useState({
-    provider: "openai",
-    api_key: "",
-    model: "text-embedding-3-small",
-    endpoint: "",
-    enabled: false,
-  });
-
-  // 重排模型配置
-  const [rerankConfig, setRerankConfig] = useState({
-    provider: "cohere",
-    api_key: "",
-    model: "rerank-multilingual-v2.0",
-    endpoint: "",
-    enabled: false,
-  });
-
-  // 测试连接
-  const handleTest = async (type: string, config: Record<string, unknown>) => {
-    setTesting({ ...testing, [type]: true });
-    setStatuses({ ...statuses, [type]: "idle" });
-    try {
-      // TODO: 调用后端 API 测试连接
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setStatuses({ ...statuses, [type]: "success" });
-      toast.success("连接测试成功");
-    } catch (error) {
-      setStatuses({ ...statuses, [type]: "error" });
-      toast.error("连接失败");
-    } finally {
-      setTesting({ ...testing, [type]: false });
-    }
-  };
-
-  // 保存配置
-  const handleSave = () => {
-    toast.success("模型配置已保存");
-  };
-
-  // 状态指示器组件
-  const StatusIndicator = ({ status }: { status: "idle" | "success" | "error" }) => {
-    if (status === "idle") return <span className="text-muted-foreground text-sm">未测试</span>;
-    if (status === "success") return <span className="text-green-600 text-sm flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> 已连接</span>;
-    return <span className="text-red-600 text-sm flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> 连接失败</span>;
-  };
-
-  // 通用配置表单
-  const renderChatConfig = () => (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="chat-enabled"
-          checked={chatConfig.enabled}
-          onCheckedChange={(checked) => setChatConfig({ ...chatConfig, enabled: checked })}
-        />
-        <Label htmlFor="chat-enabled">启用通用大模型</Label>
-        <StatusIndicator status={statuses.chat || "idle"} />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-provider">AI 厂商</Label>
-        <Select value={chatConfig.provider} onValueChange={(v) => setChatConfig({ ...chatConfig, provider: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="azure">Azure OpenAI</SelectItem>
-            <SelectItem value="qwen">阿里 Qwen</SelectItem>
-            <SelectItem value="local">本地模型 (Ollama)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-endpoint">API 地址</Label>
-        <Input
-          id="chat-endpoint"
-          placeholder="https://api.openai.com/v1"
-          value={chatConfig.endpoint}
-          onChange={(e) => setChatConfig({ ...chatConfig, endpoint: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-model">模型</Label>
-        <Input
-          id="chat-model"
-          placeholder="gpt-4o"
-          value={chatConfig.model}
-          onChange={(e) => setChatConfig({ ...chatConfig, model: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="chat-key">API Key</Label>
-        <Input
-          id="chat-key"
-          type="password"
-          placeholder="sk-..."
-          value={chatConfig.api_key}
-          onChange={(e) => setChatConfig({ ...chatConfig, api_key: e.target.value })}
-        />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => handleTest("chat", chatConfig)} disabled={testing.chat}>
-          {testing.chat ? "测试中..." : "测试连接"}
-        </Button>
-        <Button onClick={handleSave}>保存配置</Button>
-      </div>
-    </div>
-  );
-
-  // 向量模型配置表单
-  const renderEmbeddingConfig = () => (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="embedding-enabled"
-          checked={embeddingConfig.enabled}
-          onCheckedChange={(checked) => setEmbeddingConfig({ ...embeddingConfig, enabled: checked })}
-        />
-        <Label htmlFor="embedding-enabled">启用向量模型</Label>
-        <StatusIndicator status={statuses.embedding || "idle"} />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-provider">向量模型厂商</Label>
-        <Select value={embeddingConfig.provider} onValueChange={(v) => setEmbeddingConfig({ ...embeddingConfig, provider: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="azure">Azure OpenAI</SelectItem>
-            <SelectItem value="qwen">阿里 Qwen</SelectItem>
-            <SelectItem value="zhipuai">智谱 AI</SelectItem>
-            <SelectItem value="local">本地模型</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-endpoint">API 地址</Label>
-        <Input
-          id="embedding-endpoint"
-          placeholder="https://api.openai.com/v1"
-          value={embeddingConfig.endpoint}
-          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, endpoint: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-model">向量模型</Label>
-        <Input
-          id="embedding-model"
-          placeholder="text-embedding-3-small"
-          value={embeddingConfig.model}
-          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, model: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="embedding-key">API Key</Label>
-        <Input
-          id="embedding-key"
-          type="password"
-          placeholder="sk-..."
-          value={embeddingConfig.api_key}
-          onChange={(e) => setEmbeddingConfig({ ...embeddingConfig, api_key: e.target.value })}
-        />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => handleTest("embedding", embeddingConfig)} disabled={testing.embedding}>
-          {testing.embedding ? "测试中..." : "测试连接"}
-        </Button>
-        <Button onClick={handleSave}>保存配置</Button>
-      </div>
-    </div>
-  );
-
-  // 重排模型配置表单
-  const renderRerankConfig = () => (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="rerank-enabled"
-          checked={rerankConfig.enabled}
-          onCheckedChange={(checked) => setRerankConfig({ ...rerankConfig, enabled: checked })}
-        />
-        <Label htmlFor="rerank-enabled">启重视排模型</Label>
-        <StatusIndicator status={statuses.rerank || "idle"} />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-provider">重排模型厂商</Label>
-        <Select value={rerankConfig.provider} onValueChange={(v) => setRerankConfig({ ...rerankConfig, provider: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="cohere">Cohere</SelectItem>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="qwen">阿里 Qwen</SelectItem>
-            <SelectItem value="local">本地模型</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-endpoint">API 地址</Label>
-        <Input
-          id="rerank-endpoint"
-          placeholder="https://api.cohere.ai/v1"
-          value={rerankConfig.endpoint}
-          onChange={(e) => setRerankConfig({ ...rerankConfig, endpoint: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-model">重排模型</Label>
-        <Input
-          id="rerank-model"
-          placeholder="rerank-multilingual-v2.0"
-          value={rerankConfig.model}
-          onChange={(e) => setRerankConfig({ ...rerankConfig, model: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="rerank-key">API Key</Label>
-        <Input
-          id="rerank-key"
-          type="password"
-          placeholder="..."
-          value={rerankConfig.api_key}
-          onChange={(e) => setRerankConfig({ ...rerankConfig, api_key: e.target.value })}
-        />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => handleTest("rerank", rerankConfig)} disabled={testing.rerank}>
-          {testing.rerank ? "测试中..." : "测试连接"}
-        </Button>
-        <Button onClick={handleSave}>保存配置</Button>
-      </div>
-    </div>
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>模型配置</CardTitle>
-        <CardDescription>配置通用大模型、向量模型和重排模型</CardDescription>
-      </CardHeader>
-        <CardContent className="space-y-6">
-          {/* 按钮式标签栏 */}
-          <div className="flex gap-2">
-            <Button
-              variant={activeTab === "chat" ? "default" : "ghost"}
-              onClick={() => setActiveTab("chat")}
-            >
-              通用大模型
-            </Button>
-            <Button
-              variant={activeTab === "embedding" ? "default" : "ghost"}
-              onClick={() => setActiveTab("embedding")}
-            >
-              向量模型
-            </Button>
-            <Button
-              variant={activeTab === "rerank" ? "default" : "ghost"}
-              onClick={() => setActiveTab("rerank")}
-            >
-              重排模型
-            </Button>
-          </div>
-
-          {/* 内容区域 */}
-          <div className="mt-4 space-y-4">
-            {activeTab === "chat" && renderChatConfig()}
-            {activeTab === "embedding" && renderEmbeddingConfig()}
-            {activeTab === "rerank" && renderRerankConfig()}
-          </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ============ SMTP 配置 Tab ============
 function SMTPConfigTab() {
@@ -627,23 +309,6 @@ function formatNum(n: number): string {
   return String(n);
 }
 
-// 货币格式化函数（CNY）
-function formatCny(amount: number): string {
-  const formatter = new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: 'CNY',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const parts = formatter.formatToParts(amount);
-  return parts.map(part => {
-    if (part.type === 'currency') {
-      return '¥';
-    }
-    return part.value;
-  }).join('');
-}
-
 // ============ 模型使用统计 Tab ============
 function ModelUsageTab() {
   const [timeRange, setTimeRange] = useState("today");
@@ -734,6 +399,8 @@ function ModelUsageTab() {
 
   useEffect(() => {
     loadData();
+    // 按需调用：loadData 内部依赖的变量（timeRange、customFrom、customTo、selectedConfigType、selectedModel）已在依赖数组中
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange, customFrom, customTo, selectedConfigType, selectedModel]);
 
   const handleRefresh = () => {
@@ -2058,6 +1725,8 @@ function SubCategoryModal({
   );
 }
 
+// TODO: 预留代码，待后续功能使用
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AdvancedOptions() {
   return (
     <div className="space-y-6">
@@ -2251,7 +1920,6 @@ function StorageTab() {
     if (selectedModule) {
       const rule = rules.find(r => r.module_code === selectedModule.module_code);
       if (rule) {
-        const configObj = configs.find(c => c.id === rule.storage_id);
         const resolvedPath = rule.base_path || `/upload/${selectedModule.module_code}/{YYYY}`;
         setRuleForm({
           storage_id: rule.storage_id,
@@ -2366,16 +2034,6 @@ function StorageTab() {
       toast.error("保存规则失败");
     } finally {
       setSavingRule(false);
-    }
-  };
-
-  const handleDeleteRule = async (id: number) => {
-    try {
-      await deleteStorageRuleEnhanced(id);
-      toast.success("规则已删除");
-      loadData();
-    } catch {
-      toast.error("删除失败");
     }
   };
 
@@ -3775,7 +3433,6 @@ function CodeRulesTab() {
 export function SystemSettings() {
   const { user } = useAuth();
   const router = useRouter();
-  const [activeGroup, setActiveGroup] = useState("基础配置");
   const [activeSubTab, setActiveSubTab] = useState("announcements");
 
   // 权限校验
@@ -3785,15 +3442,6 @@ export function SystemSettings() {
       router.push("/");
     }
   }, [user, router]);
-
-  // 切换一级分组时，自动选中该分组的第一个子 tab
-  const handleGroupChange = (group: string) => {
-    setActiveGroup(group);
-    const groupData = SETTINGS_TAB_GROUPS.find((g) => g.group === group);
-    if (groupData && groupData.items.length > 0) {
-      setActiveSubTab(groupData.items[0].id);
-    }
-  };
 
   // 渲染对应的 Tab 内容
   const renderTabContent = () => {
@@ -3854,7 +3502,6 @@ export function SystemSettings() {
                   <button
                     key={item.id}
                     onClick={() => {
-                      setActiveGroup(group.group);
                       setActiveSubTab(item.id);
                     }}
                     className={cn(

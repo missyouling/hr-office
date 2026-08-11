@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+import type { OfficeSupply, OfficeCategory } from "@/lib/api-office";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,15 +13,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { categoriesApi, suppliesApi } from "../api";
 
+// 表单记录类型：在 lib 正式类型基础上追加实际 API 响应的扩展字段
+interface SupplyRecord extends OfficeSupply {
+  spec?: string;
+  reference_price?: number;
+  status?: string;
+  remark?: string;
+}
+
 interface SupplyDialogProps {
   open: boolean;
   onClose: (refresh: boolean) => void;
-  supply?: any;
+  supply?: SupplyRecord;
 }
 
 export default function SupplyDialog({ open, onClose, supply }: SupplyDialogProps) {
   const isEdit = !!supply;
-  const [cats, setCats] = useState<any[]>([]);
+  const [cats, setCats] = useState<OfficeCategory[]>([]);
   const [units, setUnits] = useState<string[]>(["个", "包", "箱", "瓶", "支", "双", "卷", "盒", "条", "袋"]);
   const [loading, setLoading] = useState(false);
   const [continuous, setContinuous] = useState(false);
@@ -88,8 +97,9 @@ export default function SupplyDialog({ open, onClose, supply }: SupplyDialogProp
         }
       }
       onClose(true);
-    } catch (e: any) {
-      toast.error("保存失败", { description: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "保存失败";
+      toast.error("保存失败", { description: msg });
     } finally {
       setLoading(false);
     }
