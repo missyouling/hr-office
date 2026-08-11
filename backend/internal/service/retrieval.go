@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -55,12 +56,25 @@ func NewRetrievalService(db *gorm.DB, embeddingService *EmbeddingService) *Retri
 // 1. 向量检索: pgvector HNSW 索引，cosine 距离
 // 2. 全文检索: PostgreSQL tsvector GIN 索引
 // 3. RRF 融合合并
-func (s *RetrievalService) HybridSearch(userID uint, query string, limit int) ([]SearchResult, error) {
+// kbID=0 表示搜索全部可见知识库；kbID>0 时限定在指定知识库范围内
+func (s *RetrievalService) HybridSearch(ctx context.Context, userID uint, query string, limit int, kbID uint) ([]SearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return []SearchResult{}, fmt.Errorf("query cannot be empty")
 	}
 	if limit <= 0 {
 		limit = 10
+	}
+
+	// 确定 KB 过滤所需的 user_id
+	var kbUserID uint // 0 = 不过滤
+	if kbID > 0 {
+		var kb models.KnowledgeBase
+		if err := s.db.First(&kb, kbID).Error; err != nil {
+			return nil, fmt.Errorf("知识库不存在: %v", err)
+		}
+		if kb.UserID != nil {
+			kbUserID = *kb.UserID
+		}
 	}
 
 	// 并行执行两路检索
@@ -73,11 +87,11 @@ func (s *RetrievalService) HybridSearch(userID uint, query string, limit int) ([
 	chVec := make(chan pair, 1)
 
 	go func() {
-		r, e := s.FullTextSearch(userID, query, limit*2)
+		r, e := s.FullTextSearch(userID, query, limit*2, kbUserID)
 		chFTS <- pair{r, e}
 	}()
 	go func() {
-		r, e := s.vectorSearch(userID, query, limit*2)
+		r, e := s.vectorSearch(userID, query, limit*2, kbUserID)
 		chVec <- pair{r, e}
 	}()
 
@@ -107,7 +121,8 @@ func (s *RetrievalService) HybridSearch(userID uint, query string, limit int) ([
 
 // FullTextSearch 使用 PostgreSQL tsvector 全文检索
 // 搜索范围: documents.content_tsv + document_chunks.content_tsv
-func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int) ([]SearchResult, error) {
+// kbUserID=0 表示不按知识库所有者过滤
+func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, kbUserID uint) ([]SearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return []SearchResult{}, fmt.Errorf("query cannot be empty")
 	}
@@ -117,6 +132,12 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int) 
 
 	// 使用 plainto_tsquery('simple', ...) 做纯分词匹配
 	// 'simple' 配置不做词典归一化（中文友好：按字符边界分词）
+
+	// 确定文档过滤的 user_id：kbUserID>0 时用知识库所有者，否则用请求者
+	docUserID := userID
+	if kbUserID > 0 {
+		docUserID = kbUserID
+	}
 	sql := `
 		SELECT 'doc' AS source, d.id AS doc_id, 0 AS chunk_id,
 		       ts_rank(d.content_tsv, plainto_tsquery('simple', ?)) AS score,
@@ -147,10 +168,10 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int) 
 		Title   string
 		Snippet string
 	}
-	if err := s.db.Raw(sql, query, userID, query, query, userID, query, limit).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(sql, query, docUserID, query, query, docUserID, query, limit).Scan(&rows).Error; err != nil {
 		// 降级：没有 tsvector 索引或匹配不到时用 ILIKE
 		log.Printf("[retrieval] tsvector search failed, falling back to ILIKE: %v", err)
-		return s.fallbackFullTextSearch(userID, query, limit)
+		return s.fallbackFullTextSearch(docUserID, query, limit)
 	}
 
 	results := make([]SearchResult, 0, len(rows))
@@ -294,7 +315,8 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 // vectorSearch 使用 pgvector 做近似最近邻搜索
 // 对比现有实现：不再全表加载到内存计算余弦相似度，
 // 而是利用 pgvector HNSW 索引做 O(log n) 检索
-func (s *RetrievalService) vectorSearch(userID uint, query string, limit int) ([]SearchResult, error) {
+// kbUserID=0 表示不按知识库所有者过滤
+func (s *RetrievalService) vectorSearch(userID uint, query string, limit int, kbUserID uint) ([]SearchResult, error) {
 	// 生成查询向量
 	queryVec, err := s.embeddingService.GenerateEmbedding(userID, query)
 	if err != nil {
@@ -306,6 +328,12 @@ func (s *RetrievalService) vectorSearch(userID uint, query string, limit int) ([
 
 	// 转换为 pgvector 格式: '[0.1,0.2,...]'
 	vecStr := vectorToPGString(queryVec)
+
+	// 确定文档过滤的 user_id：kbUserID>0 时用知识库所有者，否则用请求者
+	docUserID := userID
+	if kbUserID > 0 {
+		docUserID = kbUserID
+	}
 
 	// pgvector HNSW ANN 检索（cosine 距离 <=>）
 	sql := `
@@ -332,7 +360,7 @@ func (s *RetrievalService) vectorSearch(userID uint, query string, limit int) ([
 	}
 
 	var rows []row
-	if err := s.db.Raw(sql, vecStr, userID, vecStr, limit).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(sql, vecStr, docUserID, vecStr, limit).Scan(&rows).Error; err != nil {
 		return []SearchResult{}, fmt.Errorf("vector search: %v", err)
 	}
 
@@ -509,4 +537,16 @@ func VectorFromJSON(data []byte) ([]float64, error) {
 		return nil, err
 	}
 	return vec, nil
+}
+
+// ApplyMaskToResults 对检索结果应用知识库字段脱敏（P9.2）
+// - admin 角色豁免（由 ApplyFieldMask 内部的 ExemptRole 机制处理）
+// - 对 Content、Snippet、Title 字段按知识库脱敏规则处理
+func (s *RetrievalService) ApplyMaskToResults(db *gorm.DB, user *models.User, kbID uint, results []SearchResult) []SearchResult {
+	for i := range results {
+		results[i].Content = ApplyFieldMask(db, user, kbID, "content", results[i].Content)
+		results[i].Snippet = ApplyFieldMask(db, user, kbID, "snippet", results[i].Snippet)
+		results[i].Title = ApplyFieldMask(db, user, kbID, "title", results[i].Title)
+	}
+	return results
 }

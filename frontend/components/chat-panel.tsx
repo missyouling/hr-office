@@ -39,6 +39,14 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownContent } from "@/lib/markdown";
 import {
   chatKnowledgeStream,
@@ -47,6 +55,10 @@ import {
   submitFeedback,
 } from "@/lib/api";
 import type { SearchResult, ChatSession } from "@/lib/api";
+import { knowledgeApi } from "@/lib/api-knowledge";
+import type { KnowledgeBase } from "@/lib/api-knowledge";
+import { useAuth } from "@/lib/auth";
+import { getSourceModuleLabel } from "@/components/knowledge/utils";
 
 // ─── 类型定义 ────────────────────────────────────────────
 
@@ -93,6 +105,12 @@ export function ChatPanel() {
     rating: "positive" | "negative";
     comment: string;
   }>({ open: false, messageId: "", rating: "positive", comment: "" });
+
+  // ─── 知识库范围选择器 ──────────────────────────────────
+  const [selectedKbId, setSelectedKbId] = useState<number | null>(null); // null=全部可见KB
+  const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
+  const [kbsLoading, setKbsLoading] = useState(false);
+  const { user } = useAuth();
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +137,19 @@ export function ChatPanel() {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen, loadSessions]);
+
+  // 拉取当前用户可见的知识库列表
+  useEffect(() => {
+    if (!user) return;
+    setKbsLoading(true);
+    knowledgeApi
+      .list()
+      .then((data) => setKbs(data.items))
+      .catch(() => {
+        toast.error("加载知识库列表失败");
+      })
+      .finally(() => setKbsLoading(false));
+  }, [user]);
 
   // ─── 自动滚动到底部 ────────────────────────────────────
 
@@ -248,8 +279,9 @@ export function ChatPanel() {
         abortRef.current = null;
       },
       abortController.signal,
+      selectedKbId,
     );
-  }, [inputValue, isLoading, sessionId, loadSessions]);
+  }, [inputValue, isLoading, sessionId, loadSessions, selectedKbId]);
 
   // ─── 停止生成 ──────────────────────────────────────────
 
@@ -636,6 +668,32 @@ export function ChatPanel() {
             {/* ─── 底部输入栏 ─────────────────────────────── */}
             <div className="border-t p-4 bg-white">
               <div className="max-w-3xl mx-auto">
+                {/* 知识库范围选择器 */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-gray-500 shrink-0">搜索范围</span>
+                  {kbsLoading ? (
+                    <Skeleton className="h-8 w-48 rounded-md" />
+                  ) : (
+                    <Select
+                      value={selectedKbId?.toString() ?? "all"}
+                      onValueChange={(v) =>
+                        setSelectedKbId(v === "all" ? null : Number(v))
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs w-52 bg-gray-50 border-gray-200">
+                        <SelectValue placeholder="全部知识库" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">全部知识库</SelectItem>
+                        {kbs.map((kb) => (
+                          <SelectItem key={kb.id} value={kb.id.toString()}>
+                            {kb.name}（{getSourceModuleLabel(kb.source_module)}）
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
                 <div className="flex gap-2 items-end">
                   <div className="flex-1 relative">
                     <Input

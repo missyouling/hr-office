@@ -28,6 +28,7 @@ import (
 	"siapp/internal/middleware"
 	"siapp/internal/models"
 	"siapp/internal/service"
+	"siapp/internal/service/docreader"
 	"siapp/internal/service/storage"
 )
 
@@ -40,6 +41,7 @@ type Handler struct {
 	chatService      *service.ChatService
 	tagService       *service.TagService
 	chunkService     *service.ChunkService
+	kbIngestService  *service.KBIngestService
 	storageRouter    *storage.StorageRouter
 	uploadBaseDir    string
 	uploadBaseURL    string
@@ -195,6 +197,14 @@ func NewHandler(db *gorm.DB) *Handler {
 	chatSvc := service.NewChatService(db, retSvc)
 	tagSvc := service.NewTagService(db)
 
+	// 知识库入库服务：docreader 地址从环境变量读取，默认 localhost:50052
+	docreaderAddr := os.Getenv("DOCREADER_ADDR")
+	if docreaderAddr == "" {
+		docreaderAddr = "localhost:50052"
+	}
+	docClient := docreader.NewClient(docreaderAddr)
+	kbIngestSvc := service.NewKBIngestService(db, docClient, embSvc)
+
 	return &Handler{
 		db:               db,
 		process:          service.NewProcessor(db),
@@ -204,6 +214,7 @@ func NewHandler(db *gorm.DB) *Handler {
 		chatService:      chatSvc,
 		tagService:       tagSvc,
 		chunkService:     service.NewChunkService(db, embSvc),
+		kbIngestService:  kbIngestSvc,
 		storageRouter:    storage.NewStorageRouter(db),
 		uploadBaseDir:    uploadDir,
 		uploadBaseURL:    uploadURL,
@@ -489,7 +500,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	h.registerInvoiceRoutes(r)
 
 	// 知识库管理（P8.2）
-	RegisterKnowledgeBaseRoutes(r, h.db)
+	RegisterKnowledgeBaseRoutes(r, h.db, h.kbIngestService)
 
 	r.Route("/rbac", h.registerRolePermissionRoutes)
 	r.Route("/users", h.registerUserRoleRoutes)

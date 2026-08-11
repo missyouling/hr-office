@@ -11,19 +11,20 @@ import (
 	"siapp/internal/auth"
 	"siapp/internal/middleware"
 	"siapp/internal/models"
+	"siapp/internal/service"
 )
 
 // ======== 知识库管理路由注册 ========
 
 // RegisterKnowledgeBaseRoutes 注册知识库所有路由（前缀 /api/knowledge-bases）
-func RegisterKnowledgeBaseRoutes(r chi.Router, db *gorm.DB) {
+func RegisterKnowledgeBaseRoutes(r chi.Router, db *gorm.DB, kbIngestSvc *service.KBIngestService) {
 	r.Route("/knowledge-bases", func(kbr chi.Router) {
 		// 登录用户可访问（权限过滤在 handler 内处理）
 		kbr.Get("/", listKnowledgeBases(db))
 		kbr.Get("/{id}", getKnowledgeBase(db))
 		kbr.Get("/{id}/rules", listKBAccessRules(db))
 		kbr.Get("/{id}/masks", listKBFieldMasks(db))
-		kbr.Post("/{id}/ingest", ingestKnowledgeBase(db))
+		kbr.Post("/{id}/ingest", ingestKnowledgeBase(db, kbIngestSvc))
 
 		// admin 专属操作
 		kbr.Group(func(admin chi.Router) {
@@ -537,8 +538,8 @@ func deleteKBFieldMask(db *gorm.DB) http.HandlerFunc {
 
 // ======== 入库与统计 ========
 
-// ingestKnowledgeBase 半自动入库触发（占位实现）
-func ingestKnowledgeBase(db *gorm.DB) http.HandlerFunc {
+// ingestKnowledgeBase 半自动入库触发
+func ingestKnowledgeBase(db *gorm.DB, kbIngestSvc *service.KBIngestService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		kbID, err := parseKBID(r)
 		if err != nil {
@@ -546,35 +547,54 @@ func ingestKnowledgeBase(db *gorm.DB) http.HandlerFunc {
 			return
 		}
 
-		_, err = requireKBAccess(db, r, kbID)
+		user, err := getKBUser(db, r)
 		if err != nil {
-			respondError(w, http.StatusForbidden, "无权访问该知识库", err)
+			respondError(w, http.StatusUnauthorized, "未登录", err)
 			return
 		}
 
-		var kb models.KnowledgeBase
-		if err := db.First(&kb, kbID).Error; err != nil {
-			respondError(w, http.StatusNotFound, "知识库不存在", err)
+		// 校验权限
+		if !HasAccess(db, user, kbID) {
+			respondError(w, http.StatusForbidden, "无权访问该知识库", nil)
 			return
 		}
 
 		// 解析请求体
 		var body struct {
-			Since  string `json:"since"`
-			Module string `json:"module"`
+			Since        string `json:"since"`
+			SourceModule string `json:"source_module"`
 		}
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			// body 为空时使用知识库的默认 source_module
+		}
 
-		// 占位返回：实际入库逻辑在 P8.3 与 docreader 微服务同步实现
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"message":       "ingest stub",
-			"source_module": kb.SourceModule,
-			"kb_id":         kbID,
-			"since":         body.Since,
-			"scanned":       0,
-			"ingested":      0,
-			"skipped":       0,
-		})
+		// 校验知识库并填充默认值
+		var kb models.KnowledgeBase
+		if err := db.First(&kb, kbID).Error; err != nil {
+			respondError(w, http.StatusNotFound, "知识库不存在", err)
+			return
+		}
+		if body.SourceModule == "" {
+			body.SourceModule = kb.SourceModule
+		}
+		if body.SourceModule == "" {
+			respondError(w, http.StatusBadRequest, "source_module 不能为空", nil)
+			return
+		}
+
+		// 调用入库服务
+		req := service.IngestRequest{
+			KBID:         kbID,
+			Since:        body.Since,
+			SourceModule: body.SourceModule,
+		}
+		result, err := kbIngestSvc.Ingest(r.Context(), user.ID, req)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "入库失败", err)
+			return
+		}
+
+		respondJSON(w, http.StatusOK, result)
 	}
 }
 

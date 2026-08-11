@@ -3,6 +3,7 @@ package service
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,7 +54,8 @@ func NewChatService(db *gorm.DB, retrievalService *RetrievalService) *ChatServic
 // 3. 调用 LLM API（从 model_configs 读取 llm 配置）
 // 4. 保存 ChatMessage 记录
 // 返回 ChatResponse
-func (s *ChatService) Chat(userID uint, sessionID string, question string) (*ChatResponse, error) {
+// kbID=0 表示搜索全部可见知识库
+func (s *ChatService) Chat(userID uint, sessionID string, question string, kbID uint) (*ChatResponse, error) {
 	if strings.TrimSpace(question) == "" {
 		return nil, fmt.Errorf("question cannot be empty")
 	}
@@ -62,8 +64,8 @@ func (s *ChatService) Chat(userID uint, sessionID string, question string) (*Cha
 		sessionID = fmt.Sprintf("session-%d-%d", userID, time.Now().UnixNano())
 	}
 
-	// 检索相关文档
-	sources, err := s.retrievalService.HybridSearch(userID, question, 5)
+	// 检索相关文档（按 kbID 限定范围，kbID=0 即全部）
+	sources, err := s.retrievalService.HybridSearch(context.Background(), userID, question, 5, kbID)
 	if err != nil {
 		log.Printf("[chat] hybrid search failed: %v", err)
 		sources = []SearchResult{}
@@ -126,13 +128,14 @@ func (s *ChatService) Chat(userID uint, sessionID string, question string) (*Cha
 // 1. 使用 HybridSearch 检索相关文档
 // 2. 组装 systemPrompt 与 userPrompt
 // 返回 sources 供上层溯源使用
-func (s *ChatService) BuildContext(userID uint, question string, maxRetrieval int) (systemPrompt string, userPrompt string, sources []SearchResult, err error) {
+// kbID=0 表示搜索全部可见知识库
+func (s *ChatService) BuildContext(userID uint, question string, maxRetrieval int, kbID uint) (systemPrompt string, userPrompt string, sources []SearchResult, err error) {
 	if maxRetrieval <= 0 {
 		maxRetrieval = 5
 	}
 
-	// 检索相关文档
-	sources, err = s.retrievalService.HybridSearch(userID, question, maxRetrieval)
+	// 检索相关文档（按 kbID 限定范围）
+	sources, err = s.retrievalService.HybridSearch(context.Background(), userID, question, maxRetrieval, kbID)
 	if err != nil {
 		log.Printf("[chat] BuildContext hybrid search failed: %v", err)
 		sources = []SearchResult{}
@@ -383,8 +386,8 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		}
 	}
 
-	// 构建当前问题的上下文 prompt
-	systemPrompt, userPrompt, sources, err := s.BuildContext(userID, question, 5)
+	// 构建当前问题的上下文 prompt（kbID=0 流式聊天暂不支持 kb 过滤）
+	systemPrompt, userPrompt, sources, err := s.BuildContext(userID, question, 5, 0)
 	if err != nil {
 		log.Printf("[chat] StreamChat 构建上下文失败: %v", err)
 		s.sendSSE(w, flusher, sseEvent{Type: "error", Content: "构建上下文失败"})

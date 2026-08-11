@@ -130,6 +130,28 @@
 【总进度】0 / 25 完成
 【下一步】P8.1.1：新增 KnowledgeBase/KBAccessRule/KBFieldMask 模型
 
+## P9：P8 遗留收尾（ingest 实装 + chat-panel 范围过滤）🔜 已确认
+
+> 背景：P8 交付后遗留两项已确认未实施：① ingest API 是 stub，需打通 docreader→分块→向量化→入库全链路；② 悬浮问答面板（chat-panel）未按用户知识库权限过滤检索范围（Q8=B 决策）。
+
+### P9.1 后端 ingest 全链路实装
+- [ ] 1.1 后端：ingest 实装——docreader.Parse → IngestToChunks → embedding 向量化 → 写入 DocumentChunk + 关联 KB（交付物：api/knowledge_base.go ingest handler 替换 stub + service/kb_ingest.go；依赖：无）
+- [ ] 1.2 后端：入库结果统计返回（scanned/ingested/skipped/errors 明细）（交付物：同上；依赖：1.1）
+- [ ] 1.3 后端：单测覆盖 ingest 链路（mock docreader + 内存 SQLite 验证 chunk 写入与 KB 关联）（交付物：service/kb_ingest_test.go；依赖：1.1）
+
+### P9.2 后端检索按 KB 权限过滤
+- [ ] 2.1 后端：/api/knowledge/search 与 /api/knowledge/chat 增加 kb_id 参数 + HasAccess 校验（非 admin 仅可检索自己有权限的 KB）（交付物：api/knowledge.go 修改 + service/retrieval.go 扩展；依赖：无）
+- [ ] 2.2 后端：脱敏在检索结果返回前应用（复用 kb_mask.ApplyFieldMask）（交付物：service/retrieval.go + service/kb_mask.go 集成；依赖：2.1）
+- [ ] 2.3 后端：单测覆盖权限过滤与脱敏（交付物：api/knowledge_test.go 扩展；依赖：2.1,2.2）
+
+### P9.3 前端 chat-panel 范围过滤
+- [ ] 3.1 前端：chat-panel 增加知识库范围选择器（下拉列出当前用户可见 KB，默认全部）（交付物：components/chat-panel.tsx 修改；依赖：P9.2）
+- [ ] 3.2 前端：检索请求带 kb_id 参数，响应中脱敏字段正常显示（交付物：lib/api.ts chat 相关函数 + chat-panel.tsx；依赖：3.1）
+- [ ] 3.3 验收：完整链路实测——入库→脱敏检索→权限隔离问答全通；go build/test + tsc/lint 全绿（依赖：全部）
+
+【总进度】0 / 9 完成
+【下一步】P9.1.1：ingest 全链路实装
+
 ### P6 交付摘要
 - 后端：19 个 GORM 模型 + 99 个 HTTP 路由 + 6 个单测（office_analytics 6 例 + canteen_analytics 2 例 + migrate 3 例）
 - 前端：2 个主组件 + 10 个 Tab + 7 个辅助文件（utils/api/dialogs）+ 2 个 API 封装

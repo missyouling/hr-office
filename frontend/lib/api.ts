@@ -2751,15 +2751,16 @@ export async function ingestDocument(documentId: number): Promise<{ message: str
 }
 
 // 知识库搜索
-export async function searchKnowledge(query: string, limit?: number): Promise<{ results: SearchResult[] }> {
+export async function searchKnowledge(query: string, limit?: number, kbId?: number | null): Promise<{ results: SearchResult[] }> {
   const params = new URLSearchParams({ q: query });
   if (limit) params.set("limit", String(limit));
+  if (kbId != null) params.set("kb_id", String(kbId));
   return request(`/knowledge/search?${params}`);
 }
 
 // AI 问答（非流式）
-export async function chatWithKnowledge(question: string, sessionId?: string): Promise<ChatResponse> {
-  return request("/knowledge/chat", { method: "POST", body: JSON.stringify({ question, session_id: sessionId }) });
+export async function chatWithKnowledge(question: string, sessionId?: string, kbId?: number | null): Promise<ChatResponse> {
+  return request("/knowledge/chat", { method: "POST", body: JSON.stringify({ question, session_id: sessionId, kb_id: kbId ?? undefined }) });
 }
 
 // SSE 流式知识库问答
@@ -2770,6 +2771,7 @@ export async function chatKnowledgeStream(
   onDone: () => void,
   onError: (error: string) => void,
   signal?: AbortSignal,
+  kbId?: number | null,
 ): Promise<void> {
   const token = localStorage.getItem("token");
   const apiBase = getApiBase();
@@ -2786,6 +2788,7 @@ export async function chatKnowledgeStream(
       body: JSON.stringify({
         question,
         session_id: sessionId || "",
+        kb_id: kbId ?? undefined,
       }),
       signal,
     });

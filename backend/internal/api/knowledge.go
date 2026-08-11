@@ -30,12 +30,13 @@ type searchKnowledgeRequest struct {
 type chatKnowledgeRequest struct {
 	Question  string `json:"question"`
 	SessionID string `json:"session_id"`
+	Kbid      uint   `json:"kb_id,omitempty"` // 可选：限定知识库范围
 }
 
 // knowledgeStatsResponse 知识库统计响应
 type knowledgeStatsResponse struct {
-	TotalDocuments   int64 `json:"total_documents"`
-	TotalEmbeddings  int64 `json:"total_embeddings"`
+	TotalDocuments    int64 `json:"total_documents"`
+	TotalEmbeddings   int64 `json:"total_embeddings"`
 	TotalChatMessages int64 `json:"total_chat_messages"`
 }
 
@@ -91,7 +92,7 @@ func (h *Handler) ingestDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 // searchKnowledge 混合检索
-// GET /api/knowledge/search?q=xxx&limit=10
+// GET /api/knowledge/search?q=xxx&limit=10&kb_id=1
 func (h *Handler) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
 	if err != nil {
@@ -113,11 +114,28 @@ func (h *Handler) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 执行混合搜索
-	results, err := h.retrievalService.HybridSearch(userID, query, limit)
+	// 解析可选 kb_id 参数，校验权限，加载用户（用于后续脱敏）
+	kbID := parseKbIDFromQuery(r)
+	var kbUser *models.User
+	if kbID > 0 {
+		var uErr error
+		kbUser, uErr = getKBUser(h.db, r)
+		if uErr != nil || !HasAccess(h.db, kbUser, kbID) {
+			respondError(w, http.StatusForbidden, "无权访问该知识库", nil)
+			return
+		}
+	}
+
+	// 执行混合搜索（kbID=0 表示搜索全部可见知识库）
+	results, err := h.retrievalService.HybridSearch(r.Context(), userID, query, limit, kbID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "search failed", err)
 		return
+	}
+
+	// 若指定了知识库，对结果应用字段脱敏
+	if kbID > 0 && kbUser != nil {
+		results = h.retrievalService.ApplyMaskToResults(h.db, kbUser, kbID, results)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
@@ -129,7 +147,7 @@ func (h *Handler) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 
 // chatKnowledge 问答
 // POST /api/knowledge/chat
-// Body: { "question": string, "session_id": string(optional) }
+// Body: { "question": string, "session_id": string(optional), "kb_id": uint(optional) }
 func (h *Handler) chatKnowledge(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
 	if err != nil {
@@ -148,8 +166,17 @@ func (h *Handler) chatKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 执行问答
-	response, err := h.chatService.Chat(userID, req.SessionID, req.Question)
+	// 若指定 kb_id，校验权限
+	if req.Kbid > 0 {
+		user, uErr := getKBUser(h.db, r)
+		if uErr != nil || !HasAccess(h.db, user, req.Kbid) {
+			respondError(w, http.StatusForbidden, "无权访问该知识库", nil)
+			return
+		}
+	}
+
+	// 执行问答（透传 kb_id 用于检索范围限定与脱敏）
+	response, err := h.chatService.Chat(userID, req.SessionID, req.Question, req.Kbid)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "chat failed", err)
 		return
@@ -383,4 +410,18 @@ func (h *Handler) globalSearch(w http.ResponseWriter, r *http.Request) {
 		"results": results,
 		"count":   len(results),
 	})
+}
+
+// parseKbIDFromQuery 从请求 query 参数中解析可选的 kb_id
+// 返回 0 表示未指定或解析失败
+func parseKbIDFromQuery(r *http.Request) uint {
+	raw := strings.TrimSpace(r.URL.Query().Get("kb_id"))
+	if raw == "" {
+		return 0
+	}
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || id == 0 {
+		return 0
+	}
+	return uint(id)
 }
