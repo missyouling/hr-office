@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DataTableWrapper } from "@/components/common/data-table-wrapper";
 
 interface AuditLogsProps {
   className?: string;
@@ -363,6 +364,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
       {/* 审计日志表格 */}
       <Card>
         <CardContent className="p-0">
+          <DataTableWrapper height="h-[calc(100vh-340px)]">
           {isLoading ? (
             <div className="p-6 space-y-4">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -425,6 +427,7 @@ export function AuditLogs({ className }: AuditLogsProps) {
               </TableBody>
             </Table>
           )}
+          </DataTableWrapper>
         </CardContent>
       </Card>
     </div>

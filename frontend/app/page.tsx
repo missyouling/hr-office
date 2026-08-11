@@ -151,7 +151,7 @@ export default function HomePage() {
       <SidebarInset className="relative flex min-h-screen flex-col bg-background md:m-3 md:rounded-3xl md:shadow-sm">
         <ManagementBar />
         <GlobalSearch onNavigate={(module) => { setCurrentView(module); }} />
-        <div className="flex-1 overflow-auto p-6 bg-card md:min-h-[800px] md:rounded-[24px] md:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.35)]">
+        <div className="flex-1 overflow-auto p-6 bg-card md:min-h-[800px] md:rounded-3xl md:shadow-sm border">
           {renderMainContent()}
         </div>
         <ChatPanel />
@@ -196,12 +196,15 @@ function LandingContent() {
       <KnowledgeStats />
 
       {/* 欢迎卡 + 公告轮播 */}
-      <div className="rounded-[32px] bg-gradient-to-r from-[#0a5cff] via-[#3361ff] to-[#7a2adf] p-6 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.35)]">
-        <div className="flex items-center justify-between">
+      <div className="relative overflow-hidden rounded-[32px] bg-gradient-to-r from-blue-600 via-blue-700 to-purple-800 p-6 shadow-[0_12px_40px_-16px_rgba(59,130,246,0.5)]">
+        {/* 装饰光斑 */}
+        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-white/5 blur-2xl" />
+        <div className="relative flex items-center justify-between">
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-full bg-white/20 text-white backdrop-blur hover:bg-white/30 disabled:opacity-50"
+            className="h-10 w-10 rounded-full bg-white/20 text-white backdrop-blur hover:bg-white/30 disabled:opacity-50 transition-all duration-300"
             onClick={handlePrev}
             disabled={!hasAnnouncements}
           >
@@ -240,7 +243,7 @@ function LandingContent() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-full bg-white/20 text-white backdrop-blur hover:bg-white/30 disabled:opacity-50"
+            className="h-10 w-10 rounded-full bg-white/20 text-white backdrop-blur hover:bg-white/30 disabled:opacity-50 transition-all duration-300"
             onClick={handleNext}
             disabled={!hasAnnouncements}
           >

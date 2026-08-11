@@ -1,5 +1,6 @@
 "use client";
 
+import { PageTransition } from "@/components/motion/page-transition";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import type { ChangeEvent, ReactNode, Dispatch, SetStateAction, DragEvent, KeyboardEvent } from "react";
 import { toast } from "sonner";
@@ -121,6 +122,8 @@ import { createReportPdf } from "@/lib/pdf";
 import { useAuth } from "@/lib/auth";
 import { parseListPreference, sanitizeSortPreference, type TableSortState } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
+import { DIALOG_SIZES } from "@/lib/dialog-sizes";
+import { DataTableWrapper } from "@/components/common/data-table-wrapper";
 import { PermissionGate } from "@/components/permission-gate";
 import type {
   SocialInsuranceTemplateOptions,
@@ -1778,7 +1781,7 @@ const DECREASE_FORM_FIELD_CONFIGS: BaseInsuranceFieldConfig<DecreaseFieldKey>[] 
 ];
 
 const RESPONSIVE_DIALOG_CLASS =
-  "w-full max-w-[95vw] sm:max-w-6xl 2xl:max-w-7xl max-h-[90vh] overflow-y-auto px-4 py-4 sm:px-6 sm:py-6";
+  DIALOG_SIZES.full + " overflow-y-auto px-4 py-4 sm:px-6 sm:py-6";
 const RESPONSIVE_FIELD_GRID_CLASS =
   "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [&>div]:min-w-0 [&>div]:w-full sm:[&>div]:min-w-[260px]";
 const CALLBACK_PERSONAL_MAP_STORAGE_KEY = "insurance-callback-map";
@@ -5481,8 +5484,7 @@ const exportInsuranceChanges = async (
               </DialogContent>
             </Dialog>
           </div>
-          <div className="rounded-md border">
-            <ScrollArea className="w-full" style={{ height: "60vh" }}>
+          <DataTableWrapper height="h-[60vh]">
               <Table className="min-w-full table-auto text-sm">
                 <TableHeader>
                   <TableRow className="text-muted-foreground">
@@ -5601,8 +5603,7 @@ const exportInsuranceChanges = async (
                 </TableBody>
               </Table>
               <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </div>
+              </DataTableWrapper>
         </CardContent>
       </Card>
     );
@@ -5836,8 +5837,7 @@ const exportInsuranceChanges = async (
               <span>单位金额合计：{formatAmountValue(providentSummary.company)}</span>
               <span>合计：{formatAmountValue(providentSummary.total)}</span>
             </div>
-            <div className="rounded-md border">
-              <ScrollArea className="w-full" style={{ height: "60vh" }}>
+            <DataTableWrapper height="h-[60vh]">
                 <Table className="min-w-full table-auto text-sm">
                   <TableHeader>
                     <TableRow className="text-muted-foreground">
@@ -5954,8 +5954,7 @@ const exportInsuranceChanges = async (
                   </TableBody>
                 </Table>
                 <ScrollBar orientation="horizontal" />
-              </ScrollArea>
-            </div>
+            </DataTableWrapper>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
               <span>共 {recordCount} 条记录，当前筛选 {filteredCount} 条</span>
               <span className="flex items-center gap-2">
@@ -6600,7 +6599,7 @@ const exportInsuranceChanges = async (
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground">
+    <PageTransition className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16">
       {/* 页面标题 */}
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -7057,7 +7056,7 @@ const exportInsuranceChanges = async (
                         </TabsContent>
                       </Tabs>
                       <ScrollBar orientation="vertical" />
-                    </ScrollArea>
+              </ScrollArea>
                           <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                             <Button variant="outline" onClick={() => setShowAddEmployee(false)}>
                               取消
@@ -7278,7 +7277,7 @@ const exportInsuranceChanges = async (
               </div>
 
               {/* 员工列表 */}
-              <ScrollArea className="w-full rounded-md border" style={{ height: "65vh" }}>
+              <DataTableWrapper height="h-[65vh]">
                 <Table className="min-w-full table-auto">
                   <TableHeader>
                     <TableRow>
@@ -7392,7 +7391,7 @@ const exportInsuranceChanges = async (
                   </TableBody>
                 </Table>
                 <ScrollBar orientation="horizontal" />
-              </ScrollArea>
+              </DataTableWrapper>
             </CardContent>
           </Card>
 
@@ -7594,9 +7593,8 @@ const exportInsuranceChanges = async (
               </div>
 
               {/* 离职员工列表 */}
-              <div className="rounded-md border">
-                <ScrollArea className="w-full" style={{ height: "65vh" }}>
-                  <Table className="min-w-full table-auto text-sm">
+              <DataTableWrapper height="h-[65vh]">
+                <Table className="min-w-full table-auto text-sm">
                     <TableHeader>
                       <TableRow className="text-muted-foreground">
                         <TableHead className="w-12">
@@ -7711,8 +7709,7 @@ const exportInsuranceChanges = async (
                     </TableBody>
                   </Table>
                   <ScrollBar orientation="horizontal" />
-                </ScrollArea>
-              </div>
+              </DataTableWrapper>
             </CardContent>
           </Card>
 
@@ -8482,7 +8479,7 @@ const exportInsuranceChanges = async (
           setShowBillDetailDialog(true);
         }
       }}>
-        <DialogContent className="max-w-[95vw] sm:max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={cn(DIALOG_SIZES.lg, "overflow-y-auto")}>
           <DialogHeader>
             <DialogTitle>账单详情</DialogTitle>
             <DialogDescription>查看该月份的人员名单与金额明细。</DialogDescription>
@@ -9074,7 +9071,7 @@ const exportInsuranceChanges = async (
       </Dialog>
 
       <AlertDialog open={duplicateWarning !== null} onOpenChange={(open) => !open && setDuplicateWarning(null)}>
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent className={DIALOG_SIZES.sm}>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-base font-semibold">
               {duplicateWarning?.type === "increase" ? "检测到重复的社保增加记录" : "检测到重复的社保减少记录"}
@@ -9114,7 +9111,7 @@ const exportInsuranceChanges = async (
           }
         }}
       >
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent className={DIALOG_SIZES.sm}>
           <AlertDialogHeader>
             <AlertDialogTitle>生成账单前请确认封存/启封</AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-muted-foreground">
@@ -9136,7 +9133,7 @@ const exportInsuranceChanges = async (
           }
         }}
       >
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent className={DIALOG_SIZES.sm}>
           <AlertDialogHeader>
             <AlertDialogTitle>覆盖已生成的账单？</AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-muted-foreground">
@@ -9160,7 +9157,7 @@ const exportInsuranceChanges = async (
           }
         }}
       >
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent className={DIALOG_SIZES.sm}>
           <AlertDialogHeader>
             <AlertDialogTitle>删除公积金账单</AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-muted-foreground">
@@ -9178,7 +9175,7 @@ const exportInsuranceChanges = async (
         </AlertDialogContent>
       </AlertDialog>
 
-    </div>
+    </PageTransition>
   );
 }
 const DEPARTMENT_CODES: Record<string, string> = {

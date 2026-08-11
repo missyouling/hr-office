@@ -747,10 +747,12 @@ function ModelUsageTab() {
   const todayTokens = stats?.today_input_tokens ? (stats.today_input_tokens + (stats.today_output_tokens || 0)) : 0;
   const totalTokens = (stats?.input_tokens || 0) + (stats?.output_tokens || 0);
 
+  // 模型颜色 —— 使用 chart-1~5 CSS 变量循环，替代 hex 硬编码色板
+  // TODO: 若模型数量超过 5 个，可扩展 chart 体系或在 globals.css 中新增 --chart-6~15
   const COLORS = [
-    "#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", 
-    "#06b6d4", "#6366f1", "#f97316", "#ef4444", "#14b8a6",
-    "#84cc16", "#a855f7", "#fbbf24", "#2dd4bf", "#60a5fa"
+    "var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)",
+    "var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)",
+    "var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)",
   ];
   
   const getColorForModel = (model: string) => {

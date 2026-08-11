@@ -136,7 +136,7 @@ export function FeedbackPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">好评数</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-emerald-600">{stats?.positive ?? 0}</p>
+            <p className="text-3xl font-bold text-chart-2">{stats?.positive ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -144,7 +144,7 @@ export function FeedbackPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">差评数</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-rose-600">{stats?.negative ?? 0}</p>
+            <p className="text-3xl font-bold text-destructive">{stats?.negative ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -152,7 +152,7 @@ export function FeedbackPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">好评率</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-blue-600">
+            <p className="text-3xl font-bold text-primary">
               {stats ? `${(stats.positive_rate * 100).toFixed(1)}%` : "0%"}
             </p>
           </CardContent>
@@ -208,12 +208,12 @@ export function FeedbackPanel() {
                     </TableCell>
                     <TableCell>
                       {item.rating === "positive" ? (
-                        <Badge variant="outline" className="gap-1 border-emerald-200 text-emerald-700">
+                        <Badge variant="outline" className="gap-1 border-chart-2/50 text-chart-2">
                           <ThumbsUp className="h-3 w-3" />
                           好评
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="gap-1 border-rose-200 text-rose-700">
+                        <Badge variant="outline" className="gap-1 border-destructive/30 text-destructive">
                           <ThumbsDown className="h-3 w-3" />
                           差评
                         </Badge>
@@ -232,7 +232,7 @@ export function FeedbackPanel() {
                     </TableCell>
                     <TableCell>
                       {item.reply ? (
-                        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">已回复</Badge>
+                        <Badge className="bg-accent text-primary hover:bg-accent">已回复</Badge>
                       ) : (
                         <Badge variant="secondary">待回复</Badge>
                       )}
@@ -245,7 +245,7 @@ export function FeedbackPanel() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleStartReply(item)}
-                        className="h-8 px-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                        className="h-8 px-2 text-primary hover:bg-accent hover:text-primary"
                       >
                         <MessageSquareReply className="mr-1 h-3.5 w-3.5" />
                         {item.reply ? "编辑回复" : "回复"}
@@ -253,14 +253,14 @@ export function FeedbackPanel() {
                     </TableCell>
                   </TableRow>
                   {replyingId === item.id && (
-                    <TableRow className="bg-blue-50/50">
+                    <TableRow className="bg-accent/50">
                       <TableCell colSpan={6} className="py-4">
                         <div className="space-y-3">
                           <Textarea
                             placeholder="请输入管理员回复..."
                             value={replyText}
                             onChange={(e) => setReplyText(e.target.value)}
-                            className="min-h-[80px] resize-none bg-white"
+                            className="min-h-[80px] resize-none"
                           />
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" size="sm" onClick={handleCancelReply}>
@@ -270,7 +270,7 @@ export function FeedbackPanel() {
                               size="sm"
                               onClick={() => handleSubmitReply(item.id)}
                               disabled={!replyText.trim()}
-                              className="bg-blue-600 hover:bg-blue-700"
+                              className="bg-primary hover:bg-primary/90"
                             >
                               保存回复
                             </Button>

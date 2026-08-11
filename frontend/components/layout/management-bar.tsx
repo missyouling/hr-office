@@ -78,7 +78,7 @@ export function ManagementBar() {
   return (
     <div
       className="pointer-events-none fixed bottom-8 z-50 flex flex-col items-start gap-2"
-      style={{ left: "calc(16rem + 1rem)" }}
+      style={{ left: "calc(var(--sidebar-width) + 1rem)" }}
     >
       <FloatingDock
         items={dockItems}

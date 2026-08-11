@@ -135,16 +135,11 @@
     55% { transform: translateY(-100%); }
     100% { transform: translateY(-100%); }
   }
+  /* 表头主题化：使用 --muted 变量，自动适配深浅主题（P10.2.4） */
   table thead tr {
-    background-color: #f5f5f5;
+    background-color: var(--muted);
   }
   table thead tr:hover {
-    background-color: #ebebeb;
-  }
-  .dark table thead tr {
-    background-color: #161616;
-  }
-  .dark table thead tr:hover {
-    background-color: #060606;
+    background-color: var(--muted);
   }
 }

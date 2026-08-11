@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
+import { PageTransition } from "@/components/motion/page-transition";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
@@ -23,7 +24,7 @@ export default function CanteenManagement({ onBack }: CanteenManagementProps) {
   const userInitial = user?.full_name?.[0] || user?.username?.[0] || "U";
 
   return (
-    <div className="mx-auto flex w-full flex-col gap-4 p-2 md:p-4">
+    <PageTransition className="mx-auto flex w-full flex-col gap-4 p-2 md:p-4">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -76,6 +77,6 @@ export default function CanteenManagement({ onBack }: CanteenManagementProps) {
           <AnalyticsTab />
         </TabsContent>
       </Tabs>
-    </div>
+    </PageTransition>
   );
 }

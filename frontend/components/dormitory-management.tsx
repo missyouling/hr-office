@@ -1,5 +1,6 @@
 "use client";
 
+import { PageTransition } from "@/components/motion/page-transition";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import Image from "next/image";
@@ -97,8 +98,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { DIALOG_SIZES } from "@/lib/dialog-sizes";
+import { DataTableWrapper } from "@/components/common/data-table-wrapper";
 
-const RESPONSIVE_DIALOG_CLASS = "w-full max-w-5xl 2xl:max-w-6xl h-[90vh] overflow-hidden p-0 flex flex-col";
+const RESPONSIVE_DIALOG_CLASS = DIALOG_SIZES.full;
 const RESPONSIVE_FIELD_GRID_CLASS = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [&>div]:min-w-0";
 const DIALOG_SCROLL_CLASS = "flex-1 min-h-0 overflow-y-auto px-1";
 const SITE_CARD_GRID_CLASS = "grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 auto-cols-fr";
@@ -7917,7 +7920,7 @@ const sortedRooms = useMemo(() => {
                   <Settings className="h-4 w-4" /> 显示字段
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className={DIALOG_SIZES.sm}>
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
                     <Settings className="h-4 w-4" /> 自定义显示字段
@@ -7946,8 +7949,7 @@ const sortedRooms = useMemo(() => {
               </DialogContent>
             </Dialog>
           </div>
-          <div className="rounded-md border">
-            <ScrollArea className="w-full" style={{ height: "65vh" }}>
+          <DataTableWrapper height="h-[65vh]">
               <Table className="min-w-full table-auto text-sm">
                 <TableHeader>
                   <TableRow className="text-muted-foreground">
@@ -8035,8 +8037,8 @@ const sortedRooms = useMemo(() => {
                 </TableBody>
               </Table>
               <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </div>
+            </DataTableWrapper>
+
         </CardContent>
       </Card>
     );
@@ -8940,7 +8942,7 @@ const renderRoomHistoryTimeline = () => {
                   <Settings className="h-4 w-4" /> 显示字段
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className={DIALOG_SIZES.sm}>
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
                     <Settings className="h-4 w-4" />
@@ -8970,8 +8972,7 @@ const renderRoomHistoryTimeline = () => {
               </DialogContent>
             </Dialog>
           </div>
-          <div className="rounded-md border">
-            <ScrollArea className="w-full" style={{ height: "65vh" }}>
+          <DataTableWrapper height="h-[65vh]">
               <Table className="min-w-full table-auto text-sm">
                 <TableHeader>
                   <TableRow className="text-muted-foreground">
@@ -9077,8 +9078,8 @@ const renderRoomHistoryTimeline = () => {
                 </TableBody>
               </Table>
               <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </div>
+            </DataTableWrapper>
+
         </CardContent>
       </Card>
     );
@@ -9230,7 +9231,7 @@ const renderMeterManagement = () => {
                   <Settings className="h-4 w-4" /> 显示字段
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className={DIALOG_SIZES.sm}>
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
                     <Settings className="h-4 w-4" /> 自定义显示字段
@@ -9277,8 +9278,7 @@ const renderMeterManagement = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
-            <ScrollArea className="w-full" style={{ height: "65vh" }}>
+          <DataTableWrapper height="h-[65vh]">
               <Table className="min-w-full table-auto text-sm">
                 <TableHeader>
                   <TableRow className="text-muted-foreground">
@@ -9410,8 +9410,8 @@ const renderMeterManagement = () => {
                 </TableBody>
               </Table>
               <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </div>
+            </DataTableWrapper>
+
         </CardContent>
       </Card>
     </div>
@@ -9578,7 +9578,7 @@ const renderBillCard = () => (
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16">
+    <PageTransition className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -10198,7 +10198,7 @@ const renderBillCard = () => (
     </Dialog>
 
       <Dialog open={roomImportDialogOpen} onOpenChange={handleRoomImportDialogToggle}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className={DIALOG_SIZES.lg}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
@@ -10247,7 +10247,7 @@ const renderBillCard = () => (
     </Dialog>
 
     <Dialog open={meterImportDialogOpen} onOpenChange={handleMeterImportDialogToggle}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className={DIALOG_SIZES.lg}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
@@ -10739,7 +10739,7 @@ const renderBillCard = () => (
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className={DIALOG_SIZES.sm}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Printer className="h-4 w-4" />
@@ -10809,7 +10809,7 @@ const renderBillCard = () => (
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className={DIALOG_SIZES.sm}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Printer className="h-4 w-4" />
@@ -10870,7 +10870,7 @@ const renderBillCard = () => (
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className={DIALOG_SIZES.sm}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Printer className="h-4 w-4" />
@@ -10933,7 +10933,7 @@ const renderBillCard = () => (
       </Dialog>
 
       <Dialog open={contractImportDialogOpen} onOpenChange={handleContractImportDialogToggle}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={DIALOG_SIZES.md}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
@@ -11336,7 +11336,7 @@ const renderBillCard = () => (
       </AlertDialog>
 
       <Dialog open={notificationCenterOpen} onOpenChange={setNotificationCenterOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden">
+        <DialogContent className={cn(DIALOG_SIZES.lg, "overflow-hidden")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bell className="h-4 w-4" />
@@ -11415,7 +11415,7 @@ const renderBillCard = () => (
       </Dialog>
 
       <Dialog open={wechatDialogOpen} onOpenChange={setWechatDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className={DIALOG_SIZES.sm}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageCircle className="h-4 w-4" />
@@ -11546,6 +11546,6 @@ const renderBillCard = () => (
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageTransition>
   );
 }

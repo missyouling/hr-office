@@ -12,7 +12,8 @@ import { Download } from "lucide-react";
 
 const CHART_COLORS = [
   "hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))", "hsl(var(--chart-5))", "#06b6d4", "#ec4899", "#84cc16",
+  "hsl(var(--chart-4))", "hsl(var(--chart-5))",
+  "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", // 溢出时用 chart 变量回卷
 ];
 
 // ---------- KPI 卡片 ----------
@@ -25,9 +26,9 @@ export function KpiCards({ summary }: { summary: Record<string, unknown> | null 
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总收入</p><p className="text-2xl font-bold text-green-600">{fmt(income.total)}</p></CardContent></Card>
-      <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总支出</p><p className="text-2xl font-bold text-red-600">{fmt(expense.total)}</p></CardContent></Card>
-      <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">盈亏</p><p className={`text-2xl font-bold ${profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{fmt(profit)}</p></CardContent></Card>
+      <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总收入</p><p className="text-2xl font-bold text-chart-2">{fmt(income.total)}</p></CardContent></Card>
+      <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">总支出</p><p className="text-2xl font-bold text-destructive">{fmt(expense.total)}</p></CardContent></Card>
+      <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">盈亏</p><p className={`text-2xl font-bold ${profit >= 0 ? "text-primary" : "text-destructive"}`}>{fmt(profit)}</p></CardContent></Card>
       <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">人均成本</p><p className="text-2xl font-bold">{count > 0 ? fmt((expense.total || 0) / count) : "-"}</p></CardContent></Card>
     </div>
   );
@@ -152,19 +153,19 @@ export function DailyDetailTable({ dailyTable, onExport }: {
                 {dailyTable.map((r) => (
                   <TableRow key={r.序号}>
                     <TableCell className="text-center text-muted-foreground">{r.序号}</TableCell><TableCell className="text-center">{r.日期}</TableCell>
-                    <TableCell className="text-green-600 text-center">{fmt(r.收入)}</TableCell>
+                    <TableCell className="text-chart-2 text-center">{fmt(r.收入)}</TableCell>
                     <TableCell className="text-center">{r.采购支出 ? fmt(r.采购支出) : "-"}</TableCell>
                     <TableCell className="text-center">{r.分摊支出 ? fmt(r.分摊支出) : "-"}</TableCell>
-                    <TableCell className={`font-medium text-center ${r.盈亏 >= 0 ? "text-blue-600" : "text-red-600"}`}>{fmt(r.盈亏)}</TableCell>
+                    <TableCell className={`font-medium text-center ${r.盈亏 >= 0 ? "text-primary" : "text-destructive"}`}>{fmt(r.盈亏)}</TableCell>
                     <TableCell className="text-center">{r.人次 || "-"}</TableCell><TableCell className="text-center">{r.人均成本}</TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="bg-muted/50 font-semibold">
                   <TableCell className="text-center" colSpan={2}>合计</TableCell>
-                  <TableCell className="text-green-700 text-center">{fmt(dailyTable.reduce((s, r) => s + r.收入, 0))}</TableCell>
+                  <TableCell className="text-chart-2 text-center">{fmt(dailyTable.reduce((s, r) => s + r.收入, 0))}</TableCell>
                   <TableCell className="text-center">{fmt(dailyTable.reduce((s, r) => s + r.采购支出, 0))}</TableCell>
                   <TableCell className="text-center">{fmt(dailyTable.reduce((s, r) => s + r.分摊支出, 0))}</TableCell>
-                  <TableCell className={`text-center ${dailyTable.reduce((s, r) => s + r.盈亏, 0) >= 0 ? "text-blue-700" : "text-red-700"}`}>{fmt(dailyTable.reduce((s, r) => s + r.盈亏, 0))}</TableCell>
+                  <TableCell className={`text-center ${dailyTable.reduce((s, r) => s + r.盈亏, 0) >= 0 ? "text-primary" : "text-destructive"}`}>{fmt(dailyTable.reduce((s, r) => s + r.盈亏, 0))}</TableCell>
                   <TableCell className="text-center">{dailyTable.reduce((s, r) => s + r.人次, 0)}</TableCell><TableCell className="text-center">-</TableCell>
                 </TableRow>
               </>)}
@@ -188,8 +189,8 @@ export function CompareTable({ data }: { data: { month: string; totalIncome: num
             <TableBody>
               {data.length === 0 ? <TableRow><TableCell colSpan={6} className="h-16 text-center text-muted-foreground">暂无数据</TableCell></TableRow> : data.map((c) => (
                 <TableRow key={c.month}>
-                  <TableCell className="text-center">{c.month}</TableCell><TableCell className="text-green-600 text-center">{fmt(c.totalIncome)}</TableCell>
-                  <TableCell className="text-center">{fmt(c.expense)}</TableCell><TableCell className={`font-medium text-center ${c.profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{fmt(c.profit)}</TableCell>
+                  <TableCell className="text-center">{c.month}</TableCell><TableCell className="text-chart-2 text-center">{fmt(c.totalIncome)}</TableCell>
+                  <TableCell className="text-center">{fmt(c.expense)}</TableCell><TableCell className={`font-medium text-center ${c.profit >= 0 ? "text-primary" : "text-destructive"}`}>{fmt(c.profit)}</TableCell>
                   <TableCell className="text-center">{c.count || "-"}</TableCell><TableCell className="text-center">{c.perCapita || "-"}</TableCell>
                 </TableRow>
               ))}

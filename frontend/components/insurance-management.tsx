@@ -1,5 +1,6 @@
 "use client";
 
+import { PageTransition } from "@/components/motion/page-transition";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { toast } from "sonner";
@@ -1210,7 +1211,7 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground">
+    <PageTransition className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -2722,6 +2723,6 @@ export function InsuranceManagement({ className }: InsuranceManagementProps) {
         </DialogFooter>
       </DialogContent>
       </Dialog>
-    </div>
+    </PageTransition>
   );
 }

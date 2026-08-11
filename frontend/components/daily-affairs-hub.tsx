@@ -20,56 +20,64 @@ const MODULES = [
     name: "档案管理",
     description: "文书、科技、电子、专门档案管理",
     icon: FileText,
-    color: "bg-blue-500",
+    gradient: "from-blue-500 to-blue-700",
+    iconColor: "text-blue-500",
   },
   {
     id: "office-supplies",
     name: "办公劳保",
     description: "办公用品字典、采购单、请款与分析",
     icon: PackageOpen,
-    color: "bg-teal-500",
+    gradient: "from-teal-500 to-emerald-700",
+    iconColor: "text-teal-500",
   },
   {
     id: "fleet",
     name: "车队管理",
     description: "车辆调度、加油、维修管理",
     icon: Truck,
-    color: "bg-green-500",
+    gradient: "from-green-500 to-lime-700",
+    iconColor: "text-green-500",
   },
   {
     id: "canteen",
     name: "食堂管理",
     description: "食材采购、菜品管理",
     icon: Utensils,
-    color: "bg-orange-500",
+    gradient: "from-orange-500 to-amber-700",
+    iconColor: "text-orange-500",
   },
   {
     id: "invoice",
     name: "发票管理",
     description: "发票录入、报销管理",
     icon: Receipt,
-    color: "bg-purple-500",
+    gradient: "from-purple-500 to-violet-700",
+    iconColor: "text-purple-500",
   },
   {
     id: "training",
     name: "培训管理",
     description: "培训计划、课程管理",
     icon: GraduationCap,
-    color: "bg-yellow-500",
+    gradient: "from-yellow-400 to-orange-600",
+    iconColor: "text-yellow-500",
   },
   {
     id: "occupational",
     name: "职业卫生",
     description: "职业健康检查管理",
     icon: Shield,
-    color: "bg-red-500",
+    gradient: "from-red-500 to-rose-700",
+    iconColor: "text-red-500",
   },
   {
     id: "social",
     name: "社保业务",
     description: "社保公积金业务办理",
     icon: Briefcase,
-    color: "bg-indigo-500",
+    gradient: "from-indigo-500 to-blue-700",
+    iconColor: "text-indigo-500",
   },
 ];
 
@@ -133,12 +141,14 @@ export function DailyAffairsHub({ onNavigate }: DailyAffairsHubProps) {
           return (
             <Card
               key={module.id}
-              className="cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg"
+              className="group relative cursor-pointer overflow-hidden rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
               onClick={() => handleModuleClick(module.id)}
             >
-              <CardContent className="flex flex-col items-center gap-4 p-6">
-                <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${module.color}`}>
-                  <Icon className="h-8 w-8 text-white" />
+              <CardContent className="relative flex flex-col items-center gap-4 p-6">
+                {/* 装饰模糊光斑 */}
+                <div className={`pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br ${module.gradient} opacity-20 blur-2xl`} />
+                <div className={`relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${module.gradient} text-white shadow-md`}>
+                  <Icon className="h-8 w-8" />
                 </div>
                 <div className="text-center">
                   <h3 className="text-lg font-semibold">{module.name}</h3>

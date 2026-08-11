@@ -350,7 +350,7 @@ export function ChatPanel() {
         <Button
           onClick={() => setIsOpen(true)}
           size="lg"
-          className="rounded-full w-14 h-14 shadow-lg bg-blue-600 hover:bg-blue-700 transition-all hover:scale-105 active:scale-95"
+          className="rounded-full w-14 h-14 shadow-lg bg-primary hover:bg-primary/90 transition-all hover:scale-105 active:scale-95"
         >
           <MessageSquare className="w-6 h-6" />
         </Button>
@@ -367,16 +367,16 @@ export function ChatPanel() {
       />
 
       {/* 侧滑面板 */}
-      <Card className="fixed inset-y-0 right-0 z-50 w-[880px] max-w-[95vw] flex flex-col shadow-2xl bg-white rounded-l-2xl border-l border-gray-200 animate-in slide-in-from-right duration-300">
+      <Card className="fixed inset-y-0 right-0 z-50 w-[880px] max-w-[95vw] flex flex-col shadow-2xl bg-card rounded-l-2xl border-l border-border animate-in slide-in-from-right duration-300">
         {/* ─── 顶栏 ──────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-blue-50 to-white">
+        <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-muted to-background">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-primary-foreground" />
             </div>
             <div>
-              <h2 className="font-semibold text-sm text-gray-900">AI 知识库问答</h2>
-              <p className="text-xs text-gray-500">基于档案与规章制度检索回答</p>
+              <h2 className="font-semibold text-sm text-foreground">AI 知识库问答</h2>
+              <p className="text-xs text-muted-foreground">基于档案与规章制度检索回答</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -384,7 +384,7 @@ export function ChatPanel() {
               variant="ghost"
               size="sm"
               onClick={() => setShowSessions(!showSessions)}
-              className="h-8 px-2 text-gray-500 hover:text-gray-700"
+              className="h-8 px-2 text-muted-foreground hover:text-foreground"
               title={showSessions ? "隐藏会话列表" : "显示会话列表"}
             >
               {showSessions ? (
@@ -397,7 +397,7 @@ export function ChatPanel() {
               variant="ghost"
               size="sm"
               onClick={() => setIsOpen(false)}
-              className="h-8 w-8 p-0 text-gray-500 hover:text-gray-700"
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />
             </Button>
@@ -408,10 +408,10 @@ export function ChatPanel() {
         <div className="flex flex-1 min-h-0">
           {/* ── 会话列表侧栏 ──────────────────────────────── */}
           {showSessions && (
-            <div className="w-60 border-r flex flex-col bg-gray-50/50 shrink-0">
+            <div className="w-60 border-r flex flex-col bg-muted/30 shrink-0">
               {/* 顶部操作栏 */}
               <div className="p-3 border-b flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                   <Clock className="w-3 h-3" />
                   历史会话
                 </span>
@@ -419,7 +419,7 @@ export function ChatPanel() {
                   variant="ghost"
                   size="sm"
                   onClick={handleNewSession}
-                  className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                  className="h-7 w-7 p-0 text-primary hover:text-primary hover:bg-accent"
                   title="新建会话"
                 >
                   <Plus className="w-4 h-4" />
@@ -431,15 +431,15 @@ export function ChatPanel() {
                 <div className="p-2 space-y-0.5">
                   {/* 当前新会话入口 */}
                   {!activeSessionId && (
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 cursor-default">
-                      <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-3 h-3 text-white" />
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent border border-border cursor-default">
+                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0">
+                        <Sparkles className="w-3 h-3 text-primary-foreground" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-blue-700 truncate">
+                        <p className="text-xs font-medium text-primary truncate">
                           新对话
                         </p>
-                        <p className="text-[10px] text-blue-500">当前</p>
+                        <p className="text-[10px] text-muted-foreground">当前</p>
                       </div>
                     </div>
                   )}
@@ -447,18 +447,18 @@ export function ChatPanel() {
                   {sessionsLoading && sortedSessions.length === 0 && (
                     <div className="px-3 py-6 text-center">
                       <div className="flex justify-center gap-1">
-                        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" />
-                        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce delay-100" />
-                        <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce delay-200" />
+                        <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" />
+                        <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce delay-100" />
+                        <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce delay-200" />
                       </div>
                     </div>
                   )}
 
                   {!sessionsLoading && sortedSessions.length === 0 && (
                     <div className="px-3 py-8 text-center">
-                      <Search className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                      <p className="text-xs text-gray-400">暂无会话记录</p>
-                      <p className="text-[10px] text-gray-300 mt-1">
+                      <Search className="w-8 h-8 mx-auto mb-2 text-muted-foreground/30" />
+                      <p className="text-xs text-muted-foreground">暂无会话记录</p>
+                      <p className="text-[10px] text-muted-foreground/50 mt-1">
                         开始提问即可创建
                       </p>
                     </div>
@@ -471,16 +471,16 @@ export function ChatPanel() {
                       className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all
                         ${
                           activeSessionId === sess.id
-                            ? "bg-blue-50 border border-blue-200"
-                            : "hover:bg-gray-100 border border-transparent"
+                            ? "bg-accent border border-border"
+                            : "hover:bg-accent/50 border border-transparent"
                         }`}
                     >
                       <div
                         className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0
                           ${
                             activeSessionId === sess.id
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-200 text-gray-500"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground"
                           }`}
                       >
                         <MessageSquare className="w-3 h-3" />
@@ -488,11 +488,11 @@ export function ChatPanel() {
                       <div className="min-w-0 flex-1">
                         <p
                           className={`text-xs font-medium truncate
-                            ${activeSessionId === sess.id ? "text-blue-700" : "text-gray-700"}`}
+                            ${activeSessionId === sess.id ? "text-primary" : "text-foreground"}`}
                         >
                           {sess.title || "未命名会话"}
                         </p>
-                        <p className="text-[10px] text-gray-400">
+                        <p className="text-[10px] text-muted-foreground">
                           {getTimeLabel(sess.updated_at)}
                         </p>
                       </div>
@@ -500,7 +500,7 @@ export function ChatPanel() {
                         variant="ghost"
                         size="sm"
                         onClick={(e) => handleDeleteSession(e, sess)}
-                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50 shrink-0 transition-all"
+                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-accent shrink-0 transition-all"
                         title="删除会话"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -516,7 +516,7 @@ export function ChatPanel() {
                   variant="outline"
                   size="sm"
                   onClick={handleNewSession}
-                  className="w-full text-xs h-8 border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                  className="w-full text-xs h-8 border-primary/20 text-primary hover:bg-accent hover:text-primary"
                 >
                   <Plus className="w-3.5 h-3.5 mr-1.5" />
                   新建对话
@@ -532,13 +532,13 @@ export function ChatPanel() {
                 {/* 空状态 */}
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center mb-4 shadow-sm">
-                      <Sparkles className="w-8 h-8 text-blue-600" />
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center mb-4 shadow-sm">
+                      <Sparkles className="w-8 h-8 text-primary" />
                     </div>
-                    <h3 className="text-base font-semibold text-gray-800 mb-1">
+                    <h3 className="text-base font-semibold text-foreground mb-1">
                       知识库 AI 问答
                     </h3>
-                    <p className="text-sm text-gray-500 max-w-xs">
+                    <p className="text-sm text-muted-foreground max-w-xs">
                       基于档案文档和规章制度，为您提供精准回答
                     </p>
                     <div className="flex flex-wrap gap-2 mt-5 justify-center">
@@ -553,7 +553,7 @@ export function ChatPanel() {
                             setInputValue(q);
                             inputRef.current?.focus();
                           }}
-                          className="px-3 py-1.5 text-xs rounded-full border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                          className="px-3 py-1.5 text-xs rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-accent transition-all"
                         >
                           {q}
                         </button>
@@ -572,8 +572,8 @@ export function ChatPanel() {
                   >
                     {/* AI 头像 */}
                     {message.role === "assistant" && (
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mt-0.5 shadow-sm">
-                        <Bot className="w-4 h-4 text-white" />
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center mt-0.5 shadow-sm">
+                        <Bot className="w-4 h-4 text-primary-foreground" />
                       </div>
                     )}
 
@@ -586,7 +586,7 @@ export function ChatPanel() {
                     >
                       {/* 用户消息气泡 */}
                       {message.role === "user" ? (
-                        <div className="px-4 py-2.5 rounded-2xl rounded-br-md bg-blue-600 text-white shadow-sm">
+                        <div className="px-4 py-2.5 rounded-2xl rounded-br-md bg-primary text-primary-foreground shadow-sm">
                           <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
                             {message.content}
                           </p>
@@ -594,14 +594,14 @@ export function ChatPanel() {
                       ) : (
                         /* AI 消息 */
                         <div className="space-y-2">
-                          <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-white border border-gray-100 shadow-sm">
+                          <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-card border border-border shadow-sm">
                             {message.content ? (
                               <MarkdownContent content={message.content} />
                             ) : (
                               <div className="flex gap-1.5 py-1">
-                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" />
-                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-100" />
-                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-200" />
+                                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" />
+                                <div className="w-2 h-2 bg-primary rounded-full animate-bounce delay-100" />
+                                <div className="w-2 h-2 bg-primary rounded-full animate-bounce delay-200" />
                               </div>
                             )}
                           </div>
@@ -614,8 +614,8 @@ export function ChatPanel() {
                                 title="有帮助"
                                 className={`p-1.5 rounded-md transition-colors ${
                                   ratedMap[message.id] === "positive"
-                                    ? "text-blue-600 bg-blue-50"
-                                    : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                                    ? "text-primary bg-accent"
+                                    : "text-muted-foreground hover:text-primary hover:bg-accent"
                                 }`}
                               >
                                 <ThumbsUp className="w-3.5 h-3.5" />
@@ -625,8 +625,8 @@ export function ChatPanel() {
                                 title="没有帮助"
                                 className={`p-1.5 rounded-md transition-colors ${
                                   ratedMap[message.id] === "negative"
-                                    ? "text-blue-600 bg-blue-50"
-                                    : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                                    ? "text-primary bg-accent"
+                                    : "text-muted-foreground hover:text-primary hover:bg-accent"
                                 }`}
                               >
                                 <ThumbsDown className="w-3.5 h-3.5" />
@@ -643,7 +643,7 @@ export function ChatPanel() {
                       )}
 
                       {/* 时间戳 */}
-                      <p className="text-[10px] text-gray-400 mt-1 px-1">
+                      <p className="text-[10px] text-muted-foreground mt-1 px-1">
                         {message.timestamp.toLocaleTimeString("zh-CN", {
                           hour: "2-digit",
                           minute: "2-digit",
@@ -653,8 +653,8 @@ export function ChatPanel() {
 
                     {/* 用户头像 */}
                     {message.role === "user" && (
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center mt-0.5">
-                        <User className="w-4 h-4 text-gray-600" />
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center mt-0.5">
+                        <User className="w-4 h-4 text-muted-foreground" />
                       </div>
                     )}
                   </div>
@@ -666,11 +666,11 @@ export function ChatPanel() {
             </ScrollArea>
 
             {/* ─── 底部输入栏 ─────────────────────────────── */}
-            <div className="border-t p-4 bg-white">
+            <div className="border-t p-4 bg-card">
               <div className="max-w-3xl mx-auto">
                 {/* 知识库范围选择器 */}
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-500 shrink-0">搜索范围</span>
+                  <span className="text-xs text-muted-foreground shrink-0">搜索范围</span>
                   {kbsLoading ? (
                     <Skeleton className="h-8 w-48 rounded-md" />
                   ) : (
@@ -680,7 +680,7 @@ export function ChatPanel() {
                         setSelectedKbId(v === "all" ? null : Number(v))
                       }
                     >
-                      <SelectTrigger className="h-8 text-xs w-52 bg-gray-50 border-gray-200">
+                      <SelectTrigger className="h-8 text-xs w-52 bg-muted border-border">
                         <SelectValue placeholder="全部知识库" />
                       </SelectTrigger>
                       <SelectContent>
@@ -703,7 +703,7 @@ export function ChatPanel() {
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyDown={handleKeyDown}
                       disabled={isLoading}
-                      className="flex-1 h-11 pl-4 pr-12 rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-all text-sm"
+                      className="flex-1 h-11 pl-4 pr-12 rounded-xl border-border bg-muted focus:bg-card focus:border-ring focus:ring-1 focus:ring-ring transition-all text-sm"
                     />
                   </div>
 
@@ -712,7 +712,7 @@ export function ChatPanel() {
                       onClick={handleStopGeneration}
                       variant="outline"
                       size="sm"
-                      className="h-11 px-4 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 transition-all"
+                      className="h-11 px-4 rounded-xl border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive transition-all"
                     >
                       <Square className="w-4 h-4 mr-1.5 fill-current" />
                       停止
@@ -722,13 +722,13 @@ export function ChatPanel() {
                       onClick={handleSendMessage}
                       disabled={!inputValue.trim()}
                       size="sm"
-                      className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 transition-all disabled:bg-gray-300"
+                      className="h-11 px-4 rounded-xl bg-primary hover:bg-primary/90 transition-all disabled:bg-muted"
                     >
                       <Send className="w-4 h-4" />
                     </Button>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-400 mt-2 text-center">
+                <p className="text-[10px] text-muted-foreground mt-2 text-center">
                   AI 回答基于知识库内容生成，请以原始文档为准
                 </p>
               </div>
@@ -755,7 +755,7 @@ export function ChatPanel() {
             <Button variant="outline" onClick={closeFeedbackDialog}>
               取消
             </Button>
-            <Button onClick={handleSubmitFeedback} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={handleSubmitFeedback} className="bg-primary hover:bg-primary/90">
               提交反馈
             </Button>
           </DialogFooter>
@@ -771,21 +771,21 @@ function SourcesCard({ sources }: { sources: SearchResult[] }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="border border-blue-100 rounded-xl bg-blue-50/50 overflow-hidden">
+    <div className="border border-border rounded-xl bg-muted/30 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-blue-50 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-accent/50 transition-colors"
       >
         <div className="flex items-center gap-1.5">
-          <FileText className="w-3.5 h-3.5 text-blue-600" />
-          <span className="text-xs font-medium text-blue-700">
+          <FileText className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-medium text-foreground">
             引用 {sources.length} 篇文档
           </span>
         </div>
         {expanded ? (
-          <ChevronRight className="w-3.5 h-3.5 text-blue-500 rotate-90 transition-transform" />
+          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground rotate-90 transition-transform" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-blue-500 transition-transform" />
+          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground transition-transform" />
         )}
       </button>
 
@@ -794,19 +794,19 @@ function SourcesCard({ sources }: { sources: SearchResult[] }) {
           {sources.map((source, idx) => (
             <div
               key={idx}
-              className="bg-white border border-blue-100 rounded-lg p-2.5"
+              className="bg-card border border-border rounded-lg p-2.5"
             >
               <div className="flex items-start gap-2">
-                <FileText className="w-3 h-3 mt-0.5 flex-shrink-0 text-blue-500" />
+                <FileText className="w-3 h-3 mt-0.5 flex-shrink-0 text-muted-foreground" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-800 truncate">
+                  <p className="text-xs font-medium text-foreground truncate">
                     {source.title}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-3 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-3 leading-relaxed">
                     {source.snippet}
                   </p>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+                    <span className="text-[10px] text-primary bg-accent px-1.5 py-0.5 rounded font-medium">
                       相关度 {(source.score * 100).toFixed(0)}%
                     </span>
                   </div>

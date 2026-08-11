@@ -56,7 +56,7 @@ const FloatingDockMobile = memo(
                     <a
                       href={item.href}
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow dark:bg-neutral-900",
+                        "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow",
                         buttonClassName,
                       )}
                       {...(item.href.startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {})}
@@ -68,7 +68,7 @@ const FloatingDockMobile = memo(
                       type="button"
                       onClick={item.onClick}
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow dark:bg-neutral-900 relative",
+                        "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow relative",
                         buttonClassName,
                       )}
                     >
@@ -88,7 +88,7 @@ const FloatingDockMobile = memo(
         <button
           type="button"
           onClick={toggleOpen}
-          className={cn("flex h-8 w-8 items-center justify-center rounded-full bg-muted shadow dark:bg-neutral-800", buttonClassName)}
+          className={cn("flex h-8 w-8 items-center justify-center rounded-full bg-muted shadow", buttonClassName)}
           aria-expanded={open}
         >
           <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.3, ease: "easeInOut" }}>
@@ -112,7 +112,7 @@ const FloatingDockDesktop = memo(({ items, className }: { items: DockItem[]; cla
     <motion.div
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className={cn("mx-auto hidden h-12 items-end gap-2 rounded-xl bg-[#E5E7EB] px-2 pb-2 md:flex shadow-sm dark:bg-[#292929]", className)}
+      className={cn("mx-auto hidden h-12 items-end gap-2 rounded-xl bg-background/70 backdrop-blur-md border border-border/60 px-2 pb-2 md:flex shadow-lg shadow-black/10 dark:shadow-white/5", className)}
     >
       {items.map((item) => (
         <IconContainer mouseX={mouseX} key={item.title} {...item} />
@@ -146,7 +146,7 @@ const IconContainer = memo(({ mouseX, title, icon, href, onClick, badge }: DockI
       style={{ width, height }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="relative flex aspect-square items-center justify-center rounded-full bg-muted text-foreground dark:bg-[#292929]"
+      className="relative flex aspect-square items-center justify-center rounded-full bg-muted text-foreground"
     >
       <AnimatePresence>
         {hovered && (

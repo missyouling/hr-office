@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { DataTableWrapper } from "@/components/common/data-table-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
@@ -239,7 +239,7 @@ export default function MaskingTab() {
       {/* 脱敏规则表格 */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[calc(100vh-500px)] rounded-md border">
+          <DataTableWrapper height="h-[calc(100vh-500px)]">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -299,7 +299,7 @@ export default function MaskingTab() {
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </DataTableWrapper>
         </CardContent>
       </Card>
 

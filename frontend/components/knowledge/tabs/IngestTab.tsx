@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { DataTableWrapper } from "@/components/common/data-table-wrapper";
 import { PermissionGate } from "@/components/permission-gate";
 
 import { knowledgeApi, type KnowledgeBase, type KBIngestResponse } from "@/lib/api-knowledge";
@@ -174,7 +174,7 @@ export default function IngestTab() {
       {/* 入库记录表格 */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[300px] rounded-md border">
+          <DataTableWrapper height="h-[300px]">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -221,7 +221,7 @@ export default function IngestTab() {
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </DataTableWrapper>
         </CardContent>
       </Card>
     </div>

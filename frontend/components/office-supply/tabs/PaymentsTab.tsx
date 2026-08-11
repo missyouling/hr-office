@@ -183,11 +183,11 @@ export default function PaymentsTab() {
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>请款单 ${d.request_no || ""}</title>
 <style>*{margin:0;padding:0}body{font-family:"Microsoft YaHei",sans-serif;padding:50px 60px;color:#333;font-size:14px;width:210mm;margin:0 auto}
 h1{font-size:28px;text-align:center;letter-spacing:12px;margin-bottom:24px}table{width:100%;border-collapse:collapse;margin-bottom:20px}
-th,td{border:1px solid #333;padding:8px 10px;font-size:13px}th{background:#f0f4ff;font-weight:600;text-align:center;width:110px;color:#1e40af}
-.cn{font-size:15px;letter-spacing:2px;color:#1e40af;font-weight:600}.amt{font-family:'Courier New',monospace;font-weight:bold;font-size:16px;color:#dc2626}
-.attach{margin-top:30px;padding-top:14px}.attach h2{font-size:16px;color:#1e40af;margin-bottom:8px}
-.line{font-size:13px;line-height:1.9}.attach-total{margin-top:6px;font-size:14px;font-weight:bold;color:#dc2626;border-top:1px dashed #999;padding-top:6px}
-@media print{body{padding:30px 40px}th{background:#f0f4ff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+th,td{border:1px solid #333;padding:8px 10px;font-size:13px}th{background:#eff6ff;font-weight:600;text-align:center;width:110px;color:#2563eb}
+.cn{font-size:15px;letter-spacing:2px;color:#2563eb;font-weight:600}.amt{font-family:'Courier New',monospace;font-weight:bold;font-size:16px;color:#ef4444}
+.attach{margin-top:30px;padding-top:14px}.attach h2{font-size:16px;color:#2563eb;margin-bottom:8px}
+.line{font-size:13px;line-height:1.9}.attach-total{margin-top:6px;font-size:14px;font-weight:bold;color:#ef4444;border-top:1px dashed #999;padding-top:6px}
+@media print{body{padding:30px 40px}th{background:#eff6ff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
 <h1>请 款 单</h1>
 <div style="display:flex;justify-content:space-between;font-size:13px;color:#555;margin-bottom:16px"><span><strong>单号：</strong>${d.request_no || ""}</span><span><strong>日期：</strong>${d.request_date || ""}</span></div>
 <table><tbody>
@@ -287,7 +287,7 @@ ${attach}
                   {unpaidPurchases.map(p => {
                     const checked = form.purchase_ids.split(",").includes(String(p.id));
                     return (
-                      <label key={p.id} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm border ${checked ? "bg-blue-50 border-blue-300" : "hover:bg-muted/50"}`}>
+                      <label key={p.id}                     className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm border ${checked ? "bg-accent border-primary/30" : "hover:bg-muted/50"}`}>
                         <input type="checkbox" checked={checked} onChange={() => togglePurchase(p.id)} />
                         <span className="font-mono text-xs flex-1 truncate">{p.order_no}</span>
                         <span className="text-xs text-muted-foreground flex-1 truncate">{p.supplier_name || ""} · {formatPurchaseDate(p.purchase_date)}</span>
@@ -308,7 +308,7 @@ ${attach}
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5"><Label>金额（元）</Label><Input type="number" step="0.01" min="0" value={form.amount || ""} onChange={e => setForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} /></div>
-              <div className="col-span-2 space-y-1.5"><Label>金额大写</Label><div className="flex h-10 w-full items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-700">{amountCn}</div></div>
+              <div className="col-span-2 space-y-1.5"><Label>金额大写</Label><div className="flex h-10 w-full items-center rounded-lg border border-primary/20 bg-accent px-3 text-sm font-bold text-primary">{amountCn}</div></div>
             </div>
             <div className="space-y-1.5"><Label>支付方式</Label>
               <div className="flex gap-3 mt-1">
@@ -361,12 +361,12 @@ ${attach}
                     ["部门负责人", viewItem.dept_head || "", "经办人", viewItem.handler || ""],
                   ].map(([l1, v1, l2, v2], i) => (
                     <tr key={i}>
-                      <th className="border border-gray-400 p-1.5 px-2 text-center bg-muted w-24 text-xs">{l1}</th>
-                      <td colSpan={!l2 ? 3 : 1} className={`border border-gray-400 p-1.5 px-2 ${l1 === "金额(小写)" ? "font-bold text-red-600 font-mono" : ""}`}>
+                      <th className="border border-border p-1.5 px-2 text-center bg-muted w-24 text-xs">{l1}</th>
+                      <td colSpan={!l2 ? 3 : 1} className={`border border-border p-1.5 px-2 ${l1 === "金额(小写)" ? "font-bold text-destructive font-mono" : ""}`}>
                         {v1}
                       </td>
-                      {l2 && <th className="border border-gray-400 p-1.5 px-2 text-center bg-muted w-24 text-xs">{l2}</th>}
-                      {l2 && <td className={`border border-gray-400 p-1.5 px-2 ${l2 === "金额(大写)" ? "text-blue-700 font-bold tracking-wider" : ""}`}>{v2}</td>}
+                      {l2 && <th className="border border-border p-1.5 px-2 text-center bg-muted w-24 text-xs">{l2}</th>}
+                      {l2 && <td className={`border border-border p-1.5 px-2 ${l2 === "金额(大写)" ? "text-primary font-bold tracking-wider" : ""}`}>{v2}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -377,7 +377,7 @@ ${attach}
                   {(() => {
                     let no = 0, total = 0;
                     const lines = viewPurchases.flatMap(p => (p.items || []).map((it: any) => { no++; total += Number(it.subtotal) || 0; return <div key={`${p.id}-${it.supply_id}`} className="text-[13px] leading-7">{no}. {it.supply_name} {it.supply_spec || ""} {it.unit} ×{it.quantity}　¥{Number(it.subtotal).toFixed(2)}</div>; }));
-                    return <>{lines}<div className="mt-1 text-sm font-bold text-red-600 border-t border-dashed pt-1">合计：¥{total.toFixed(2)}</div></>;
+                    return <>{lines}<div className="mt-1 text-sm font-bold text-destructive border-t border-dashed pt-1">合计：¥{total.toFixed(2)}</div></>;
                   })()}
                 </div>
               )}

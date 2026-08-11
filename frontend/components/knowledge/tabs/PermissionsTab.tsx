@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { DataTableWrapper } from "@/components/common/data-table-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { PermissionGate } from "@/components/permission-gate";
 
@@ -247,7 +247,7 @@ export default function PermissionsTab() {
       {/* 规则表格 */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[calc(100vh-380px)] rounded-md border">
+          <DataTableWrapper height="h-[calc(100vh-380px)]">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -309,7 +309,7 @@ export default function PermissionsTab() {
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </DataTableWrapper>
         </CardContent>
       </Card>
 

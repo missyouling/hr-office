@@ -152,6 +152,41 @@
 【总进度】0 / 9 完成
 【下一步】P9.1.1：ingest 全链路实装
 
+## P10：前端 UI 全站治理（借鉴 CDK 设计语言）🔜 已确认方案
+
+> 背景：hr-office 前端新模块规范执行好（90%），历史大模块（employee/dormitory/insurance）视觉滞后，存在 20+ 粗糙点（弹窗 19 种尺寸、加载态 3 套、硬编码颜色散落、深色模式破相）。参照 CDK 项目（/home/cdk）的设计语言做全站治理。
+> 决策：Q1=全站治理 P0+P1 / Q2=引入 CDK 个性亮点（渐变系统化+毛玻璃） / Q3=中度动效 / Q4=一并修深色 / Q5=@designer 先出规范
+
+### P10.1 设计规范（@designer 先行）
+- [ ] 0.1 @designer 输出 docs/ui-design-p9.md（全站设计规范 v2：token 体系/四档弹窗/三态组件/动效规范/深色规范/渐变与毛玻璃系统化方案）（交付物：docs/ui-design-p9.md；依赖：无）
+- [ ] 0.2 验收：规范文档完整覆盖 P0+P1 全部治理点 + CDK 亮点引入方案（依赖：0.1）
+
+### P10.2 基础设施治理（P0）
+- [ ] 1.1 弹窗尺寸 4 档常量（sm=420/md=560/lg=800/full 全屏）统一全站 19 种写法（交付物：lib/dialog-size.ts 常量 + 全站 Dialog 替换；依赖：0.1）
+- [ ] 1.2 三态组件抽取：TableLoading（骨架屏）/ EmptyState（图标+文字+motion 弹性）/ 错误态恢复组件，消灭英文 "Loading"（交付物：components/common/table-loading.tsx + empty-state.tsx；依赖：0.1）
+- [ ] 1.3 硬编码颜色清零：system-settings 15 色 hex 色板、chat-panel（含 bg-white 深色破相）、PaymentsTab、feedback-panel、invoice StatsTab、canteen analytics-components 迁移到主题变量（交付物：6 个文件修改；依赖：0.1）
+- [ ] 1.4 表格规范化：统一 ScrollArea + sticky 表头容器，globals.css 表头硬编码背景改主题变量（交付物：globals.css + employee/PermissionsTab/MaskingTab/audit-logs 等修改；依赖：0.1）
+- [ ] 1.5 深色模式补全：修复 bg-white 破相、表头硬编码、insurance dark:bg 补丁等 4-5 处（交付物：globals.css + chat-panel + insurance 等；依赖：0.1）
+
+### P10.3 布局与视觉亮点（P1 + CDK 亮点）
+- [ ] 2.1 侧边栏激活态改主题变量 + ManagementBar 折叠位置修复（16rem 硬编码改响应式）（交付物：nav-main.tsx + management-bar.tsx；依赖：0.1）
+- [ ] 2.2 双层 bg-card 嵌套清理（page.tsx 内容区与模块内部去重）（交付物：page.tsx + employee/insurance/dormitory 头部；依赖：0.1）
+- [ ] 2.3 首页欢迎卡渐变系统化（品牌渐变+装饰光斑+轮播，对齐 CDK ExploreBanner）（交付物：app/page.tsx LandingContent；依赖：0.1）
+- [ ] 2.4 日常事务卡片墙渐变业务编码（8 张卡片按模块语义分色渐变，对齐 CDK ProjectCard）（交付物：daily-affairs-hub.tsx；依赖：0.1）
+- [ ] 2.5 浮动 Dock 毛玻璃强化（bg-background/70 backdrop-blur-md + 主题化阴影）（交付物：floating-dock.tsx + management-bar.tsx；依赖：0.1）
+
+### P10.4 动效引入（中度）
+- [ ] 3.1 页面入场动画（stagger 容器 + item 位移，对齐 CDK containerVariants）（交付物：components/motion/page-transition.tsx + 各主组件接入；依赖：0.1）
+- [ ] 3.2 统计数字滚动（CountingNumber 对齐 CDK）（交付物：components/common/counting-number.tsx + knowledge-stats/发票 StatsTab 接入；依赖：0.1）
+- [ ] 3.3 空状态 motion 弹性入场 + 弹窗 zoom-in 统一（交付物：empty-state.tsx + dialog.tsx；依赖：1.2）
+
+### P10.5 验收与收尾
+- [ ] 4.1 验收：全站 lint/tsc/build 通过 + 深色模式完整 + 弹窗四档统一 + 无英文 Loading（依赖：全部）
+- [ ] 4.2 TODO/agentmemory 更新 + git commit + push（依赖：4.1）
+
+【总进度】0 / 19 完成
+【下一步】P10.0.1：@designer 输出 ui-design-p9.md 规范
+
 ### P6 交付摘要
 - 后端：19 个 GORM 模型 + 99 个 HTTP 路由 + 6 个单测（office_analytics 6 例 + canteen_analytics 2 例 + migrate 3 例）
 - 前端：2 个主组件 + 10 个 Tab + 7 个辅助文件（utils/api/dialogs）+ 2 个 API 封装

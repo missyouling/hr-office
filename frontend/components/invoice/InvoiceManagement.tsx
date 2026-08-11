@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { ArrowLeft } from "lucide-react";
 
+import { PageTransition } from "@/components/motion/page-transition";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
@@ -66,7 +67,7 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
   const isAdmin = ["admin", "super_admin"].includes(role);
 
   return (
-    <div className="mx-auto flex w-full flex-col gap-4 p-2 md:p-4">
+    <PageTransition className="mx-auto flex w-full flex-col gap-4 p-2 md:p-4">
       {/* 顶部标题栏 */}
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -144,6 +145,6 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
         onSuccess={handleRefresh}
         onEdit={handleEdit}
       />
-    </div>
+    </PageTransition>
   );
 }

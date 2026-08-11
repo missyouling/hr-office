@@ -7,10 +7,17 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recha
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { invoiceApi, type InvoiceStats } from "@/lib/api-invoice";
-import { getStatusLabel, formatCurrency } from "../utils";
+import { getStatusLabel } from "../utils";
+import { CountingNumber } from "@/components/common/counting-number";
 
-// 饼图颜色
-const COLORS = ["#6b7280", "#3b82f6", "#10b981", "#ef4444", "#8b5cf6"];
+// 饼图颜色 —— 使用 chart-1~5 主题变量，同时保留 getColorIndex 映射用 fallback 色
+const COLORS: Record<string, string> = {
+  draft: "var(--muted-foreground)",
+  submitted: "var(--chart-1)",
+  approved: "var(--chart-2)",
+  rejected: "var(--destructive)",
+  reimbursed: "var(--chart-4)",
+};
 
 interface StatsTabProps {
   refreshKey: number;
@@ -25,16 +32,9 @@ function buildPieData(stats: InvoiceStats) {
   }));
 }
 
-/** 状态对应的颜色索引 */
+/** 状态对应的颜色，回退到 muted-foreground */
 function getColorIndex(status: string): string {
-  const map: Record<string, string> = {
-    draft: COLORS[0],
-    submitted: COLORS[1],
-    approved: COLORS[2],
-    rejected: COLORS[3],
-    reimbursed: COLORS[4],
-  };
-  return map[status] || COLORS[0];
+  return COLORS[status] || COLORS.draft;
 }
 
 export default function StatsTab({ refreshKey }: StatsTabProps) {
@@ -85,7 +85,7 @@ export default function StatsTab({ refreshKey }: StatsTabProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">发票总数</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{stats.total}</p>
+            <p className="text-3xl font-bold"><CountingNumber value={stats.total} /></p>
           </CardContent>
         </Card>
         <Card>
@@ -93,7 +93,9 @@ export default function StatsTab({ refreshKey }: StatsTabProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">总金额</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-blue-600">{formatCurrency(stats.total_amount)}</p>
+            <p className="text-3xl font-bold text-primary">
+              <CountingNumber value={stats.total_amount} decimals={2} prefix="¥" />
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -101,7 +103,9 @@ export default function StatsTab({ refreshKey }: StatsTabProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">草稿数</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-gray-600">{stats.by_status?.draft ?? 0}</p>
+            <p className="text-3xl font-bold text-muted-foreground">
+              <CountingNumber value={stats.by_status?.draft ?? 0} />
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -109,7 +113,9 @@ export default function StatsTab({ refreshKey }: StatsTabProps) {
             <CardTitle className="text-sm font-medium text-muted-foreground">已报销数</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-violet-600">{stats.by_status?.reimbursed ?? 0}</p>
+            <p className="text-3xl font-bold text-chart-4">
+              <CountingNumber value={stats.by_status?.reimbursed ?? 0} />
+            </p>
           </CardContent>
         </Card>
       </div>

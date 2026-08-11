@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, Layers, MessageSquare, Tag } from "lucide-react";
 import { getKnowledgeStats, fetchKnowledgeSessions, fetchArchiveTags } from "@/lib/api";
+import { CountingNumber } from "@/components/common/counting-number";
 
 interface StatsData {
   totalDocuments: number;
@@ -113,7 +114,11 @@ export function KnowledgeStats() {
             </div>
             <div className="min-w-0">
               <p className={`font-bold ${card.isTags ? "text-sm" : "text-2xl"} truncate`}>
-                {card.value}
+                {card.isTags
+                  ? card.value
+                  : typeof card.value === "number"
+                    ? <CountingNumber value={card.value} />
+                    : card.value}
               </p>
               <p className="text-sm text-gray-500">{card.label}</p>
             </div>

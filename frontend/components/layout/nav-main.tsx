@@ -28,8 +28,10 @@ export function NavMain({ items, activeId, onSelect }: NavMainProps) {
               <SidebarMenuItem key={item.id}>
                 <SidebarMenuButton
                   className={cn(
-                    "h-10 w-full items-center gap-3 rounded-lg px-3",
-                    active ? "bg-black text-white shadow-sm dark:bg-white dark:text-black" : "hover:bg-sidebar-accent"
+                    "h-10 w-full items-center gap-3 rounded-lg px-3 transition-colors",
+                    active
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )}
                   isActive={active}
                   onClick={() => onSelect(item.id)}
