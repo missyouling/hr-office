@@ -40,7 +40,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 }
 
 export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarProps) {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
 
   const availableNavItems = NAV_ITEMS.filter((item) => {
     if (item.id === "organization" || item.id === "audit" || item.id === "monitoring") {
@@ -49,10 +49,17 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
     return true;
   });
 
-  // 系统设置仅 admin/super_admin 可见，合并到主菜单
-  const showSystemSettings = user?.role === "admin" || user?.role === "super_admin";
+  // ===== P7.1：管理类菜单按权限过滤 =====
+  // 基础模块（员工/保险/宿舍/档案/公告）所有角色均有 view 权限，无需过滤；
+  // 仅管理类菜单按权限显隐：
+  // - 「系统设置」需要 settings.view
+  // - 「部门管理」需要 department.view（仅 admin 有该权限，带角色兜底防止后端未下发权限时回归）
+  // - 「反馈管理」无独立权限资源，沿用角色判断
+  // - 备份/用户管理菜单当前未在侧边栏注册，若后续新增需分别用 backups.view / users.view 过滤
+  const showSystemSettings = hasPermission("settings", "view");
   const showFeedback = user?.role === "admin" || user?.role === "super_admin";
-  const showDepartments = user?.role === "admin" || user?.role === "super_admin";
+  const showDepartments =
+    hasPermission("department", "view") || user?.role === "admin" || user?.role === "super_admin";
 
   const allNavItems = [
     ...availableNavItems,

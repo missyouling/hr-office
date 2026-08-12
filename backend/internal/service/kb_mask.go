@@ -23,10 +23,14 @@ func ApplyFieldMask(db *gorm.DB, user *models.User, kbID uint, fieldName string,
 		return value
 	}
 
-	// 检查用户角色是否在豁免列表中
+	// 检查用户角色是否在豁免列表中（通过 user_roles 联表查询角色名称）
 	if mask.ExemptRole != nil {
-		normalizedRole := models.NormalizeRole(user.Role)
-		if normalizedRole == *mask.ExemptRole {
+		var exemptCount int64
+		db.Model(&models.Role{}).
+			Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+			Where("user_roles.user_id = ? AND roles.name = ?", user.ID, *mask.ExemptRole).
+			Count(&exemptCount)
+		if exemptCount > 0 {
 			return value
 		}
 	}
@@ -86,10 +90,14 @@ func MaskKBResult(db *gorm.DB, user *models.User, kbID uint, result map[string]i
 			continue
 		}
 
-		// 检查豁免
+		// 检查豁免（通过 user_roles 联表查询角色名称）
 		if mask.ExemptRole != nil {
-			normalizedRole := models.NormalizeRole(user.Role)
-			if normalizedRole == *mask.ExemptRole {
+			var exemptCount int64
+			db.Model(&models.Role{}).
+				Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+				Where("user_roles.user_id = ? AND roles.name = ?", user.ID, *mask.ExemptRole).
+				Count(&exemptCount)
+			if exemptCount > 0 {
 				continue
 			}
 		}

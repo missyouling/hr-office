@@ -46,6 +46,7 @@ import type {
 } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 import {
   Card,
   CardContent,
@@ -1311,12 +1312,18 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
                       onChange={(event) => setNewPeriod(event.target.value)}
                       className="w-full"
                     />
-                    <Button onClick={handleCreatePeriod}>创建</Button>
+                    {/* P7.1：创建账期需 insurance.create 权限 */}
+                    <RequirePermission resource="insurance" action="create">
+                      <Button onClick={handleCreatePeriod}>创建</Button>
+                    </RequirePermission>
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label>账期操作</Label>
                   <div className="flex gap-2">
+                    {/* P7.1：重置账期为修改操作，需 insurance.edit 权限（RequirePermission 必须包裹在 Dialog 外层，
+                        若放在 DialogTrigger asChild 内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击无法打开弹窗） */}
+                    <RequirePermission resource="insurance" action="edit">
                     <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
                       <DialogTrigger asChild>
                         <Button
@@ -1347,16 +1354,23 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
                           >
                             取消
                           </Button>
-                          <Button
-                            variant="destructive"
-                            onClick={handleReset}
-                            disabled={resetting}
-                          >
-                            {resetting ? "重置中..." : "确认重置"}
-                          </Button>
+                          {/* P7.1：确认重置账期需 insurance.edit 权限 */}
+                          <RequirePermission resource="insurance" action="edit">
+                            <Button
+                              variant="destructive"
+                              onClick={handleReset}
+                              disabled={resetting}
+                            >
+                              {resetting ? "重置中..." : "确认重置"}
+                            </Button>
+                          </RequirePermission>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+                    </RequirePermission>
+                    {/* P7.1：删除账期需 insurance.delete 权限（RequirePermission 必须包裹在 Dialog 外层，
+                        若放在 DialogTrigger asChild 内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击无法打开弹窗） */}
+                    <RequirePermission resource="insurance" action="delete">
                     <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
                       <DialogTrigger asChild>
                         <Button
@@ -1388,16 +1402,20 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
                           >
                             取消
                           </Button>
-                          <Button
-                            variant="destructive"
-                            onClick={handleDeletePeriod}
-                            disabled={deleting}
-                          >
-                            {deleting ? "删除中..." : "确认删除"}
-                          </Button>
+                          {/* P7.1：确认删除账期需 insurance.delete 权限 */}
+                          <RequirePermission resource="insurance" action="delete">
+                            <Button
+                              variant="destructive"
+                              onClick={handleDeletePeriod}
+                              disabled={deleting}
+                            >
+                              {deleting ? "删除中..." : "确认删除"}
+                            </Button>
+                          </RequirePermission>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+                    </RequirePermission>
                   </div>
                 </div>
               </div>
@@ -1491,12 +1509,15 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
                       }
                     />
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        onClick={() => batchFileInputRef.current?.click()}
-                        variant="outline"
-                      >
-                        选择文件
-                      </Button>
+                      {/* P7.1：选择社保文件为上传入口，需 insurance.create 权限 */}
+                      <RequirePermission resource="insurance" action="create">
+                        <Button
+                          onClick={() => batchFileInputRef.current?.click()}
+                          variant="outline"
+                        >
+                          选择文件
+                        </Button>
+                      </RequirePermission>
                       {batchDrafts.length > 0 && (
                         <Button
                           variant="ghost"
@@ -1604,45 +1625,57 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
                       </ScrollArea>
                     )}
                     <DialogFooter>
-                      <Button
-                        onClick={handleBatchUploadSubmit}
-                        disabled={
-                          batchDrafts.length === 0 || batchUploading
-                        }
-                      >
-                        {batchUploading ? "上传中..." : "开始上传"}
-                      </Button>
+                      {/* P7.1：开始上传需 insurance.create 权限 */}
+                      <RequirePermission resource="insurance" action="create">
+                        <Button
+                          onClick={handleBatchUploadSubmit}
+                          disabled={
+                            batchDrafts.length === 0 || batchUploading
+                          }
+                        >
+                          {batchUploading ? "上传中..." : "开始上传"}
+                        </Button>
+                      </RequirePermission>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
                 {batchDrafts.length > 0 && batchDrafts.every(item => item.part && item.scheme) && (
-                  <Button
-                    onClick={handleBatchUploadSubmit}
-                    disabled={batchUploading}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    {batchUploading ? "上传中..." : "上传社保文件"}
-                  </Button>
+                  /* P7.1：上传社保文件需 insurance.create 权限 */
+                  <RequirePermission resource="insurance" action="create">
+                    <Button
+                      onClick={handleBatchUploadSubmit}
+                      disabled={batchUploading}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {batchUploading ? "上传中..." : "上传社保文件"}
+                    </Button>
+                  </RequirePermission>
                 )}
                 {selectedPeriodId && missingUploads.length === 0 && normalFiles.length > 0 && (
-                  <Button
-                    onClick={handleProcess}
-                    disabled={
-                      !selectedPeriodId ||
-                      processing
-                    }
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    {processing ? "处理中..." : "处理社保数据"}
-                  </Button>
+                  /* P7.1：处理社保数据为业务处理操作，需 insurance.edit 权限 */
+                  <RequirePermission resource="insurance" action="edit">
+                    <Button
+                      onClick={handleProcess}
+                      disabled={
+                        !selectedPeriodId ||
+                        processing
+                      }
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {processing ? "处理中..." : "处理社保数据"}
+                    </Button>
+                  </RequirePermission>
                 )}
-                <Button
-                  variant="destructive"
-                  disabled={!selectedPeriodId || clearingFiles}
-                  onClick={handleClearFiles}
-                >
-                  {clearingFiles ? "清空中..." : "清空记录"}
-                </Button>
+                {/* P7.1：清空记录为删除操作，需 insurance.delete 权限 */}
+                <RequirePermission resource="insurance" action="delete">
+                  <Button
+                    variant="destructive"
+                    disabled={!selectedPeriodId || clearingFiles}
+                    onClick={handleClearFiles}
+                  >
+                    {clearingFiles ? "清空中..." : "清空记录"}
+                  </Button>
+                </RequirePermission>
                 </div>
               </div>
 
@@ -1765,6 +1798,9 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
             <CardContent className="space-y-6">
               <div className="flex justify-end">
                 <div className="flex gap-2">
+                {/* P7.1：选择补退文件为上传入口，需 insurance.create 权限（RequirePermission 必须包裹在 Dialog 外层，
+                    若放在 DialogTrigger asChild 内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击无法打开弹窗） */}
+                <RequirePermission resource="insurance" action="create">
                 <Dialog
                   open={adjustmentDialogOpen}
                   onOpenChange={(open) => {
@@ -1859,37 +1895,47 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
                       </ScrollArea>
                     )}
                     <DialogFooter>
-                      <Button
-                        onClick={async () => {
-                          await handleAdjustmentUpload();
-                          setAdjustmentDialogOpen(false);
-                        }}
-                        disabled={
-                          selectedAdjustmentFiles.length === 0 || adjustmentUploading
-                        }
-                        className="bg-orange-600 hover:bg-orange-700"
-                      >
-                        {adjustmentUploading ? "上传中..." : "开始上传"}
-                      </Button>
+                      {/* P7.1：上传补退文件需 insurance.create 权限 */}
+                      <RequirePermission resource="insurance" action="create">
+                        <Button
+                          onClick={async () => {
+                            await handleAdjustmentUpload();
+                            setAdjustmentDialogOpen(false);
+                          }}
+                          disabled={
+                            selectedAdjustmentFiles.length === 0 || adjustmentUploading
+                          }
+                          className="bg-orange-600 hover:bg-orange-700"
+                        >
+                          {adjustmentUploading ? "上传中..." : "开始上传"}
+                        </Button>
+                      </RequirePermission>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                </RequirePermission>
                   {adjustmentFiles.length > 0 && (
-                    <Button
-                      onClick={handleProcessAdjustments}
-                      disabled={adjustmentProcessing}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      {adjustmentProcessing ? "处理中..." : "处理补退数据"}
-                    </Button>
+                    /* P7.1：处理补退数据需 insurance.edit 权限 */
+                    <RequirePermission resource="insurance" action="edit">
+                      <Button
+                        onClick={handleProcessAdjustments}
+                        disabled={adjustmentProcessing}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {adjustmentProcessing ? "处理中..." : "处理补退数据"}
+                      </Button>
+                    </RequirePermission>
                   )}
-                  <Button
-                    variant="destructive"
-                    disabled={!selectedPeriodId || clearingAdjustments}
-                    onClick={handleClearAdjustments}
-                  >
-                    {clearingAdjustments ? "清空中..." : "清空记录"}
-                  </Button>
+                  {/* P7.1：清空补退记录为删除操作，需 insurance.delete 权限 */}
+                  <RequirePermission resource="insurance" action="delete">
+                    <Button
+                      variant="destructive"
+                      disabled={!selectedPeriodId || clearingAdjustments}
+                      onClick={handleClearAdjustments}
+                    >
+                      {clearingAdjustments ? "清空中..." : "清空记录"}
+                    </Button>
+                  </RequirePermission>
                 </div>
               </div>
 
@@ -2532,7 +2578,10 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
           <Button variant="outline" onClick={() => setUnitInfoDialogOpen(false)}>
             取消
           </Button>
-          <Button onClick={handleUnitInfoSave}>保存</Button>
+          {/* P7.1：保存单位信息需 insurance.edit 权限 */}
+          <RequirePermission resource="insurance" action="edit">
+            <Button onClick={handleUnitInfoSave}>保存</Button>
+          </RequirePermission>
         </DialogFooter>
       </DialogContent>
       </Dialog>
@@ -2691,9 +2740,12 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
           <Button variant="outline" onClick={cancelClearFiles} disabled={clearingFiles}>
             取消
           </Button>
-          <Button variant="destructive" onClick={confirmClearFiles} disabled={clearingFiles}>
-            {clearingFiles ? "清空中..." : "确认清空"}
-          </Button>
+          {/* P7.1：确认清空社保文件需 insurance.delete 权限 */}
+          <RequirePermission resource="insurance" action="delete">
+            <Button variant="destructive" onClick={confirmClearFiles} disabled={clearingFiles}>
+              {clearingFiles ? "清空中..." : "确认清空"}
+            </Button>
+          </RequirePermission>
         </DialogFooter>
       </DialogContent>
       </Dialog>
@@ -2717,9 +2769,12 @@ export function InsuranceManagement({}: InsuranceManagementProps) {
           <Button variant="outline" onClick={cancelClearAdjustments} disabled={clearingAdjustments}>
             取消
           </Button>
-          <Button variant="destructive" onClick={confirmClearAdjustments} disabled={clearingAdjustments}>
-            {clearingAdjustments ? "清空中..." : "确认清空"}
-          </Button>
+          {/* P7.1：确认清空补退文件需 insurance.delete 权限 */}
+          <RequirePermission resource="insurance" action="delete">
+            <Button variant="destructive" onClick={confirmClearAdjustments} disabled={clearingAdjustments}>
+              {clearingAdjustments ? "清空中..." : "确认清空"}
+            </Button>
+          </RequirePermission>
         </DialogFooter>
       </DialogContent>
       </Dialog>

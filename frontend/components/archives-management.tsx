@@ -38,6 +38,7 @@ import { Progress } from "@/components/ui/progress";
 import { ArchiveFormRenderer } from "./archive-form-renderer";
 import { ArchiveTableRenderer } from "./archive-table-renderer";
 import { FolderTree } from "./folder-tree";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 import { TagFilter } from "./tag-filter";
 import { generateFormSchema, generateTableSchema, type FormFieldSchema, type TableColumnSchema } from "@/lib/archive-schema";
 
@@ -1088,20 +1089,29 @@ export function ArchivesManagement() {
             </span>
             {selectedIds.length > 0 && <Badge variant="default">已选择 {selectedIds.length}</Badge>}
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={handleOpenUpload}>
-                <Upload className="h-4 w-4 mr-2" />
-                上传
-              </Button>
+              {/* P7.1：上传档案需 archives.create 权限（页面级按钮，无权限隐藏） */}
+              <RequirePermission resource="archives" action="create">
+                <Button variant="outline" onClick={handleOpenUpload}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  上传
+                </Button>
+              </RequirePermission>
               {selectedIds.length > 0 && (
                 <>
-                  <Button variant="outline" onClick={handleBatchDownload}>
-                    <Download className="h-4 w-4 mr-2" />
-                    下载 ({selectedIds.length})
-                  </Button>
-                  <Button variant="outline" onClick={handleShare}>
-                    <Share2 className="h-4 w-4 mr-2" />
-                    分享 ({selectedIds.length})
-                  </Button>
+                  {/* P7.1：批量下载需 archives.view 权限 */}
+                  <RequirePermission resource="archives" action="view">
+                    <Button variant="outline" onClick={handleBatchDownload}>
+                      <Download className="h-4 w-4 mr-2" />
+                      下载 ({selectedIds.length})
+                    </Button>
+                  </RequirePermission>
+                  {/* P7.1：分享需 archives.view 权限 */}
+                  <RequirePermission resource="archives" action="view">
+                    <Button variant="outline" onClick={handleShare}>
+                      <Share2 className="h-4 w-4 mr-2" />
+                      分享 ({selectedIds.length})
+                    </Button>
+                  </RequirePermission>
                 </>
               )}
             </div>
@@ -1121,6 +1131,9 @@ export function ArchivesManagement() {
               已选择 {selectedIds.length} 个文档
             </span>
             <span className="text-xs text-muted-foreground">—</span>
+            {/* P7.1：批量打标签为修改档案元数据，需 archives.edit 权限（RequirePermission 必须包裹在 Dialog 外层，
+                若放在 DialogTrigger asChild 内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击无法打开弹窗） */}
+            <RequirePermission resource="archives" action="edit">
             <Dialog open={isBulkTagOpen} onOpenChange={setIsBulkTagOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8">
@@ -1170,6 +1183,7 @@ export function ArchivesManagement() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            </RequirePermission>
           </div>
         )}
 
@@ -1548,34 +1562,39 @@ export function ArchivesManagement() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter className="flex-col sm:flex-col gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={async () => {
-                    // 覆盖模式：更新现有文档的文件
-                    if (duplicateFileInfo) {
-                      try {
-                        await updateDocument(duplicateFileInfo.existingDoc.id, {
-                          file_name: duplicateFileInfo.newFileName,
-                          remarks: `文件已替换，原始文件上传于 ${new Date(duplicateFileInfo.existingDoc.created_at).toLocaleString()}`
-                        });
-                        // 上传新文件
-                        await uploadDocumentFile(duplicateFileInfo.existingDoc.id, duplicateFileInfo.newFile);
-                        toast.success("文件已覆盖");
-                        loadDocuments();
-                      } catch {
-                        toast.error("操作失败");
+                {/* P7.1：覆盖保存为修改档案内容，需 archives.edit 权限 */}
+                <RequirePermission resource="archives" action="edit">
+                  <Button
+                    variant="destructive"
+                    onClick={async () => {
+                      // 覆盖模式：更新现有文档的文件
+                      if (duplicateFileInfo) {
+                        try {
+                          await updateDocument(duplicateFileInfo.existingDoc.id, {
+                            file_name: duplicateFileInfo.newFileName,
+                            remarks: `文件已替换，原始文件上传于 ${new Date(duplicateFileInfo.existingDoc.created_at).toLocaleString()}`
+                          });
+                          // 上传新文件
+                          await uploadDocumentFile(duplicateFileInfo.existingDoc.id, duplicateFileInfo.newFile);
+                          toast.success("文件已覆盖");
+                          loadDocuments();
+                        } catch {
+                          toast.error("操作失败");
+                        }
                       }
-                    }
-                    setDuplicateDialogOpen(false);
-                    setDuplicateFileInfo(null);
-                  }}
-                >
-                  <FileUp className="h-4 w-4 mr-1" />
-                  覆盖保存
-                </Button>
-                <Button
-                  variant="default"
-                  onClick={() => {
+                      setDuplicateDialogOpen(false);
+                      setDuplicateFileInfo(null);
+                    }}
+                  >
+                    <FileUp className="h-4 w-4 mr-1" />
+                    覆盖保存
+                  </Button>
+                </RequirePermission>
+                {/* P7.1：保留两者为新增档案，需 archives.create 权限 */}
+                <RequirePermission resource="archives" action="create">
+                  <Button
+                    variant="default"
+                    onClick={() => {
                     // 保留两者模式：自动重命名新文件
                     if (duplicateFileInfo) {
                       const renamedFiles: PendingFile[] = [{
@@ -1604,6 +1623,7 @@ export function ArchivesManagement() {
                   <Copy className="h-4 w-4 mr-1" />
                   保留两者（自动重命名）
                 </Button>
+                </RequirePermission>
                 <AlertDialogCancel
                   onClick={() => {
                     setDuplicateDialogOpen(false);
@@ -1774,7 +1794,10 @@ export function ArchivesManagement() {
             retentionPeriods={RETENTION_OPTIONS.map(opt => ({ name: opt.value }))}
           />
           <div className="flex justify-end mt-4">
-            <Button onClick={handleSaveSingleFileMeta}>保存档案信息</Button>
+            {/* P7.1：保存档案元数据需 archives.edit 权限 */}
+            <RequirePermission resource="archives" action="edit">
+              <Button onClick={handleSaveSingleFileMeta}>保存档案信息</Button>
+            </RequirePermission>
           </div>
         </div>
       )}
@@ -2157,16 +2180,42 @@ export function ArchivesManagement() {
             }}>取消</Button>
             {uploadMode === 'single' ? (
               singleUploadStatus === 'editing' ? (
-                <Button onClick={handleSaveSingleFileMeta}>
-                  <Save className="mr-2 h-4 w-4" />
-                  保存档案信息
-                </Button>
+                /* P7.1：保存档案信息需 archives.edit 权限 */
+                <RequirePermission resource="archives" action="edit">
+                  <Button onClick={handleSaveSingleFileMeta}>
+                    <Save className="mr-2 h-4 w-4" />
+                    保存档案信息
+                  </Button>
+                </RequirePermission>
               ) : (
+                /* P7.1：单文件上传需 archives.create 权限 */
+                <RequirePermission resource="archives" action="create">
+                  <Button
+                    onClick={handleSingleUpload}
+                    disabled={!singleFile || !singleFileName.trim() || singleUploadStatus === 'uploading'}
+                  >
+                    {singleUploadStatus === 'uploading' ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        上传中...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-4 w-4" />
+                        上传
+                      </>
+                    )}
+                  </Button>
+                </RequirePermission>
+              )
+            ) : (
+              /* P7.1：批量上传需 archives.create 权限 */
+              <RequirePermission resource="archives" action="create">
                 <Button
-                  onClick={handleSingleUpload}
-                  disabled={!singleFile || !singleFileName.trim() || singleUploadStatus === 'uploading'}
+                  onClick={handleBatchUpload}
+                  disabled={pendingFiles.length === 0 || isUploading}
                 >
-                  {singleUploadStatus === 'uploading' ? (
+                  {isUploading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       上传中...
@@ -2174,28 +2223,11 @@ export function ArchivesManagement() {
                   ) : (
                     <>
                       <Upload className="mr-2 h-4 w-4" />
-                      上传
+                      开始上传 ({pendingFiles.length})
                     </>
                   )}
                 </Button>
-              )
-            ) : (
-              <Button
-                onClick={handleBatchUpload}
-                disabled={pendingFiles.length === 0 || isUploading}
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    上传中...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="mr-2 h-4 w-4" />
-                    开始上传 ({pendingFiles.length})
-                  </>
-                )}
-              </Button>
+              </RequirePermission>
             )}
           </DialogFooter>
         </DialogContent>

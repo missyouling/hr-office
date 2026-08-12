@@ -74,6 +74,7 @@ import { DormItemSelector, type DormItemSelectorValue } from "@/components/dorm-
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -7757,10 +7758,13 @@ const sortedRooms = useMemo(() => {
                         <Eye className="h-4 w-4" />
                         查看详情
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="gap-2 text-destructive" onClick={() => setSiteDeleteTarget(site)}>
-                        <Trash2 className="h-4 w-4" />
-                        删除
-                      </DropdownMenuItem>
+                      {/* P7.1：删除宿舍地点需 dormitory.delete 权限 */}
+                      <RequirePermission resource="dormitory" action="delete">
+                        <DropdownMenuItem className="gap-2 text-destructive" onClick={() => setSiteDeleteTarget(site)}>
+                          <Trash2 className="h-4 w-4" />
+                          删除
+                        </DropdownMenuItem>
+                      </RequirePermission>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -7827,31 +7831,46 @@ const sortedRooms = useMemo(() => {
       if (selectionCount > 0) {
         return (
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="gap-1" onClick={handleRoomExportSelected}>
-              <Download className="h-4 w-4" />
-              导出
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1" onClick={handleRoomPrintSelected}>
-              <Printer className="h-4 w-4" />
-              打印
-            </Button>
+            {/* P7.1：房间导出需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button variant="outline" size="sm" className="gap-1" onClick={handleRoomExportSelected}>
+                <Download className="h-4 w-4" />
+                导出
+              </Button>
+            </RequirePermission>
+            {/* P7.1：房间打印为查看类操作，需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button variant="outline" size="sm" className="gap-1" onClick={handleRoomPrintSelected}>
+                <Printer className="h-4 w-4" />
+                打印
+              </Button>
+            </RequirePermission>
           </div>
         );
       }
       return (
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => handleOpenSiteDialog()}>
-            <Plus className="h-4 w-4" />
-            新增地点
-          </Button>
-          <Button size="sm" className="gap-1" onClick={handleOpenRoomDialog}>
-            <Plus className="h-4 w-4" />
-            新增房间
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => handleRoomImportDialogToggle(true)}>
-            <Upload className="h-4 w-4" />
-            导入
-          </Button>
+          {/* P7.1：新增宿舍地点需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => handleOpenSiteDialog()}>
+              <Plus className="h-4 w-4" />
+              新增地点
+            </Button>
+          </RequirePermission>
+          {/* P7.1：新增房间需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button size="sm" className="gap-1" onClick={handleOpenRoomDialog}>
+              <Plus className="h-4 w-4" />
+              新增房间
+            </Button>
+          </RequirePermission>
+          {/* P7.1：导入房间需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => handleRoomImportDialogToggle(true)}>
+              <Upload className="h-4 w-4" />
+              导入
+            </Button>
+          </RequirePermission>
         </div>
       );
     };
@@ -8023,10 +8042,13 @@ const sortedRooms = useMemo(() => {
                                   <Eye className="h-4 w-4" />
                                   查看详情
                                 </DropdownMenuItem>
-                                <DropdownMenuItem className="gap-2 text-destructive" onClick={() => setRoomDeleteTarget(room)}>
-                                  <Trash2 className="h-4 w-4" />
-                                  删除房间
-                                </DropdownMenuItem>
+                                {/* P7.1：删除房间需 dormitory.delete 权限 */}
+                                <RequirePermission resource="dormitory" action="delete">
+                                  <DropdownMenuItem className="gap-2 text-destructive" onClick={() => setRoomDeleteTarget(room)}>
+                                    <Trash2 className="h-4 w-4" />
+                                    删除房间
+                                  </DropdownMenuItem>
+                                </RequirePermission>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -8854,23 +8876,35 @@ const renderRoomHistoryTimeline = () => {
       if (selectionCount > 0) {
         return (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="gap-1" onClick={() => handleContractExport("selected")}>
-              <Download className="h-4 w-4" /> 导出
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1" onClick={() => handleContractPrintRequest("selected")}>
-              <Printer className="h-4 w-4" /> 打印
-            </Button>
+            {/* P7.1：入住记录导出需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => handleContractExport("selected")}>
+                <Download className="h-4 w-4" /> 导出
+              </Button>
+            </RequirePermission>
+            {/* P7.1：入住记录打印为查看类操作，需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => handleContractPrintRequest("selected")}>
+                <Printer className="h-4 w-4" /> 打印
+              </Button>
+            </RequirePermission>
           </div>
         );
       }
       return (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" className="gap-1" onClick={handleOpenContractDialog}>
-            <Plus className="h-4 w-4" /> 办理入住
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => handleContractImportDialogToggle(true)}>
-            <Upload className="h-4 w-4" /> 导入
-          </Button>
+          {/* P7.1：办理入住为创建合同，需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button size="sm" className="gap-1" onClick={handleOpenContractDialog}>
+              <Plus className="h-4 w-4" /> 办理入住
+            </Button>
+          </RequirePermission>
+          {/* P7.1：导入入住记录需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => handleContractImportDialogToggle(true)}>
+              <Upload className="h-4 w-4" /> 导入
+            </Button>
+          </RequirePermission>
         </div>
       );
     };
@@ -9048,26 +9082,35 @@ const renderRoomHistoryTimeline = () => {
                                   <Eye className="h-4 w-4" />
                                   查看详情
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={(statusValue || "active") !== "active"}
-                                  onClick={() => handleOpenCheckoutDialog(contract)}
-                                  className="gap-2"
-                                >
-                                  <LogOut className="h-4 w-4" />
-                                  办理退宿
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={statusValue !== "completed"}
-                                  onClick={() => handleRevokeCheckout(contract)}
-                                  className="gap-2"
-                                >
-                                  <RotateCcw className="h-4 w-4" />
-                                  撤销退宿
-                                </DropdownMenuItem>
-                                <DropdownMenuItem className="gap-2 text-destructive" onClick={() => requestDeleteContract(contract)}>
-                                  <Trash2 className="h-4 w-4" />
-                                  删除记录
-                                </DropdownMenuItem>
+                                {/* P7.1：办理退宿为修改合同状态，需 dormitory.edit 权限 */}
+                                <RequirePermission resource="dormitory" action="edit">
+                                  <DropdownMenuItem
+                                    disabled={(statusValue || "active") !== "active"}
+                                    onClick={() => handleOpenCheckoutDialog(contract)}
+                                    className="gap-2"
+                                  >
+                                    <LogOut className="h-4 w-4" />
+                                    办理退宿
+                                  </DropdownMenuItem>
+                                </RequirePermission>
+                                {/* P7.1：撤销退宿为修改合同状态，需 dormitory.edit 权限 */}
+                                <RequirePermission resource="dormitory" action="edit">
+                                  <DropdownMenuItem
+                                    disabled={statusValue !== "completed"}
+                                    onClick={() => handleRevokeCheckout(contract)}
+                                    className="gap-2"
+                                  >
+                                    <RotateCcw className="h-4 w-4" />
+                                    撤销退宿
+                                  </DropdownMenuItem>
+                                </RequirePermission>
+                                {/* P7.1：删除入住记录需 dormitory.delete 权限 */}
+                                <RequirePermission resource="dormitory" action="delete">
+                                  <DropdownMenuItem className="gap-2 text-destructive" onClick={() => requestDeleteContract(contract)}>
+                                    <Trash2 className="h-4 w-4" />
+                                    删除记录
+                                  </DropdownMenuItem>
+                                </RequirePermission>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -9097,43 +9140,61 @@ const renderMeterManagement = () => {
     if (selectionCount === 0) {
       return (
         <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            className="gap-1"
-            onClick={() => {
-              handleResetMeterForm({
-                overrideBillingMonth: meterPeriodFilter !== "all" ? meterPeriodFilter : null,
-              });
-              setMeterDialogOpen(true);
-            }}
-          >
-            <Gauge className="h-4 w-4" /> 抄表录入
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => handleMeterImportDialogToggle(true)}>
-            <Upload className="h-4 w-4" />
-            导入
-          </Button>
+          {/* P7.1：抄表录入为创建抄表记录，需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button
+              size="sm"
+              className="gap-1"
+              onClick={() => {
+                handleResetMeterForm({
+                  overrideBillingMonth: meterPeriodFilter !== "all" ? meterPeriodFilter : null,
+                });
+                setMeterDialogOpen(true);
+              }}
+            >
+              <Gauge className="h-4 w-4" /> 抄表录入
+            </Button>
+          </RequirePermission>
+          {/* P7.1：导入抄表记录需 dormitory.create 权限 */}
+          <RequirePermission resource="dormitory" action="create">
+            <Button variant="outline" size="sm" className="gap-1" onClick={() => handleMeterImportDialogToggle(true)}>
+              <Upload className="h-4 w-4" />
+              导入
+            </Button>
+          </RequirePermission>
         </div>
       );
     }
     return (
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" className="gap-1" onClick={() => handleMeterExport("selected", currentRows)}>
-          <Download className="h-4 w-4" />
-          导出
-        </Button>
-        <Button variant="outline" size="sm" className="gap-1" onClick={() => handleMeterPrintRequest("selected", currentRows)}>
-          <Printer className="h-4 w-4" />
-          打印
-        </Button>
-        <Button variant="outline" size="sm" className="gap-1" onClick={handleGenerateBillsFromSelection} disabled={billGenerating}>
-          <FileText className="h-4 w-4" />
-          {billGenerating ? "生成中..." : "生成账单"}
-        </Button>
-        <Button variant="destructive" size="sm" className="gap-1" onClick={requestBulkDeleteMeterRecords}>
-          <Trash2 className="h-4 w-4" />
-          批量删除
-        </Button>
+        {/* P7.1：抄表导出需 dormitory.view 权限 */}
+        <RequirePermission resource="dormitory" action="view">
+          <Button variant="outline" size="sm" className="gap-1" onClick={() => handleMeterExport("selected", currentRows)}>
+            <Download className="h-4 w-4" />
+            导出
+          </Button>
+        </RequirePermission>
+        {/* P7.1：抄表打印为查看类操作，需 dormitory.view 权限 */}
+        <RequirePermission resource="dormitory" action="view">
+          <Button variant="outline" size="sm" className="gap-1" onClick={() => handleMeterPrintRequest("selected", currentRows)}>
+            <Printer className="h-4 w-4" />
+            打印
+          </Button>
+        </RequirePermission>
+        {/* P7.1：生成账单为创建操作，需 dormitory.create 权限 */}
+        <RequirePermission resource="dormitory" action="create">
+          <Button variant="outline" size="sm" className="gap-1" onClick={handleGenerateBillsFromSelection} disabled={billGenerating}>
+            <FileText className="h-4 w-4" />
+            {billGenerating ? "生成中..." : "生成账单"}
+          </Button>
+        </RequirePermission>
+        {/* P7.1：批量删除抄表记录需 dormitory.delete 权限 */}
+        <RequirePermission resource="dormitory" action="delete">
+          <Button variant="destructive" size="sm" className="gap-1" onClick={requestBulkDeleteMeterRecords}>
+            <Trash2 className="h-4 w-4" />
+            批量删除
+          </Button>
+        </RequirePermission>
       </div>
     );
   };
@@ -9360,12 +9421,18 @@ const renderMeterManagement = () => {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem className="gap-2" onClick={() => handleEditMeterRecord(row.source)}>
-                                <PenSquare className="h-4 w-4" /> 编辑
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="gap-2 text-destructive" onClick={() => requestDeleteMeterRecord(row.source)}>
-                                <Trash2 className="h-4 w-4" /> 删除
-                              </DropdownMenuItem>
+                              {/* P7.1：编辑抄表记录需 dormitory.edit 权限 */}
+                              <RequirePermission resource="dormitory" action="edit">
+                                <DropdownMenuItem className="gap-2" onClick={() => handleEditMeterRecord(row.source)}>
+                                  <PenSquare className="h-4 w-4" /> 编辑
+                                </DropdownMenuItem>
+                              </RequirePermission>
+                              {/* P7.1：删除抄表记录需 dormitory.delete 权限 */}
+                              <RequirePermission resource="dormitory" action="delete">
+                                <DropdownMenuItem className="gap-2 text-destructive" onClick={() => requestDeleteMeterRecord(row.source)}>
+                                  <Trash2 className="h-4 w-4" /> 删除
+                                </DropdownMenuItem>
+                              </RequirePermission>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -9938,9 +10005,12 @@ const renderBillCard = () => (
                           />
                         </div>
                         <div className="flex justify-end">
-                          <Button size="sm" variant="secondary" onClick={handleAddSiteMemo}>
-                            添加备忘
-                          </Button>
+                          {/* P7.1：新增备忘为修改宿舍信息，需 dormitory.edit 权限 */}
+                          <RequirePermission resource="dormitory" action="edit">
+                            <Button size="sm" variant="secondary" onClick={handleAddSiteMemo}>
+                              添加备忘
+                            </Button>
+                          </RequirePermission>
                         </div>
                       </section>
                       <section className="space-y-3">
@@ -9972,17 +10042,20 @@ const renderBillCard = () => (
                                     {overdue && <span className="rounded-full border border-destructive/50 px-2 py-0.5 text-[10px] text-destructive">已延期</span>}
                                     <span className={`flex-1 truncate text-sm ${MEMO_PRIORITY_TEXT_CLASS[memo.priority]}`}>{memo.content}</span>
                                     <div className="flex items-center gap-1">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 px-2 text-[11px]"
-                                        onClick={() => handleToggleSiteMemoCompletion(editingSite.id, memo.id, true)}
-                                      >
-                                        完成
-                                      </Button>
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={() => handleRemoveSiteMemo(editingSite.id, memo.id)}>
-                                        <X className="h-3.5 w-3.5" />
-                                      </Button>
+                                      {/* P7.1：备忘操作属修改宿舍信息，需 dormitory.edit 权限 */}
+                                      <RequirePermission resource="dormitory" action="edit">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 px-2 text-[11px]"
+                                          onClick={() => handleToggleSiteMemoCompletion(editingSite.id, memo.id, true)}
+                                        >
+                                          完成
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={() => handleRemoveSiteMemo(editingSite.id, memo.id)}>
+                                          <X className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </RequirePermission>
                                     </div>
                                   </div>
                                 );
@@ -10009,17 +10082,20 @@ const renderBillCard = () => (
                                     </span>
                                     <span className="flex-1 truncate text-[13px] text-foreground/80">{memo.content}</span>
                                     <div className="flex items-center gap-1">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 px-2 text-[11px]"
-                                        onClick={() => handleToggleSiteMemoCompletion(editingSite.id, memo.id, false)}
-                                      >
-                                        撤销
-                                      </Button>
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={() => handleRemoveSiteMemo(editingSite.id, memo.id)}>
-                                        <X className="h-3.5 w-3.5" />
-                                      </Button>
+                                      {/* P7.1：备忘操作属修改宿舍信息，需 dormitory.edit 权限 */}
+                                      <RequirePermission resource="dormitory" action="edit">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 px-2 text-[11px]"
+                                          onClick={() => handleToggleSiteMemoCompletion(editingSite.id, memo.id, false)}
+                                        >
+                                          撤销
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={() => handleRemoveSiteMemo(editingSite.id, memo.id)}>
+                                          <X className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </RequirePermission>
                                     </div>
                                   </div>
                                 );
@@ -10042,9 +10118,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={() => setSiteDialogOpen(false)} className="sm:min-w-[96px]">
               取消
             </Button>
-            <Button onClick={handleSaveSite} className="sm:min-w-[96px]">
-              保存
-            </Button>
+            {/* P7.1：保存宿舍地点需 dormitory.edit 权限 */}
+            <RequirePermission resource="dormitory" action="edit">
+              <Button onClick={handleSaveSite} className="sm:min-w-[96px]">
+                保存
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -10189,7 +10268,10 @@ const renderBillCard = () => (
                   <Button variant="outline" onClick={() => setRoomDialogOpen(false)}>
                     取消
                   </Button>
-                  <Button onClick={() => handleSaveRoom()}>保存</Button>
+                  {/* P7.1：保存房间需 dormitory.edit 权限 */}
+                  <RequirePermission resource="dormitory" action="edit">
+                    <Button onClick={() => handleSaveRoom()}>保存</Button>
+                  </RequirePermission>
                 </div>
               </div>
             )}
@@ -10229,9 +10311,12 @@ const renderBillCard = () => (
                 {roomImportFile && <p className="text-xs text-muted-foreground">已选择：{roomImportFile.name}</p>}
                 {roomImportError && <p className="text-xs text-destructive">{roomImportError}</p>}
                 <p className="text-xs text-muted-foreground">支持 .xls/.xlsx 文件，建议一次导入不超过 500 条。</p>
-                <Button className="w-full bg-black text-white hover:bg-black/90" onClick={handleDownloadRoomTemplate}>
-                  <Download className="h-4 w-4" /> 下载导入模板
-                </Button>
+                {/* P7.1：下载模板为查看类操作，需 dormitory.view 权限 */}
+                <RequirePermission resource="dormitory" action="view">
+                  <Button className="w-full bg-black text-white hover:bg-black/90" onClick={handleDownloadRoomTemplate}>
+                    <Download className="h-4 w-4" /> 下载导入模板
+                  </Button>
+                </RequirePermission>
               </div>
             </section>
           </div>
@@ -10239,9 +10324,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={() => handleRoomImportDialogToggle(false)} disabled={roomImporting}>
               取消
             </Button>
-            <Button onClick={handleImportRooms} disabled={roomImporting}>
-              {roomImporting ? "导入中..." : "开始导入"}
-            </Button>
+            {/* P7.1：批量导入房间为新增数据，需 dormitory.create 权限 */}
+            <RequirePermission resource="dormitory" action="create">
+              <Button onClick={handleImportRooms} disabled={roomImporting}>
+                {roomImporting ? "导入中..." : "开始导入"}
+              </Button>
+            </RequirePermission>
           </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -10265,9 +10353,12 @@ const renderBillCard = () => (
                   <li>未填写抄表日期时将使用当前日期。</li>
                 </ul>
               </div>
-              <Button variant="outline" className="w-full gap-2" onClick={handleDownloadMeterTemplate}>
-                <Download className="h-4 w-4" /> 下载导入模板
-              </Button>
+              {/* P7.1：下载模板为查看类操作，需 dormitory.view 权限 */}
+              <RequirePermission resource="dormitory" action="view">
+                <Button variant="outline" className="w-full gap-2" onClick={handleDownloadMeterTemplate}>
+                  <Download className="h-4 w-4" /> 下载导入模板
+                </Button>
+              </RequirePermission>
               {meterImportResult && (
                 <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                   导入统计：成功 {meterImportResult.inserted} 条 · 跳过 {meterImportResult.skipped} 条
@@ -10288,9 +10379,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={() => handleMeterImportDialogToggle(false)} disabled={meterImporting}>
               取消
             </Button>
-            <Button onClick={handleImportMeterRecords} disabled={meterImporting}>
-              {meterImporting ? "导入中..." : "开始导入"}
-            </Button>
+            {/* P7.1：批量导入抄表为新增数据，需 dormitory.create 权限 */}
+            <RequirePermission resource="dormitory" action="create">
+              <Button onClick={handleImportMeterRecords} disabled={meterImporting}>
+                {meterImporting ? "导入中..." : "开始导入"}
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -10723,10 +10817,13 @@ const renderBillCard = () => (
             >
               取消
             </Button>
-            <Button variant="outline" onClick={() => handleSubmitMeterForm({ stayOpen: true })}>
-              保存并继续
-            </Button>
-            <Button onClick={() => handleSubmitMeterForm()}>保存</Button>
+            {/* P7.1：保存抄表记录需 dormitory.edit 权限 */}
+            <RequirePermission resource="dormitory" action="edit">
+              <Button variant="outline" onClick={() => handleSubmitMeterForm({ stayOpen: true })}>
+                保存并继续
+              </Button>
+              <Button onClick={() => handleSubmitMeterForm()}>保存</Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -10794,9 +10891,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={closeRoomPrintDialog}>
               取消
             </Button>
-            <Button onClick={handleGenerateRoomPrint} disabled={roomPrintContext.length === 0}>
-              生成打印文件
-            </Button>
+            {/* P7.1：生成打印文件为查看类操作，需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button onClick={handleGenerateRoomPrint} disabled={roomPrintContext.length === 0}>
+                生成打印文件
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -10855,9 +10955,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={closeMeterPrintDialog}>
               取消
             </Button>
-            <Button onClick={handleGenerateMeterPrint} disabled={meterPrintContext.length === 0}>
-              生成打印文件
-            </Button>
+            {/* P7.1：生成打印文件为查看类操作，需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button onClick={handleGenerateMeterPrint} disabled={meterPrintContext.length === 0}>
+                生成打印文件
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -10925,9 +11028,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={closeContractPrintDialog}>
               取消
             </Button>
-            <Button onClick={handleGenerateContractPrint} disabled={contractPrintContext.length === 0}>
-              生成打印文件
-            </Button>
+            {/* P7.1：生成打印文件为查看类操作，需 dormitory.view 权限 */}
+            <RequirePermission resource="dormitory" action="view">
+              <Button onClick={handleGenerateContractPrint} disabled={contractPrintContext.length === 0}>
+                生成打印文件
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -10951,9 +11057,12 @@ const renderBillCard = () => (
                 <Input ref={contractImportFileInputRef} type="file" accept=".xls,.xlsx" />
                 <p className="text-xs text-muted-foreground">支持 .xls / .xlsx 格式文件</p>
               </div>
-              <Button className="w-full gap-2 bg-black text-white hover:bg-black/90" onClick={handleDownloadContractTemplate}>
-                <Download className="h-4 w-4" /> 下载导入模板
-              </Button>
+              {/* P7.1：下载模板为查看类操作，需 dormitory.view 权限 */}
+              <RequirePermission resource="dormitory" action="view">
+                <Button className="w-full gap-2 bg-black text-white hover:bg-black/90" onClick={handleDownloadContractTemplate}>
+                  <Download className="h-4 w-4" /> 下载导入模板
+                </Button>
+              </RequirePermission>
             </div>
             {contractImportResult && (
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
@@ -10965,9 +11074,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={() => handleContractImportDialogToggle(false)}>
               关闭
             </Button>
-            <Button onClick={handleImportContracts} disabled={contractImporting}>
-              {contractImporting ? "导入中..." : "开始导入"}
-            </Button>
+            {/* P7.1：批量导入入住记录为创建合同，需 dormitory.create 权限 */}
+            <RequirePermission resource="dormitory" action="create">
+              <Button onClick={handleImportContracts} disabled={contractImporting}>
+                {contractImporting ? "导入中..." : "开始导入"}
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -11024,13 +11136,19 @@ const renderBillCard = () => (
                   >
                     下一条
                   </Button>
-                  <Button
-                    className="bg-black text-white hover:bg-black/90"
-                    onClick={() => handleSaveContract({ keepOpen: true })}
-                    disabled={contractSaving}
+                  {/* P7.1：办理/编辑入住为创建或修改合同，需 dormitory.create/edit 权限 */}
+                  <RequirePermission
+                    resource="dormitory"
+                    action={editingContractId != null ? "edit" : "create"}
                   >
-                    {contractSaving ? "应用中..." : "应用"}
-                  </Button>
+                    <Button
+                      className="bg-black text-white hover:bg-black/90"
+                      onClick={() => handleSaveContract({ keepOpen: true })}
+                      disabled={contractSaving}
+                    >
+                      {contractSaving ? "应用中..." : "应用"}
+                    </Button>
+                  </RequirePermission>
                 </div>
               </div>
             ) : (
@@ -11039,9 +11157,15 @@ const renderBillCard = () => (
                   <Button variant="outline" onClick={() => handleContractDialogToggle(false)}>
                     取消
                   </Button>
-                  <Button onClick={() => handleSaveContract()} disabled={contractSaving}>
-                    {contractSaving ? "保存中..." : "保存"}
-                  </Button>
+                  {/* P7.1：办理/编辑入住为创建或修改合同，需 dormitory.create/edit 权限 */}
+                  <RequirePermission
+                    resource="dormitory"
+                    action={editingContractId != null ? "edit" : "create"}
+                  >
+                    <Button onClick={() => handleSaveContract()} disabled={contractSaving}>
+                      {contractSaving ? "保存中..." : "保存"}
+                    </Button>
+                  </RequirePermission>
                 </div>
               </div>
             )}
@@ -11302,9 +11426,12 @@ const renderBillCard = () => (
             <Button variant="outline" onClick={() => setCheckoutDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={handleCheckoutSubmit} disabled={checkoutSubmitting}>
-              {checkoutSubmitting ? "提交中..." : "确认退宿"}
-            </Button>
+            {/* P7.1：退宿为修改入住记录，需 dormitory.edit 权限 */}
+            <RequirePermission resource="dormitory" action="edit">
+              <Button onClick={handleCheckoutSubmit} disabled={checkoutSubmitting}>
+                {checkoutSubmitting ? "提交中..." : "确认退宿"}
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -11328,9 +11455,12 @@ const renderBillCard = () => (
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={handleConfirmDeleteMeterRecords}>
-              删除
-            </AlertDialogAction>
+            {/* P7.1：删除抄表记录需 dormitory.delete 权限 */}
+            <RequirePermission resource="dormitory" action="delete">
+              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={handleConfirmDeleteMeterRecords}>
+                删除
+              </AlertDialogAction>
+            </RequirePermission>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -11492,9 +11622,12 @@ const renderBillCard = () => (
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={contractDeleting}>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteContract} disabled={contractDeleting}>
-              {contractDeleting ? "删除中..." : "确认删除"}
-            </AlertDialogAction>
+            {/* P7.1：删除入住记录需 dormitory.delete 权限 */}
+            <RequirePermission resource="dormitory" action="delete">
+              <AlertDialogAction onClick={handleDeleteContract} disabled={contractDeleting}>
+                {contractDeleting ? "删除中..." : "确认删除"}
+              </AlertDialogAction>
+            </RequirePermission>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -11516,9 +11649,12 @@ const renderBillCard = () => (
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={siteDeleting}>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteSite} disabled={siteDeleting}>
-              {siteDeleting ? "正在删除..." : "确认删除"}
-            </AlertDialogAction>
+            {/* P7.1：删除地点需 dormitory.delete 权限 */}
+            <RequirePermission resource="dormitory" action="delete">
+              <AlertDialogAction onClick={handleDeleteSite} disabled={siteDeleting}>
+                {siteDeleting ? "正在删除..." : "确认删除"}
+              </AlertDialogAction>
+            </RequirePermission>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -11540,9 +11676,12 @@ const renderBillCard = () => (
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={roomDeleting}>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteRoom} disabled={roomDeleting}>
-              {roomDeleting ? "正在删除..." : "确认删除"}
-            </AlertDialogAction>
+            {/* P7.1：删除房间需 dormitory.delete 权限 */}
+            <RequirePermission resource="dormitory" action="delete">
+              <AlertDialogAction onClick={handleDeleteRoom} disabled={roomDeleting}>
+                {roomDeleting ? "正在删除..." : "确认删除"}
+              </AlertDialogAction>
+            </RequirePermission>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

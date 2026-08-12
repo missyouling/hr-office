@@ -4,13 +4,13 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/supabase/auth-context";
-import type { User } from "@/lib/auth";
 import {
   checkAccountAvailability,
   requestPasswordReset,
   login as backendLogin,
   register as backendRegister,
   getSMTPConfig,
+  normalizeAuthUser,
 } from "@/lib/api";
 import { Eye, EyeOff, Building2 } from "lucide-react";
 
@@ -230,7 +230,7 @@ export default function AuthPage() {
         throw new Error("登录失败，请稍后重试");
       }
 
-      setAuthSession(token, userPayload as User, refresh_token);
+      setAuthSession(token, normalizeAuthUser(response), refresh_token);
       toast.success("登录成功");
       router.push("/");
     } catch (error) {

@@ -14,6 +14,7 @@ import { TableColumnSchema } from "@/lib/archive-schema";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Edit2, Trash2, Eye } from "lucide-react";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 
 interface ArchiveTableRendererProps {
   schema: TableColumnSchema[];
@@ -94,20 +95,26 @@ export const ArchiveTableRenderer: React.FC<ArchiveTableRendererProps> = ({
                         <Eye className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onEdit(row)}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onDelete(row.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {/* P7.1：行内编辑需 archives.edit 权限（隐藏破坏布局，用 disable 模式） */}
+                    <RequirePermission resource="archives" action="edit" mode="disable">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onEdit(row)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                    </RequirePermission>
+                    {/* P7.1：行内删除需 archives.delete 权限（隐藏破坏布局，用 disable 模式） */}
+                    <RequirePermission resource="archives" action="delete" mode="disable">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(row.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </RequirePermission>
                   </div>
                 </TableCell>
               </TableRow>

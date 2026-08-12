@@ -3437,7 +3437,7 @@ export function SystemSettings() {
 
   // 权限校验
   useEffect(() => {
-    if (user && !["admin", "super_admin"].includes(user.role)) {
+    if (user && !["admin", "super_admin"].includes(user.role ?? "user")) {
       toast.error("无权限访问系统设置");
       router.push("/");
     }

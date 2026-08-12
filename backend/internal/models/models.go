@@ -43,7 +43,7 @@ type User struct {
 	CompanyID       string     `json:"company_id" gorm:"index"`
 	Department      string     `json:"department" gorm:"size:150"` // 所属部门（用于数据隔离）
 	DepartmentID    *uint      `json:"department_id" gorm:"index"` // 部门ID（关联Department表，用于部门级数据隔离）
-	Role            string     `json:"role" gorm:"default:viewer"` // admin / manager / editor / viewer（兼容旧值 super_admin→admin, user→viewer）
+	Role            string     `json:"-" gorm:"-"` // 【已废弃】改用 user_roles 关联表。字段保留仅为迁移脚本兼容，GORM 不读写，JSON 不输出
 	Active          bool       `json:"active" gorm:"default:true"`
 	EmailVerified   bool       `json:"email_verified" gorm:"default:false;index"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
@@ -84,9 +84,10 @@ type RegisterRequest struct {
 
 // AuthResponse represents the authentication response
 type AuthResponse struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	User         User   `json:"user"`
+	Token        string   `json:"token"`
+	RefreshToken string   `json:"refresh_token,omitempty"`
+	User         User     `json:"user"`
+	Permissions  []string `json:"permissions"` // 扁平化权限代码数组，如 ["employee.view","employee.edit"]；JWT 不承载权限（决策 B），前端从响应中读取
 }
 
 // RefreshTokenRequest 刷新 token 请求
@@ -96,8 +97,10 @@ type RefreshTokenRequest struct {
 
 // RefreshTokenResponse 刷新 token 响应
 type RefreshTokenResponse struct {
-	AccessToken  string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken  string   `json:"token"`
+	RefreshToken string   `json:"refresh_token"`
+	User         User     `json:"user"`
+	Permissions  []string `json:"permissions"` // 刷新后一并返回最新权限，确保权限变更即时生效
 }
 
 // PasswordResetToken represents a password reset token
@@ -421,7 +424,7 @@ type CallbackRecord struct {
 	UploadID       uint            `json:"upload_id" gorm:"index"`
 	Upload         *CallbackUpload `json:"-,omitempty" gorm:"foreignKey:UploadID"`
 	UserID         *uint           `json:"user_id,omitempty" gorm:"index;uniqueIndex:idx_callback_user_identity"`
-	User           *User           `json:"-,omitempty" gorm:"foreignKey:UserID"`
+	User           *User           `json:"-" gorm:"foreignKey:UserID"`
 	PersonalNumber string          `json:"personal_number" gorm:"size:120"`
 	IdentityNumber string          `json:"identity_number" gorm:"size:60;index;uniqueIndex:idx_callback_user_identity"`
 	Name           string          `json:"name" gorm:"size:120"`

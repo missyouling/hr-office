@@ -13,7 +13,10 @@ export interface User {
   email: string;
   full_name: string;
   active: boolean;
-  role: "user" | "admin" | "super_admin";
+  /** 已废弃角色字段；认证接口不再返回，旧调用方应使用 permissions。 */
+  role?: "user" | "admin" | "super_admin" | "manager" | "editor" | "viewer";
+  /** 扁平权限数组，如 ["employee.view", "employee.create"]。 */
+  permissions: string[];
   department_id?: number | null;  // P7.1 部门级权限：关联 Department 表
   created_at: string;
   updated_at: string;

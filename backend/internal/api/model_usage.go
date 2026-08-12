@@ -24,16 +24,16 @@ func (h *Handler) GetModelUsageStats(w http.ResponseWriter, r *http.Request) {
 	startDateStr := r.URL.Query().Get("start_date")
 	endDateStr := r.URL.Query().Get("end_date")
 
-	// Fetch user role to determine if they can see global stats
-	var user models.User
-	if err := h.db.First(&user, userID).Error; err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch user", err)
-		return
-	}
+	// 查询用户角色判断是否为管理员（通过 user_roles 联表）
+	var isAdmin int64
+	h.db.Model(&models.Role{}).
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND (roles.name = ? OR roles.name = ?)", userID, models.RoleAdmin, "super_admin").
+		Count(&isAdmin)
 
-	// Build query: admins see all data, regular users see only their own
+	// 构建查询：管理员看全部数据，普通用户只看自己的
 	query := h.db
-	if user.Role != "admin" && user.Role != "super_admin" {
+	if isAdmin == 0 {
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -175,16 +175,16 @@ func (h *Handler) GetModelUsageTrend(w http.ResponseWriter, r *http.Request) {
 	startDateStr := r.URL.Query().Get("start_date")
 	endDateStr := r.URL.Query().Get("end_date")
 
-	// Fetch user role to determine if they can see global stats
-	var user models.User
-	if err := h.db.First(&user, userID).Error; err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch user", err)
-		return
-	}
+	// 查询用户角色判断是否为管理员（通过 user_roles 联表）
+	var isAdmin int64
+	h.db.Model(&models.Role{}).
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND (roles.name = ? OR roles.name = ?)", userID, models.RoleAdmin, "super_admin").
+		Count(&isAdmin)
 
-	// Build query: admins see all data, regular users see only their own
+	// 构建查询：管理员看全部数据，普通用户只看自己的
 	query := h.db
-	if user.Role != "admin" && user.Role != "super_admin" {
+	if isAdmin == 0 {
 		query = query.Where("user_id = ?", userID)
 	}
 	if configType != "" {
@@ -320,12 +320,12 @@ func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 	startDateStr := r.URL.Query().Get("start_date")
 	endDateStr := r.URL.Query().Get("end_date")
 
-	// Fetch user role to determine if they can see global stats
-	var user models.User
-	if err := h.db.First(&user, userID).Error; err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to fetch user", err)
-		return
-	}
+	// 查询用户角色判断是否为管理员（通过 user_roles 联表）
+	var isAdmin int64
+	h.db.Model(&models.Role{}).
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND (roles.name = ? OR roles.name = ?)", userID, models.RoleAdmin, "super_admin").
+		Count(&isAdmin)
 
 	type ModelStats struct {
 		ModelName     string  `json:"model_name"`
@@ -342,9 +342,9 @@ func (h *Handler) GetModelUsageByModel(w http.ResponseWriter, r *http.Request) {
 		SuccessRate   float64 `json:"success_rate"`
 	}
 
-	// Build query: admins see all data, regular users see only their own
+	// 构建查询：管理员看全部数据，普通用户只看自己的
 	query := h.db
-	if user.Role != "admin" && user.Role != "super_admin" {
+	if isAdmin == 0 {
 		query = query.Where("user_id = ?", userID)
 	}
 	if configType != "" {

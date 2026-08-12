@@ -130,7 +130,7 @@ func seedRBAC(db *gorm.DB) error {
 		assignPermissionsToRole(db, editorRole.ID, editorPerms)
 	}
 
-	// viewer: 仅查看所有业务模块
+	// viewer: 仅查看业务模块（不含系统设置/备份管理，验收标准：viewer 看不到系统设置）
 	var viewerRole models.Role
 	if err := db.Where("name = ?", models.RoleViewer).First(&viewerRole).Error; err == nil {
 		viewerPerms := []string{
@@ -139,8 +139,6 @@ func seedRBAC(db *gorm.DB) error {
 			"dormitory-view",
 			"archives-view",
 			"announcements-view",
-			"settings-view",
-			"backups-view",
 		}
 		assignPermissionsToRole(db, viewerRole.ID, viewerPerms)
 	}

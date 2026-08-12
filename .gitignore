@@ -50,8 +50,13 @@ tmp/
 
 # Go 编译文件
 backend/siapp
+backend/migrate-roles
 backend/*.exe
 backend/debug
+
+# Playwright 运行产物
+frontend/test-results/
+frontend/playwright-report/
 
 # Docker 相关
 .dockerignore

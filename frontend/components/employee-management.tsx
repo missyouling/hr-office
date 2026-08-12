@@ -124,7 +124,7 @@ import { parseListPreference, sanitizeSortPreference, type TableSortState } from
 import { cn } from "@/lib/utils";
 import { DIALOG_SIZES } from "@/lib/dialog-sizes";
 import { DataTableWrapper } from "@/components/common/data-table-wrapper";
-import { PermissionGate } from "@/components/permission-gate";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 import type {
   SocialInsuranceTemplateOptions,
   EmployeeImportConflict,
@@ -5329,16 +5329,19 @@ const exportInsuranceChanges = async (
                 {hasSelection ? (
                   <>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={insuranceExporting || viewTotalCount === 0}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          导出
-                        </Button>
-                      </DropdownMenuTrigger>
+                      {/* P7.1：社保记录导出需 insurance.view 权限 */}
+                      <RequirePermission resource="insurance" action="view">
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={insuranceExporting || viewTotalCount === 0}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            导出
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </RequirePermission>
                       <DropdownMenuContent align="end" className="w-44">
                         <DropdownMenuItem
                           disabled={insuranceExporting}
@@ -5368,29 +5371,38 @@ const exportInsuranceChanges = async (
                     >
                       <Printer className="h-4 w-4 mr-2" /> 打印
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => setShowBatchInsuranceConfirm(true)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" /> 撤销
-                    </Button>
+                    {/* P7.1：批量撤销社保记录为删除操作，需 insurance.delete 权限 */}
+                    <RequirePermission resource="insurance" action="delete">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setShowBatchInsuranceConfirm(true)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" /> 撤销
+                      </Button>
+                    </RequirePermission>
                   </>
                 ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={insuranceImporting}
-                    onClick={() => openInsuranceUpload(view)}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    导入
-                  </Button>
+                  /* P7.1：导入社保变动记录需 insurance.create 权限 */
+                  <RequirePermission resource="insurance" action="create">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={insuranceImporting}
+                      onClick={() => openInsuranceUpload(view)}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      导入
+                    </Button>
+                  </RequirePermission>
                 )}
-                <Button variant="ghost" size="sm" onClick={openUnitInfoDialog}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  单位信息
-                </Button>
+                {/* P7.1：单位信息配置需 insurance.edit 权限 */}
+                <RequirePermission resource="insurance" action="edit">
+                  <Button variant="ghost" size="sm" onClick={openUnitInfoDialog}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    单位信息
+                  </Button>
+                </RequirePermission>
               </div>
             </div>
           </div>
@@ -5584,16 +5596,19 @@ const exportInsuranceChanges = async (
                               >
                                 <Eye className="h-4 w-4" /> 查看详情
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setSelectedInsuranceChangeIds([change.id]);
-                                  setShowBatchInsuranceConfirm(true);
-                                }}
-                                className="gap-2 text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" /> 撤销记录
-                              </DropdownMenuItem>
+                              {/* P7.1：行内撤销社保记录需 insurance.delete 权限 */}
+                              <RequirePermission resource="insurance" action="delete">
+                                <DropdownMenuItem
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedInsuranceChangeIds([change.id]);
+                                    setShowBatchInsuranceConfirm(true);
+                                  }}
+                                  className="gap-2 text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" /> 撤销记录
+                                </DropdownMenuItem>
+                              </RequirePermission>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -5638,21 +5653,24 @@ const exportInsuranceChanges = async (
           </div>
           <p className="text-xs text-muted-foreground">双击或按 Enter 查看详情，右侧图标可删除当前账单。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="hidden text-[11px] text-muted-foreground sm:inline">双击查看</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleBillDeleteRequest(bill);
-            }}
-          >
-            <span className="sr-only">删除账单</span>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
+                <div className="flex items-center gap-2">
+                  <span className="hidden text-[11px] text-muted-foreground sm:inline">双击查看</span>
+                  {/* P7.1：删除账单需 insurance.delete 权限（行内按钮，隐藏破坏布局用 disable） */}
+                  <RequirePermission resource="insurance" action="delete" mode="disable">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleBillDeleteRequest(bill);
+                      }}
+                    >
+                      <span className="sr-only">删除账单</span>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </RequirePermission>
+                </div>
       </div>
     );
 
@@ -5670,10 +5688,13 @@ const exportInsuranceChanges = async (
                   <Label className="text-sm">汇缴月份</Label>
                   <Input type="month" value={providentBillMonth} onChange={(event) => setProvidentBillMonth(event.target.value)} className="w-36" />
                 </div>
-                <Button onClick={handleGenerateProvidentBill} disabled={billGenerating || providentLoading}>
-                  {billGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
-                  生成账单
-                </Button>
+                {/* P7.1：生成公积金账单为创建操作，需 insurance.create 权限 */}
+                <RequirePermission resource="insurance" action="create">
+                  <Button onClick={handleGenerateProvidentBill} disabled={billGenerating || providentLoading}>
+                    {billGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
+                    生成账单
+                  </Button>
+                </RequirePermission>
               </div>
             </div>
             {providentBills.length > 0 && (
@@ -5724,11 +5745,14 @@ const exportInsuranceChanges = async (
                 {hasProvidentSelection ? (
                   <>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          <Download className="mr-2 h-4 w-4" /> 导出
-                        </Button>
-                      </DropdownMenuTrigger>
+                      {/* P7.1：公积金导出需 insurance.view 权限 */}
+                      <RequirePermission resource="insurance" action="view">
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Download className="mr-2 h-4 w-4" /> 导出
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </RequirePermission>
                       <DropdownMenuContent align="end" className="w-40">
                         <DropdownMenuItem onClick={() => handleProvidentExport("selected")}>
                           导出选中
@@ -5744,29 +5768,38 @@ const exportInsuranceChanges = async (
                   </>
                 ) : (
                   <>
-                    <Button size="sm" onClick={() => openProvidentDialog("create")}>
-                      <Plus className="mr-2 h-4 w-4" /> 新增记录
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setProvidentImportDialogOpen(true);
-                        if (providentImportInputRef.current) {
-                          providentImportInputRef.current.value = "";
-                        }
-                      }}
-                    >
-                      <Upload className="mr-2 h-4 w-4" /> 导入
-                    </Button>
+                    {/* P7.1：新增公积金记录需 insurance.create 权限 */}
+                    <RequirePermission resource="insurance" action="create">
+                      <Button size="sm" onClick={() => openProvidentDialog("create")}>
+                        <Plus className="mr-2 h-4 w-4" /> 新增记录
+                      </Button>
+                    </RequirePermission>
+                    {/* P7.1：导入公积金记录需 insurance.create 权限 */}
+                    <RequirePermission resource="insurance" action="create">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setProvidentImportDialogOpen(true);
+                          if (providentImportInputRef.current) {
+                            providentImportInputRef.current.value = "";
+                          }
+                        }}
+                      >
+                        <Upload className="mr-2 h-4 w-4" /> 导入
+                      </Button>
+                    </RequirePermission>
                   </>
                 )}
                 {hasProvidentSelection && (
                   <Badge variant="secondary">已选 {selectedProvidentIds.length}</Badge>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => setShowProvidentSettingsDialog(true)}>
-                  <Settings className="mr-2 h-4 w-4" /> 单位设置
-                </Button>
+                {/* P7.1：公积金单位设置需 insurance.edit 权限 */}
+                <RequirePermission resource="insurance" action="edit">
+                  <Button variant="ghost" size="sm" onClick={() => setShowProvidentSettingsDialog(true)}>
+                    <Settings className="mr-2 h-4 w-4" /> 单位设置
+                  </Button>
+                </RequirePermission>
               </div>
             </div>
           </CardHeader>
@@ -5925,25 +5958,31 @@ const exportInsuranceChanges = async (
                                   <Eye className="h-4 w-4" /> 查看详情
                                 </DropdownMenuItem>
                                 {record.status !== "sealed" ? (
-                                  <DropdownMenuItem
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openSealDialog(record);
-                                    }}
-                                    className="gap-2"
-                                  >
-                                    <ShieldCheck className="h-4 w-4" /> 办理封存
-                                  </DropdownMenuItem>
+                                  /* P7.1：办理封存为状态变更，需 insurance.edit 权限 */
+                                  <RequirePermission resource="insurance" action="edit">
+                                    <DropdownMenuItem
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openSealDialog(record);
+                                      }}
+                                      className="gap-2"
+                                    >
+                                      <ShieldCheck className="h-4 w-4" /> 办理封存
+                                    </DropdownMenuItem>
+                                  </RequirePermission>
                                 ) : (
-                                  <DropdownMenuItem
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openUnsealDialog(record);
-                                    }}
-                                    className="gap-2"
-                                  >
-                                    <Unlock className="h-4 w-4" /> 办理启封
-                                  </DropdownMenuItem>
+                                  /* P7.1：办理启封为状态变更，需 insurance.edit 权限 */
+                                  <RequirePermission resource="insurance" action="edit">
+                                    <DropdownMenuItem
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openUnsealDialog(record);
+                                      }}
+                                      className="gap-2"
+                                    >
+                                      <Unlock className="h-4 w-4" /> 办理启封
+                                    </DropdownMenuItem>
+                                  </RequirePermission>
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -6640,15 +6679,17 @@ const exportInsuranceChanges = async (
                 <div className="flex gap-2">
                   {!hasActiveSelection ? (
                     <>
-                      <Dialog open={showAddEmployee} onOpenChange={setShowAddEmployee}>
-                        <DialogTrigger asChild>
-                          <PermissionGate resource="employee" action="create">
+                      {/* P7.1：新增员工需 employee.create 权限（页面级按钮，无权限隐藏）。
+                          注意：RequirePermission 必须包裹在 Dialog 外层，若放在 DialogTrigger asChild
+                          内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击新增无法打开弹窗 */}
+                      <RequirePermission resource="employee" action="create">
+                        <Dialog open={showAddEmployee} onOpenChange={setShowAddEmployee}>
+                          <DialogTrigger asChild>
                             <Button>
                               <Plus className="h-4 w-4 mr-2" />
                               新增
                             </Button>
-                          </PermissionGate>
-                        </DialogTrigger>
+                          </DialogTrigger>
                         <DialogContent className={RESPONSIVE_DIALOG_CLASS}>
                           <DialogHeader>
                             <DialogTitle>新增员工</DialogTitle>
@@ -7061,13 +7102,18 @@ const exportInsuranceChanges = async (
                             <Button variant="outline" onClick={() => setShowAddEmployee(false)}>
                               取消
                             </Button>
-                            <PermissionGate resource="employee" action="create">
+                            {/* P7.1：新增员工提交按钮与入口一致需 employee.create 权限 */}
+                            <RequirePermission resource="employee" action="create">
                               <Button onClick={handleAddEmployee}>添加员工</Button>
-                            </PermissionGate>
+                            </RequirePermission>
                           </DialogFooter>
                         </DialogContent>
                       </Dialog>
+                      </RequirePermission>
 
+                      {/* P7.1：批量导入员工需 employee.create 权限（RequirePermission 必须包裹在 Dialog 外层，
+                          若放在 DialogTrigger asChild 内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击导入无法打开弹窗） */}
+                      <RequirePermission resource="employee" action="create">
                       <Dialog open={showBatchImport} onOpenChange={setShowBatchImport}>
                         <DialogTrigger asChild>
                           <Button variant="outline">
@@ -7137,16 +7183,20 @@ const exportInsuranceChanges = async (
                           </DialogFooter>
                         </DialogContent>
                       </Dialog>
+                      </RequirePermission>
                     </>
                   ) : (
                     <>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" disabled={exporting}>
-                            <Download className="h-4 w-4 mr-2" />
-                            导出
-                          </Button>
-                        </DropdownMenuTrigger>
+                        {/* P7.1：导出需 employee.view 权限（所有角色可见，仅作规范统一） */}
+                        <RequirePermission resource="employee" action="view">
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" disabled={exporting}>
+                              <Download className="h-4 w-4 mr-2" />
+                              导出
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </RequirePermission>
                         <DropdownMenuContent align="end" className="w-44">
                           <DropdownMenuItem disabled={exporting} onClick={() => handleExportActive("selected")}>
                             导出选中数据
@@ -7164,7 +7214,8 @@ const exportInsuranceChanges = async (
                         <Printer className="h-4 w-4 mr-2" />
                         打印
                       </Button>
-                      <PermissionGate resource="employee" action="delete">
+                      {/* P7.1：批量删除需 employee.delete 权限（页面级按钮，无权限隐藏） */}
+                      <RequirePermission resource="employee" action="delete">
                         <Button
                           variant="destructive"
                           disabled={selectedEmployeeIds.length === 0 || deletingEmployees}
@@ -7173,7 +7224,7 @@ const exportInsuranceChanges = async (
                           <Trash2 className="h-4 w-4 mr-2" />
                           {deletingEmployees ? "删除中..." : "删除"}
                         </Button>
-                      </PermissionGate>
+                      </RequirePermission>
                     </>
                   )}
                 </div>
@@ -7354,34 +7405,43 @@ const exportInsuranceChanges = async (
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-40">
-                                <DropdownMenuItem
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openInsuranceForm("increase", { employee });
-                                  }}
-                                >
-                                  <CalendarPlus className="h-4 w-4 mr-2" />
-                                  办理参保
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openProvidentDialog("create", { employee });
-                                  }}
-                                >
-                                  <PiggyBank className="h-4 w-4 mr-2" />
-                                  办理公积金
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setSelectedEmployee(employee);
-                                    setShowResignDialog(true);
-                                  }}
-                                >
-                                  <UserMinus className="h-4 w-4 mr-2" />
-                                  办理离职
-                                </DropdownMenuItem>
+                                {/* P7.1：办理参保属于创建社保记录，需 insurance.create 权限 */}
+                                <RequirePermission resource="insurance" action="create">
+                                  <DropdownMenuItem
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openInsuranceForm("increase", { employee });
+                                    }}
+                                  >
+                                    <CalendarPlus className="h-4 w-4 mr-2" />
+                                    办理参保
+                                  </DropdownMenuItem>
+                                </RequirePermission>
+                                {/* P7.1：办理公积金属于创建公积金记录，需 insurance.create 权限 */}
+                                <RequirePermission resource="insurance" action="create">
+                                  <DropdownMenuItem
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openProvidentDialog("create", { employee });
+                                    }}
+                                  >
+                                    <PiggyBank className="h-4 w-4 mr-2" />
+                                    办理公积金
+                                  </DropdownMenuItem>
+                                </RequirePermission>
+                                {/* P7.1：办理离职为修改员工状态，需 employee.edit 权限 */}
+                                <RequirePermission resource="employee" action="edit">
+                                  <DropdownMenuItem
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedEmployee(employee);
+                                      setShowResignDialog(true);
+                                    }}
+                                  >
+                                    <UserMinus className="h-4 w-4 mr-2" />
+                                    办理离职
+                                  </DropdownMenuItem>
+                                </RequirePermission>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -7407,9 +7467,12 @@ const exportInsuranceChanges = async (
                 <Button variant="outline" onClick={() => setShowBatchDeleteConfirm(false)}>
                   取消
                 </Button>
-              <Button variant="destructive" onClick={handleBatchDelete} disabled={deletingEmployees}>
-                {deletingEmployees ? "删除中..." : "确认删除"}
-              </Button>
+                {/* P7.1：确认批量删除需 employee.delete 权限 */}
+                <RequirePermission resource="employee" action="delete">
+                  <Button variant="destructive" onClick={handleBatchDelete} disabled={deletingEmployees}>
+                    {deletingEmployees ? "删除中..." : "确认删除"}
+                  </Button>
+                </RequirePermission>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -7437,6 +7500,9 @@ const exportInsuranceChanges = async (
                     <Badge variant="default">已选择 {selectedResignedIds.length}</Badge>
                   )}
                   {selectedResignedIds.length === 0 ? (
+                    <RequirePermission resource="employee" action="create">
+                    {/* P7.1：批量导入离职员工需 employee.create 权限（RequirePermission 必须包裹在 Dialog 外层，
+                        若放在 DialogTrigger asChild 内部会返回 Fragment，导致 Radix 无法注入 ref/onClick，点击导入无法打开弹窗） */}
                     <Dialog open={showResignedImport} onOpenChange={setShowResignedImport}>
                       <DialogTrigger asChild>
                         <Button variant="outline" size="sm">
@@ -7479,14 +7545,18 @@ const exportInsuranceChanges = async (
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+                    </RequirePermission>
                   ) : (
                     <div className="flex items-center gap-2">
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm" disabled={resignedExporting}>
-                            <Download className="h-4 w-4 mr-2" /> 导出
-                          </Button>
-                        </DropdownMenuTrigger>
+                        {/* P7.1：导出需 employee.view 权限 */}
+                        <RequirePermission resource="employee" action="view">
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" disabled={resignedExporting}>
+                              <Download className="h-4 w-4 mr-2" /> 导出
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </RequirePermission>
                         <DropdownMenuContent align="end" className="w-44">
                           <DropdownMenuItem disabled={resignedExporting} onClick={() => handleExportResigned("selected")}>
                             导出选中数据
@@ -7503,9 +7573,12 @@ const exportInsuranceChanges = async (
                       <Button variant="outline" size="sm" onClick={() => openPrintDialog("resigned")}>
                         <Printer className="h-4 w-4 mr-2" /> 打印
                       </Button>
-                      <Button variant="destructive" size="sm" onClick={() => setShowBatchRestoreConfirm(true)}>
-                        <CalendarPlus className="h-4 w-4 mr-2" /> 撤销
-                      </Button>
+                      {/* P7.1：撤销离职（恢复在职）为修改员工状态，需 employee.edit 权限 */}
+                      <RequirePermission resource="employee" action="edit">
+                        <Button variant="destructive" size="sm" onClick={() => setShowBatchRestoreConfirm(true)}>
+                          <CalendarPlus className="h-4 w-4 mr-2" /> 撤销
+                        </Button>
+                      </RequirePermission>
                     </div>
                   )}
                 </div>
@@ -7680,16 +7753,19 @@ const exportInsuranceChanges = async (
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-40">
-                                  <DropdownMenuItem
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openInsuranceForm("decrease", { employee });
-                                    }}
-                                    className="gap-2"
-                                  >
-                                    <CalendarMinus className="h-4 w-4" />
-                                    办理退保
-                                  </DropdownMenuItem>
+                                  {/* P7.1：办理退保为创建社保减少记录，需 insurance.create 权限 */}
+                                  <RequirePermission resource="insurance" action="create">
+                                    <DropdownMenuItem
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openInsuranceForm("decrease", { employee });
+                                      }}
+                                      className="gap-2"
+                                    >
+                                      <CalendarMinus className="h-4 w-4" />
+                                      办理退保
+                                    </DropdownMenuItem>
+                                  </RequirePermission>
                                   <DropdownMenuItem
                                     onClick={(event) => {
                                       event.stopPropagation();
@@ -8210,9 +8286,12 @@ const exportInsuranceChanges = async (
             >
               取消
             </Button>
-            <Button onClick={handleSaveEmployee} disabled={!editEmployee.id}>
-              保存
-            </Button>
+            {/* P7.1：编辑员工保存需 employee.edit 权限 */}
+            <RequirePermission resource="employee" action="edit">
+              <Button onClick={handleSaveEmployee} disabled={!editEmployee.id}>
+                保存
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8310,10 +8389,16 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={closeProvidentDialog} disabled={savingProvidentRecord}>
               取消
             </Button>
-            <Button onClick={handleSaveProvidentRecord} disabled={savingProvidentRecord}>
-              {savingProvidentRecord && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              保存
-            </Button>
+            {/* P7.1：公积金记录保存按模式区分：新增需 create、编辑需 edit */}
+            <RequirePermission
+              resource="insurance"
+              action={providentFormMode === "create" ? "create" : "edit"}
+            >
+              <Button onClick={handleSaveProvidentRecord} disabled={savingProvidentRecord}>
+                {savingProvidentRecord && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                保存
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8343,9 +8428,12 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setSealDialogRecord(null)} disabled={sealSubmitting}>
               取消
             </Button>
-            <Button onClick={handleConfirmSeal} disabled={sealSubmitting}>
-              {sealSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} 确认封存
-            </Button>
+            {/* P7.1：确认封存需 insurance.edit 权限 */}
+            <RequirePermission resource="insurance" action="edit">
+              <Button onClick={handleConfirmSeal} disabled={sealSubmitting}>
+                {sealSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} 确认封存
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8373,9 +8461,12 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setUnsealDialogRecord(null)} disabled={unsealSubmitting}>
               取消
             </Button>
-            <Button onClick={handleConfirmUnseal} disabled={unsealSubmitting}>
-              {unsealSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} 确认启封
-            </Button>
+            {/* P7.1：确认启封需 insurance.edit 权限 */}
+            <RequirePermission resource="insurance" action="edit">
+              <Button onClick={handleConfirmUnseal} disabled={unsealSubmitting}>
+                {unsealSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} 确认启封
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8423,9 +8514,12 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setProvidentImportDialogOpen(false)} disabled={providentImporting}>
               取消
             </Button>
-            <Button onClick={handleExecuteProvidentImport} disabled={providentImporting}>
-              {providentImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} 导入
-            </Button>
+            {/* P7.1：执行公积金导入需 insurance.create 权限 */}
+            <RequirePermission resource="insurance" action="create">
+              <Button onClick={handleExecuteProvidentImport} disabled={providentImporting}>
+                {providentImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} 导入
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8467,7 +8561,10 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setShowProvidentSettingsDialog(false)}>
               取消
             </Button>
-            <Button onClick={handleProvidentSettingsSave}>保存</Button>
+            {/* P7.1：保存公积金单位设置需 insurance.edit 权限 */}
+            <RequirePermission resource="insurance" action="edit">
+              <Button onClick={handleProvidentSettingsSave}>保存</Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8671,9 +8768,12 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setShowResignDialog(false)} disabled={resignSubmitting}>
               取消
             </Button>
-            <Button onClick={handleResignEmployee} disabled={resignSubmitting}>
-              {resignSubmitting ? "提交中..." : "确认离职"}
-            </Button>
+            {/* P7.1：确认离职为修改员工状态，需 employee.edit 权限 */}
+            <RequirePermission resource="employee" action="edit">
+              <Button onClick={handleResignEmployee} disabled={resignSubmitting}>
+                {resignSubmitting ? "提交中..." : "确认离职"}
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8848,9 +8948,12 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setShowBatchRestoreConfirm(false)}>
               取消
             </Button>
-            <Button onClick={handleBatchRestore} disabled={restoringResigned}>
-              {restoringResigned ? "处理中..." : "确认撤销"}
-            </Button>
+            {/* P7.1：批量恢复在职为修改员工状态，需 employee.edit 权限 */}
+            <RequirePermission resource="employee" action="edit">
+              <Button onClick={handleBatchRestore} disabled={restoringResigned}>
+                {restoringResigned ? "处理中..." : "确认撤销"}
+              </Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8867,7 +8970,10 @@ const exportInsuranceChanges = async (
             <Button variant="outline" onClick={() => setShowBatchInsuranceConfirm(false)}>
               取消
             </Button>
-            <Button variant="destructive" onClick={handleBatchInsuranceDelete}>确认撤销</Button>
+            {/* P7.1：确认撤销社保记录需 insurance.delete 权限 */}
+            <RequirePermission resource="insurance" action="delete">
+              <Button variant="destructive" onClick={handleBatchInsuranceDelete}>确认撤销</Button>
+            </RequirePermission>
           </DialogFooter>
         </DialogContent>
       </Dialog>

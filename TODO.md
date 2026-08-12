@@ -34,18 +34,21 @@
 
 ## P7：后续迭代（按 P7.4 → P7.1 → P7.2 → P7.3 串行执行）🔜 已确认执行
 
-### P7.4 修复 pre-existing storage 测试
-- [ ] 调研 TestResolve_NoDefaultConfig 失败原因（依赖：1）
-- [ ] 修复代码或测试用例（依赖：1）
-- [ ] 验收：`go test ./internal/service/storage/...` 通过
+### P7.4 修复 pre-existing storage 测试 ✅ 已由 P11.1 DSN 修复顺带解决
+- [x] 调研 TestResolve_NoDefaultConfig 失败原因（P11.1 DSN 修复后已 PASS）
+- [x] 修复代码或测试用例（无需额外改动）
+- [x] 验收：`go test ./internal/service/storage/...` 通过
 
-### P7.1 RBAC 权限深化
-- [ ] 后端：扩展 4 角色枚举 admin/manager/editor/viewer（依赖：P7.4）
-- [ ] 后端：部门级数据隔离中间件（用户只能看本部门数据）（依赖：上一项）
-- [ ] 后端：API 权限校验中间件扩展（基于角色 + 资源 + 操作）（依赖：上一项）
-- [ ] 后端：种子数据补充默认角色权限映射（依赖：上一项）
-- [ ] 前端：按钮级权限组件 + 菜单/操作按角色隐藏（依赖：后端 API）
-- [ ] 验收：4 角色登录后菜单/按钮按预期显隐；部门隔离生效；CI 全绿
+### P7.1 RBAC 权限深化 ✅ 已完成
+> 决策：Q1=6 子任务全做 / Q2=角色迁移 dry-run + 清单 + 管理员确认 / Q3=User.Role 用 gorm:"-" 废弃、前端读 user.permissions[] / Q4=fallback 区分未登录/token失效/网络错误 / Q5=RequirePermission mode="hide"|"disable" 默认 hide / Q6=全局写入审计 + 路径白/黑名单配置 / Q7=单测 + Playwright E2E
+
+- [x] 1. 后端：User.Role 迁移脚本 `cmd/migrate-roles/main.go`——dry-run 模式打印不规范值清单（super_admin→admin 映射表、空值/NULL→viewer、未知值→viewer），确认后实际迁移 User.Role → user_roles 关联表，最后 seed 默认角色权限映射（4 角色 × 资源 × 操作）（交付物：cmd/migrate-roles/main.go + 迁移文档；依赖：无）
+- [x] 2. 后端：User 模型 User.Role 字段加 `gorm:"-"` 废弃（JSON 不再返回），全栈统一读 user_roles 表（交付物：models/models.go + 相关引用清理；依赖：1）
+- [x] 3. 后端：全局写入审计中间件——自动拦截所有非 GET 请求，记录操作者/操作类型/payload，路径白名单/黑名单配置化过滤（交付物：middleware/audit.go + main.go 挂载 + 配置项；依赖：无）
+- [x] 4. 后端：登录/刷新接口返回 user.permissions[]（从 user_roles + role_permissions 聚合），中间件权限校验走 UserRole 表（交付物：api/auth.go 响应扩展 + middleware/permission.go 调整；依赖：2）
+- [x] 5. 前端：`lib/permissions.ts` hasPermission(resource, action) + `components/auth/RequirePermission.tsx`（mode="hide"|"disable" 默认 hide）+ useAuth().hasPermission hook——fallback 策略：未登录→false、token失效→false+自动刷新、网络错误→true+degraded 标记（交付物：permissions.ts + RequirePermission.tsx + rbac.tsx 调整；依赖：4）
+- [x] 6. 前端：菜单侧边栏 + 关键按钮（删除/新增/编辑/导出等）接入 RequirePermission 按角色显隐（交付物：app-sidebar.tsx + 各管理组件按钮包裹；依赖：5）
+- [x] 7. 验收：后端 go test 全绿（含迁移 dry-run 单测 + 权限矩阵单测）；前端 lint/tsc/build 全绿；Playwright E2E 4 角色登录验证菜单/按钮显隐（admin 全显/manager 部门/editor 编辑/viewer 只读）（交付物：测试 + E2E 脚本；依赖：1-6）
 
 ### P7.2 用户反馈闭环
 - [ ] 后端：Feedback 模型（用户/AI回答/评分/文字反馈/管理员回复/状态）
@@ -59,8 +62,8 @@
 - [ ] 前端：发票管理主组件 + 卡片接入 daily-affairs-hub
 - [ ] 验收：日常事务菜单可进入发票页，CRUD 正常
 
-【总进度】0 / 13 完成
-【下一步】P7.4：调研 TestResolve_NoDefaultConfig 失败原因
+【总进度】10 / 18 完成（P7.4 3 项 + P7.1 7 项）
+【下一步】P7.2：用户反馈闭环
 
 ## P6：日常事务模块合并（办公劳保 + 食堂管理）✅ 已完成
 
@@ -125,10 +128,9 @@
 - [x] 3.7 验收：完整"预览→入库→脱敏检索→权限隔离问答"闭环；权限配置生效
 
 ### P8.4 收尾 P8
-- [ ] 更新 TODO.md + agentmemory + git commit + push
+- [x] 更新 TODO.md + agentmemory + git commit + push
 
-【总进度】0 / 25 完成
-【下一步】P8.1.1：新增 KnowledgeBase/KBAccessRule/KBFieldMask 模型
+【总进度】25 / 25 完成 ✅ P8 已全部交付
 
 ## P9：P8 遗留收尾（ingest 实装 + chat-panel 范围过滤）🔜 已确认
 

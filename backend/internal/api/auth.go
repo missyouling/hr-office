@@ -199,11 +199,18 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 加载用户权限（从 user_roles → role_permissions → permissions 联表查询）
+	permissions, err := loadUserPermissions(h.db, user.ID)
+	if err != nil {
+		// 权限加载失败不应阻断登录，降级返回空数组
+		permissions = []string{}
+	}
+
 	// 返回用户信息和 token 对
-	response := models.AuthResponse{
-		Token:        accessToken,
-		RefreshToken: refreshToken,
-		User:         user,
+	response := AuthTokenResponse{
+		AuthUserPayload: newAuthUserPayload(user, permissions),
+		Token:           accessToken,
+		RefreshToken:    refreshToken,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -351,8 +358,13 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	permissions, err := loadUserPermissions(h.db, user.ID)
+	if err != nil {
+		permissions = []string{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	json.NewEncoder(w).Encode(newAuthUserPayload(user, permissions))
 }
 
 // Logout handles user logout — 吊销所有 refresh token，access token 等自然过期
@@ -822,9 +834,16 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := models.RefreshTokenResponse{
-		AccessToken:  newAccessToken,
-		RefreshToken: newRefreshToken,
+	// 加载用户权限（刷新时也返回最新权限，确保权限变更即时生效）
+	permissions, err := loadUserPermissions(h.db, user.ID)
+	if err != nil {
+		permissions = []string{}
+	}
+
+	resp := AuthTokenResponse{
+		AuthUserPayload: newAuthUserPayload(user, permissions),
+		Token:           newAccessToken,
+		RefreshToken:    newRefreshToken,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

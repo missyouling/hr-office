@@ -1,5 +1,8 @@
 "use client";
 
+// 重导出 usePermissionDegraded，方便统一从 permissions 模块引用
+export { usePermissionDegraded } from "./auth";
+
 // ========== 角色与权限类型定义 ==========
 
 /** 系统角色 */
@@ -176,4 +179,24 @@ export function isCrossDepartment(ctx: PermissionContext): boolean {
     return false;
   }
   return ctx.departmentId !== ctx.resourceDepartmentId;
+}
+
+// ========== P7.1 扁平权限判断（纯函数，无副作用） ==========
+
+/**
+ * 根据扁平权限数组判断是否有权执行某操作。
+ * 这是纯计算函数，不涉及状态、不抛出网络错误，适合组件外使用。
+ *
+ * @param permissions - 扁平权限字符串数组，如 ["employee.view", "employee.create"]
+ * @param resource    - 资源名，如 "employee"
+ * @param action      - 操作名，如 "delete"
+ * @returns 是否有该权限
+ *
+ * 用法：
+ *   hasPermission(user.permissions, "employee", "delete")
+ */
+export function hasPermission(permissions: string[] | undefined | null, resource: string, action: string): boolean {
+  if (!permissions || permissions.length === 0) return false;
+  const required = `${resource}.${action}`;
+  return permissions.includes(required);
 }

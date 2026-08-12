@@ -162,6 +162,21 @@ function getApiBase(): string {
 
 const API_BASE = getApiBase();
 
+export interface AuthUserPayload {
+  user: Omit<User, "permissions">;
+  permissions: string[];
+}
+
+export interface AuthTokenResponse extends AuthUserPayload {
+  token: string;
+  refresh_token?: string;
+}
+
+/** 将认证接口顶层权限归一到前端认证用户，避免页面各自拼装。 */
+export function normalizeAuthUser(payload: AuthUserPayload): User {
+  return { ...payload.user, permissions: payload.permissions };
+}
+
 // ========== Token 刷新模块（P8.0 401 自动拦截） ==========
 
 let isRefreshing = false
@@ -186,6 +201,9 @@ async function refreshAccessToken(): Promise<string | null> {
     }
     if (data.refresh_token) {
       localStorage.setItem("refresh_token", data.refresh_token)
+    }
+    if (data.user && Array.isArray(data.permissions)) {
+      localStorage.setItem("user", JSON.stringify(normalizeAuthUser(data as AuthUserPayload)))
     }
     return data.token || null
   } catch {
@@ -1642,13 +1660,13 @@ export async function runMaintenance(): Promise<{ message: string; tasks_complet
 }
 
 // 认证相关API函数（供其他组件使用）
-export async function getUserProfile(token: string): Promise<User> {
+export async function getUserProfile(token: string): Promise<AuthUserPayload> {
   return request('/auth/profile', {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
 
-export async function login(credentials: { username: string; password: string }): Promise<{ token: string; user: unknown; refresh_token?: string }> {
+export async function login(credentials: { username: string; password: string }): Promise<AuthTokenResponse> {
   return request('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

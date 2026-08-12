@@ -65,7 +65,7 @@ func HasAccess(db *gorm.DB, user *models.User, kbID uint) bool {
 	db.Where("knowledge_base_id = ?", kbID).Find(&rules)
 	for _, r := range rules {
 		if r.RoleLevel != nil && *r.RoleLevel != "" {
-			if !userHasRole(user, *r.RoleLevel) {
+			if !userHasRole(db, user, *r.RoleLevel) {
 				continue
 			}
 		}
@@ -82,9 +82,14 @@ func HasAccess(db *gorm.DB, user *models.User, kbID uint) bool {
 	return false
 }
 
-// userHasRole 判断用户是否拥有指定角色级别
-func userHasRole(user *models.User, roleLevel string) bool {
-	return models.NormalizeRole(user.Role) == roleLevel
+// userHasRole 判断用户是否拥有指定角色级别（通过 user_roles 联表查询）
+func userHasRole(db *gorm.DB, user *models.User, roleLevel string) bool {
+	var count int64
+	db.Model(&models.Role{}).
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND roles.name = ?", user.ID, roleLevel).
+		Count(&count)
+	return count > 0
 }
 
 // getKBUser 从请求上下文提取用户并查库
@@ -128,7 +133,7 @@ func listKnowledgeBases(db *gorm.DB) http.HandlerFunc {
 		db.Order("id ASC").Find(&allKBs)
 
 		// 对管理员返回全部
-		if models.NormalizeRole(user.Role) == models.RoleAdmin {
+		if userHasRole(db, user, models.RoleAdmin) {
 			respondJSON(w, http.StatusOK, map[string]interface{}{
 				"items": allKBs,
 				"total": len(allKBs),

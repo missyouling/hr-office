@@ -145,7 +145,6 @@ func initializeDefaultAdmin(db *gorm.DB) error {
 			Username:      "admin",
 			Email:         "admin@system.local",
 			FullName:      "系统管理员",
-			Role:          "super_admin",
 			Active:        true,
 			EmailVerified: true, // Admin account is pre-verified
 		}
@@ -184,12 +183,6 @@ func ensureDefaultAdminSuperAdminRole(db *gorm.DB) error {
 	var superAdminRole models.Role
 	if err := db.Where("name = ?", "super_admin").First(&superAdminRole).Error; err != nil {
 		return fmt.Errorf("find super_admin role: %v", err)
-	}
-
-	if adminUser.Role != "super_admin" {
-		if err := db.Model(&models.User{}).Where("id = ?", adminUser.ID).Update("role", "super_admin").Error; err != nil {
-			return fmt.Errorf("update admin role to super_admin: %v", err)
-		}
 	}
 
 	var userRole models.UserRole

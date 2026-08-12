@@ -206,6 +206,9 @@ export function UserPreferencesDialog({ open, onOpenChange }: UserPreferencesDia
     user: "普通用户",
     admin: "管理员",
     super_admin: "超级管理员",
+    manager: "部门经理",
+    editor: "编辑者",
+    viewer: "查看者",
   }[user?.role || "user"];
 
   return (

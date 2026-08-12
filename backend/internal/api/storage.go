@@ -399,7 +399,8 @@ func (h *Handler) testStorageConnectionNew(w http.ResponseWriter, r *http.Reques
 		if !ok {
 			port = 445
 		}
-		addr := fmt.Sprintf("%s:%d", host, int(port))
+		// 用 JoinHostPort 拼接，兼容 IPv6 地址（[::1]:port 格式）
+		addr := net.JoinHostPort(host, strconv.Itoa(int(port)))
 		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 		if err != nil {
 			success = false

@@ -37,6 +37,7 @@ import {
   getBackupSettings,
   type LogBackup
 } from "@/lib/api";
+import { RequirePermission } from "@/components/auth/RequirePermission";
 
 interface BackupManagementDialogProps {
   open: boolean;
@@ -218,20 +219,29 @@ export function BackupManagementDialog({ open, onOpenChange }: BackupManagementD
                 </div>
 
                 <div className="pt-4 mt-auto space-y-2">
-                  <Button 
-                    className="w-full"
-                    onClick={handleSaveSettings}
-                    disabled={saving}
-                  >
-                    {saving ? "保存中..." : "保存"}
-                  </Button>
+                  {/* P7.1：备份设置保存需 backups.edit 权限（页面级按钮，无权限隐藏） */}
+                  <RequirePermission resource="backups" action="edit">
+                    <Button
+                      className="w-full"
+                      onClick={handleSaveSettings}
+                      disabled={saving}
+                    >
+                      {saving ? "保存中..." : "保存"}
+                    </Button>
+                  </RequirePermission>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" onClick={handleManualBackup} disabled={creating}>
-                      {creating ? "备份中..." : "备份"}
-                    </Button>
-                    <Button variant="outline" onClick={handleCleanExpired}>
-                      清理过期
-                    </Button>
+                    {/* P7.1：手动备份需 backups.create 权限 */}
+                    <RequirePermission resource="backups" action="create">
+                      <Button variant="outline" onClick={handleManualBackup} disabled={creating}>
+                        {creating ? "备份中..." : "备份"}
+                      </Button>
+                    </RequirePermission>
+                    {/* P7.1：清理过期日志需 backups.delete 权限 */}
+                    <RequirePermission resource="backups" action="delete">
+                      <Button variant="outline" onClick={handleCleanExpired}>
+                        清理过期
+                      </Button>
+                    </RequirePermission>
                   </div>
                 </div>
               </div>
@@ -263,14 +273,17 @@ export function BackupManagementDialog({ open, onOpenChange }: BackupManagementD
                             <TableCell className="text-xs">{formatFileSize(backup.file_size)}</TableCell>
                             <TableCell className="text-xs whitespace-nowrap">{new Date(backup.created_at).toLocaleString("zh-CN")}</TableCell>
                             <TableCell className="text-right">
-                              <Button 
-                                variant="ghost" 
-                                size="icon"
-                                onClick={() => handleDeleteBackup(backup.id)}
-                                className="h-8 w-8 text-destructive hover:text-destructive/80"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              {/* P7.1：行内删除备份按钮用 disable 模式（隐藏会破坏操作列布局） */}
+                              <RequirePermission resource="backups" action="delete" mode="disable">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteBackup(backup.id)}
+                                  className="h-8 w-8 text-destructive hover:text-destructive/80"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </RequirePermission>
                             </TableCell>
                           </TableRow>
                         ))
