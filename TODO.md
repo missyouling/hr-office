@@ -154,13 +154,13 @@
 - [x] 1.3 后端：补齐 ingest→检索集成测试（SQLite 降级 + PostgreSQL/pgvector 实测，验证 chunk 写入、KB 关联、全文/向量检索命中、并发幂等与事务回滚）（交付物：kb_ingest_*_test.go + retrieval 集成测试；依赖：1.1）
 
 ### P9.2 后端检索按 KB 权限过滤
-- [ ] 2.1 后端：search/chat/流式 chat 统一增加 `kb_id` 参数与 HasAccess 校验（非 admin 仅可检索自己有权限的 KB）（交付物：knowledge.go + chat.go + retrieval.go；依赖：无）【普通 search/chat 已接入，SSE 流式链路未接入】
-- [ ] 2.2 后端：全文检索、向量检索和问答 prompt/Sources 返回前统一应用字段脱敏，修正规则字段与结果字段映射（交付物：retrieval.go + kb_mask.go + chat.go；依赖：2.1）【部分已实现，问答链路待修复】
-- [ ] 2.3 后端：补强权限过滤、脱敏内容、流式越权拒绝的单测与集成测试（交付物：knowledge_test.go + kb_ingest_test.go；依赖：2.1,2.2）【现有断言偏宽松】
+- [x] 2.1 后端：search/chat/流式 chat 统一增加 `kb_id` 参数与 HasAccess 校验（非 admin 仅可检索自己有权限的 KB）（交付物：knowledge.go + chat.go + retrieval.go；依赖：无）【已完成：三条链路统一校验，管理员全量放行，普通用户越权返回 403】
+- [x] 2.2 后端：全文检索、向量检索和问答 prompt/Sources 返回前统一应用字段脱敏，修正规则字段与结果字段映射（交付物：retrieval.go + kb_mask.go + chat.go；依赖：2.1）【已完成：字段级精准脱敏、长文本安全边界、Prompt/答案/SSE/Sources 全链路接入】
+- [x] 2.3 后端：补强权限过滤、脱敏内容、流式越权拒绝的单测与集成测试（交付物：knowledge_test.go + kb_ingest_test.go；依赖：2.1,2.2）【已完成：专项与全量 Go 门禁通过，覆盖跨片、持久化、失败安全及参数矩阵】
 
 ### P9.3 前端 chat-panel 范围过滤
-- [ ] 3.1 前端：chat-panel 知识库范围选择器与 SSE 请求链路生效（下拉列出当前用户可见 KB，默认全部）（交付物：chat-panel.tsx + 后端 SSE；依赖：P9.2）【选择器已实现，后端 SSE 未生效】
-- [ ] 3.2 前端：检索及流式问答请求带 `kb_id`，响应中的脱敏字段正常显示（交付物：lib/api.ts + chat-panel.tsx；依赖：3.1）【请求参数已传递，服务端尚未完整接收】
+- [x] 3.1 前端：chat-panel 知识库范围选择器与 SSE 请求链路生效（下拉列出当前用户可见 KB，默认全部）（交付物：chat-panel.tsx + 后端 SSE；依赖：P9.2）【已完成：选择器与服务端 SSE 范围参数已接通】
+- [x] 3.2 前端：检索及流式问答请求带 `kb_id`，响应中的脱敏字段正常显示（交付物：lib/api.ts + chat-panel.tsx；依赖：3.1）【已完成：请求参数与服务端接收契约一致】
 - [ ] 3.3 验收：完整链路实测——入库→脱敏检索→权限隔离问答全通；go build/test + tsc/lint 全绿（依赖：全部）【待开发】
 
 【总进度】3 / 9 完成

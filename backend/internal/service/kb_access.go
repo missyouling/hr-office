@@ -35,8 +35,13 @@ func AccessibleKBIDs(db *gorm.DB, userID uint) []uint {
 }
 
 // hasKBAccess 判断用户对单个知识库的访问权限（与 api.HasAccess 语义一致）
-// 规则优先级：public+employee 全员可见 > private 仅所有者 > restricted 访问规则 OR 组合
+// 规则优先级：admin/super_admin 全量放行 > public+employee 全员可见 > private 仅所有者 > restricted 访问规则 OR 组合
 func hasKBAccess(db *gorm.DB, user *models.User, kb models.KnowledgeBase) bool {
+	// admin / super_admin 统一全量放行（不限 visibility/owner/规则）
+	if userIsAdmin(db, user.ID) {
+		return true
+	}
+
 	// 公开 + 员工花名册模块：全员可见
 	if kb.Visibility == "public" && kb.SourceModule == "employee" {
 		return true

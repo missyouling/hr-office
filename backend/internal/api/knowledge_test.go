@@ -25,6 +25,7 @@ func newKnowledgeTestRouter(t *testing.T, handler *Handler) chi.Router {
 	r.Route("/api/knowledge", func(kr chi.Router) {
 		kr.Get("/search", handler.searchKnowledge)
 		kr.Post("/chat", handler.chatKnowledge)
+		kr.Post("/chat/stream", handler.chatKnowledgeStream)
 	})
 	return r
 }
@@ -213,11 +214,10 @@ func TestChat_KBID(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// 可能返回 200（LLM 配置了就正常回答）或 500（无 LLM 配置）
-	// 但不应返回 403/401
-	if w.Code == http.StatusUnauthorized || w.Code == http.StatusForbidden {
+	// 严格断言：所有者带 kb_id 问答必须 200（无 LLM 配置时走占位响应，不报错）
+	if w.Code != http.StatusOK {
 		bodyStr := w.Body.String()
-		t.Errorf("带 kb_id 的 chat 不应返回 401/403，实际 %d，body: %s", w.Code, bodyStr)
+		t.Errorf("带 kb_id 的 chat 期望 200，实际 %d，body: %s", w.Code, bodyStr)
 	}
 }
 
@@ -250,7 +250,7 @@ func TestChat_KBIDForbidden(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestSearch_KBIDMasking — 脱敏结果验证
+// TestSearch_KBIDMasking — 脱敏结果严格断言
 // ---------------------------------------------------------------------------
 
 func TestSearch_KBIDMasking(t *testing.T) {
@@ -261,14 +261,25 @@ func TestSearch_KBIDMasking(t *testing.T) {
 	user := createTestUser(t, tx, "maskuser", "脱敏测试用户")
 	kb := createKB(t, tx, "脱敏知识库", "private", &user.ID)
 
-	// 添加脱敏规则：对 content 字段应用 front3back4 脱敏
+	// 添加脱敏规则：对业务字段 id_card 应用 front3back4 脱敏（映射到 content/snippet）
 	mask := models.KBFieldMask{
 		KnowledgeBaseID: kb.ID,
-		FieldName:       "content",
+		FieldName:       "id_card",
 		MaskPattern:     "front3back4",
 	}
 	if err := tx.Create(&mask).Error; err != nil {
 		t.Fatalf("创建脱敏规则失败: %v", err)
+	}
+
+	// 插入含身份证号的影子文档
+	doc := models.Document{
+		UserID: user.ID, DocumentCode: "MASK-API-1", FileName: "员工档案",
+		ContentText: "脱敏测试内容 110101199001011234",
+		SourceType:  "custom", SourceID: 1, SourceKBID: &kb.ID,
+		Status: "active", OCRStatus: "completed",
+	}
+	if err := tx.Create(&doc).Error; err != nil {
+		t.Fatalf("创建文档失败: %v", err)
 	}
 
 	handler := NewHandler(tx)
@@ -281,7 +292,152 @@ func TestSearch_KBIDMasking(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("脱敏检索期望 200，实际 %d", w.Code)
+		t.Fatalf("脱敏检索期望 200，实际 %d，body: %s", w.Code, w.Body.String())
 	}
-	t.Logf("脱敏检索响应: %s", w.Body.String())
+
+	var resp struct {
+		Results []struct {
+			Snippet string `json:"snippet"`
+			Title   string `json:"title"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatal("脱敏检索应返回结果")
+	}
+	// 业务字段规则映射到 snippet，不得泄露完整身份证号
+	if strings.Contains(resp.Results[0].Snippet, "110101199001011234") {
+		t.Errorf("检索结果 snippet 泄露原文: %s", resp.Results[0].Snippet)
+	}
+	// 非敏感上下文必须保留（不得整段 mask 内容）
+	if !strings.Contains(resp.Results[0].Snippet, "脱敏测试内容") {
+		t.Errorf("检索结果 snippet 丢失非敏感上下文: %s", resp.Results[0].Snippet)
+	}
+	// title 不受业务字段规则影响（保留原文）
+	if resp.Results[0].Title != "员工档案" {
+		t.Errorf("检索结果 title 不应被业务字段规则改动: %q", resp.Results[0].Title)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestSearch_KBIDZeroMasking — kb_id=0 时按每条结果所属 KB 脱敏
+// ---------------------------------------------------------------------------
+
+func TestSearch_KBIDZeroMasking(t *testing.T) {
+	db := setupTestDB(t)
+	tx := newTestTransaction(t, db)
+	migrateKnowledgeTables(t, tx)
+
+	user := createTestUser(t, tx, "zeromaskuser", "零值脱敏用户")
+	kb := createKB(t, tx, "零值脱敏知识库", "private", &user.ID)
+
+	// 业务字段脱敏规则
+	mask := models.KBFieldMask{
+		KnowledgeBaseID: kb.ID,
+		FieldName:       "id_card",
+		MaskPattern:     "front3back4",
+	}
+	if err := tx.Create(&mask).Error; err != nil {
+		t.Fatalf("创建脱敏规则失败: %v", err)
+	}
+
+	doc := models.Document{
+		UserID: user.ID, DocumentCode: "MASK-API-2", FileName: "员工档案",
+		ContentText: "零值脱敏测试 110101199001011234",
+		SourceType:  "custom", SourceID: 1, SourceKBID: &kb.ID,
+		Status: "active", OCRStatus: "completed",
+	}
+	if err := tx.Create(&doc).Error; err != nil {
+		t.Fatalf("创建文档失败: %v", err)
+	}
+
+	handler := NewHandler(tx)
+	router := newKnowledgeTestRouter(t, handler)
+
+	// 不带 kb_id（=0）检索全部可见，命中 kb 的文档，应按 kb 的规则脱敏
+	req := httptest.NewRequest("GET", "/api/knowledge/search?q=零值脱敏测试", nil)
+	req = setAuthContext(req, user.ID)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("kb_id=0 检索期望 200，实际 %d，body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Results []struct {
+			Snippet string `json:"snippet"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatal("kb_id=0 检索应返回结果")
+	}
+	if strings.Contains(resp.Results[0].Snippet, "110101199001011234") {
+		t.Errorf("kb_id=0 检索结果 snippet 泄露原文: %s", resp.Results[0].Snippet)
+	}
+	// 非敏感上下文必须保留（不得整段 mask 内容）
+	if !strings.Contains(resp.Results[0].Snippet, "零值脱敏测试") {
+		t.Errorf("kb_id=0 检索结果 snippet 丢失非敏感上下文: %s", resp.Results[0].Snippet)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestChatStream_KBIDForbidden — SSE 流式问答越权 403
+// ---------------------------------------------------------------------------
+
+func TestChatStream_KBIDForbidden(t *testing.T) {
+	db := setupTestDB(t)
+	tx := newTestTransaction(t, db)
+	migrateKnowledgeTables(t, tx)
+
+	owner := createTestUser(t, tx, "streamowner", "流式 KB 所有者")
+	stranger := createTestUser(t, tx, "streamstranger", "流式陌生人")
+	kb := createKB(t, tx, "流式私密库", "private", &owner.ID)
+
+	handler := NewHandler(tx)
+	router := newKnowledgeTestRouter(t, handler)
+
+	body := fmt.Sprintf(`{"question":"私密问题","kb_id":%d}`, kb.ID)
+	req := httptest.NewRequest("POST", "/api/knowledge/chat/stream", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAuthContext(req, stranger.ID)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("无权限 SSE 流式问答期望 403，实际 %d，body: %s", w.Code, w.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestChatStream_KBID — SSE 流式问答带 kb_id 不越权（所有者 200）
+// ---------------------------------------------------------------------------
+
+func TestChatStream_KBID(t *testing.T) {
+	db := setupTestDB(t)
+	tx := newTestTransaction(t, db)
+	migrateKnowledgeTables(t, tx)
+
+	user := createTestUser(t, tx, "streamuser", "流式用户")
+	kb := createKB(t, tx, "流式知识库", "private", &user.ID)
+
+	handler := NewHandler(tx)
+	router := newKnowledgeTestRouter(t, handler)
+
+	body := fmt.Sprintf(`{"question":"测试问题","kb_id":%d}`, kb.ID)
+	req := httptest.NewRequest("POST", "/api/knowledge/chat/stream", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAuthContext(req, user.ID)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// 严格断言：所有者 SSE 流式问答必须 200（权限校验通过后写入 200 头）
+	if w.Code != http.StatusOK {
+		t.Errorf("所有者 SSE 流式问答期望 200，实际 %d，body: %s", w.Code, w.Body.String())
+	}
 }

@@ -45,9 +45,17 @@ func RegisterKnowledgeBaseRoutes(r chi.Router, db *gorm.DB, kbIngestSvc *service
 
 // HasAccess 检查用户是否有权限访问指定知识库
 func HasAccess(db *gorm.DB, user *models.User, kbID uint) bool {
+	if user == nil {
+		return false
+	}
 	var kb models.KnowledgeBase
 	if err := db.First(&kb, kbID).Error; err != nil {
 		return false
+	}
+
+	// admin / super_admin 统一全量放行（不限 visibility/owner/规则）
+	if userIsSystemAdmin(db, user) {
+		return true
 	}
 
 	// 公开 + 员工花名册模块：全员可见
@@ -80,6 +88,16 @@ func HasAccess(db *gorm.DB, user *models.User, kbID uint) bool {
 		return true
 	}
 	return false
+}
+
+// userIsSystemAdmin 判断用户是否为 admin 或 super_admin（全量放行依据）
+func userIsSystemAdmin(db *gorm.DB, user *models.User) bool {
+	var count int64
+	db.Model(&models.Role{}).
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND roles.name IN (?, ?)", user.ID, models.RoleAdmin, "super_admin").
+		Count(&count)
+	return count > 0
 }
 
 // userHasRole 判断用户是否拥有指定角色级别（通过 user_roles 联表查询）

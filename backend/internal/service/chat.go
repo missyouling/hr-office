@@ -51,11 +51,13 @@ func NewChatService(db *gorm.DB, retrievalService *RetrievalService) *ChatServic
 
 // Chat 问答（检索增强生成 RAG）
 // 1. 用 retrievalService.HybridSearch 检索相关文档
-// 2. 构建 prompt（系统提示 + 检索结果 + 用户问题）
-// 3. 调用 LLM API（从 model_configs 读取 llm 配置）
-// 4. 保存 ChatMessage 记录
+// 2. 对检索结果应用字段脱敏（不得把原文送给模型）
+// 3. 构建 prompt（系统提示 + 脱敏后的检索结果 + 用户问题）
+// 4. 调用 LLM API（从 model_configs 读取 llm 配置）
+// 5. 对最终答案应用敏感模式脱敏（防御层）
+// 6. 保存 ChatMessage 记录（脱敏后的答案与 Sources）
 // 返回 ChatResponse
-// kbID=0 表示搜索全部可见知识库
+// kbID=0 表示搜索全部可见知识库（按每条结果所属 KB 脱敏）
 func (s *ChatService) Chat(userID uint, sessionID string, question string, kbID uint) (*ChatResponse, error) {
 	if strings.TrimSpace(question) == "" {
 		return nil, fmt.Errorf("question cannot be empty")
@@ -65,14 +67,25 @@ func (s *ChatService) Chat(userID uint, sessionID string, question string, kbID 
 		sessionID = fmt.Sprintf("session-%d-%d", userID, time.Now().UnixNano())
 	}
 
-	// 检索相关文档（按 kbID 限定范围，kbID=0 即全部）
+	// 检索相关文档（按 kbID 限定范围，kbID=0 即全部可见）
 	sources, err := s.retrievalService.HybridSearch(context.Background(), userID, question, 5, kbID)
 	if err != nil {
 		log.Printf("[chat] hybrid search failed: %v", err)
 		sources = []SearchResult{}
 	}
 
-	// 构建 prompt
+	// 对检索结果应用字段脱敏（不得把原文送给模型；脱敏失败安全失败）
+	user, uErr := s.loadUser(userID)
+	if uErr != nil {
+		return nil, fmt.Errorf("加载用户失败: %w", uErr)
+	}
+	maskedSources, sensitive, exempt, mErr := s.retrievalService.ApplyMaskToResults(s.db, user, kbID, sources)
+	if mErr != nil {
+		return nil, fmt.Errorf("检索结果脱敏失败: %w", mErr)
+	}
+	sources = maskedSources
+
+	// 构建 prompt（使用脱敏后的 sources）
 	systemPrompt := `你是一个知识库助手。根据提供的文档内容回答用户的问题。
 如果文档中没有相关信息，请说明你无法从文档中找到答案。
 请保持回答简洁、准确。`
@@ -94,6 +107,12 @@ func (s *ChatService) Chat(userID uint, sessionID string, question string, kbID 
 		answer = fmt.Sprintf("抱歉，我无法处理您的问题。错误：%v", err)
 	}
 
+	// 对最终答案应用敏感模式脱敏（防御层，防止模型复述原文敏感信息）
+	// 再应用 KB 字段规则提取的敏感值映射（address/自定义字段等非正则模式的规则）
+	// exempt 中的豁免值在防御层被跳过（ExemptRole 用户应看到原文，避免先替换后无法恢复）
+	answer = maskSensitiveTextExempt(answer, toExemptSet(exempt))
+	answer = applyValueMap(answer, sensitive)
+
 	// 保存用户消息
 	userMsg := &models.ChatMessage{
 		UserID:    userID,
@@ -105,7 +124,7 @@ func (s *ChatService) Chat(userID uint, sessionID string, question string, kbID 
 		log.Printf("[chat] failed to save user message: %v", err)
 	}
 
-	// 保存助手消息
+	// 保存助手消息（脱敏后的答案与 Sources）
 	sourcesJSON, _ := json.Marshal(sources)
 	assistantMsg := &models.ChatMessage{
 		UserID:    userID,
@@ -125,12 +144,24 @@ func (s *ChatService) Chat(userID uint, sessionID string, question string, kbID 
 	}, nil
 }
 
+// loadUser 按 ID 加载用户（脱敏豁免检查需要）
+func (s *ChatService) loadUser(userID uint) (*models.User, error) {
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // BuildContext 构建问答上下文
 // 1. 使用 HybridSearch 检索相关文档
-// 2. 组装 systemPrompt 与 userPrompt
-// 返回 sources 供上层溯源使用
-// kbID=0 表示搜索全部可见知识库
-func (s *ChatService) BuildContext(userID uint, question string, maxRetrieval int, kbID uint) (systemPrompt string, userPrompt string, sources []SearchResult, err error) {
+// 2. 对检索结果应用字段脱敏（不得把原文送给模型）
+// 3. 组装 systemPrompt 与 userPrompt
+// 返回脱敏后的 sources 供上层溯源使用；sensitive 为 KB 字段规则提取的
+// 原始值→脱敏值 映射，供最终答案/SSE 增量脱敏复用；
+// exempt 为 ExemptRole 豁免的原始值列表，供答案/SSE 防御层跳过（保留原文）
+// kbID=0 表示搜索全部可见知识库（按每条结果所属 KB 脱敏）
+func (s *ChatService) BuildContext(userID uint, question string, maxRetrieval int, kbID uint) (systemPrompt string, userPrompt string, sources []SearchResult, sensitive map[string]string, exempt []string, err error) {
 	if maxRetrieval <= 0 {
 		maxRetrieval = 5
 	}
@@ -142,12 +173,23 @@ func (s *ChatService) BuildContext(userID uint, question string, maxRetrieval in
 		sources = []SearchResult{}
 	}
 
+	// 对检索结果应用字段脱敏（不得把原文送给模型；脱敏失败安全失败）
+	user, uErr := s.loadUser(userID)
+	if uErr != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("加载用户失败: %w", uErr)
+	}
+	maskedSources, sensitive, exempt, mErr := s.retrievalService.ApplyMaskToResults(s.db, user, kbID, sources)
+	if mErr != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("检索结果脱敏失败: %w", mErr)
+	}
+	sources = maskedSources
+
 	// 系统提示
 	systemPrompt = `你是一个知识库助手。根据提供的文档内容回答用户的问题。
 如果文档中没有相关信息，请说明你无法从文档中找到答案。
 请保持回答简洁、准确。`
 
-	// 根据检索结果构建上下文文本
+	// 根据检索结果构建上下文文本（使用脱敏后的 sources）
 	contextText := ""
 	if len(sources) > 0 {
 		contextText = "相关文档内容：\n"
@@ -157,7 +199,7 @@ func (s *ChatService) BuildContext(userID uint, question string, maxRetrieval in
 	}
 
 	userPrompt = fmt.Sprintf("%s\n\n用户问题：%s", contextText, question)
-	return systemPrompt, userPrompt, sources, nil
+	return systemPrompt, userPrompt, sources, sensitive, exempt, nil
 }
 
 // GetOrCreateSession 获取或创建会话
@@ -316,10 +358,11 @@ func (s *ChatService) RewriteQuery(userID uint, sessionID string, question strin
 // StreamChat 流式问答（SSE）
 // 1. 获取或创建会话
 // 2. 加载上下文配置，读取历史消息
-// 3. 构建当前问题的 prompt
-// 4. 流式调用 LLM，实时向客户端输出 token
-// 5. 保存聊天记录
-func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID string, question string) {
+// 3. 构建当前问题的 prompt（透传 kbID 限定检索范围，检索结果先脱敏再送模型）
+// 4. 流式调用 LLM，对增量 token 应用敏感模式脱敏后实时向客户端输出
+// 5. 保存聊天记录（脱敏后的答案与 Sources）
+// kbID=0 表示搜索全部可见知识库（按每条结果所属 KB 脱敏）
+func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID string, question string, kbID uint) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "服务器不支持流式响应", http.StatusInternalServerError)
@@ -387,8 +430,8 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		}
 	}
 
-	// 构建当前问题的上下文 prompt（kbID=0 流式聊天暂不支持 kb 过滤）
-	systemPrompt, userPrompt, sources, err := s.BuildContext(userID, question, 5, 0)
+	// 构建当前问题的上下文 prompt（透传 kbID 限定检索范围）
+	systemPrompt, userPrompt, sources, sensitive, exempt, err := s.BuildContext(userID, question, 5, kbID)
 	if err != nil {
 		log.Printf("[chat] StreamChat 构建上下文失败: %v", err)
 		s.sendSSE(w, flusher, sseEvent{Type: "error", Content: "构建上下文失败"})
@@ -420,11 +463,17 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		"content": userPrompt,
 	})
 
-	// 流式调用 LLM 并实时推送 token
+	// 流式调用 LLM 并实时推送 token（增量敏感模式脱敏，防止流式输出泄露原文；
+	// exempt 豁免值在防御层被跳过，ExemptRole 用户流式输出保留原文）
 	var answerBuilder strings.Builder
+	masker := &streamMasker{sensitive: sensitive, exempt: toExemptSet(exempt)}
 	err = s.callLLMStream(userID, messages, func(token string) error {
-		answerBuilder.WriteString(token)
-		return s.sendSSE(w, flusher, sseEvent{Type: "token", Content: token})
+		safe := masker.Push(token)
+		if safe == "" {
+			return nil
+		}
+		answerBuilder.WriteString(safe)
+		return s.sendSSE(w, flusher, sseEvent{Type: "token", Content: safe})
 	})
 	if err != nil {
 		log.Printf("[chat] StreamChat LLM 流式调用失败: %v", err)
@@ -432,7 +481,15 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		return
 	}
 
-	// 流式结束后保存聊天记录
+	// 输出剩余缓冲（整体脱敏）
+	if tail := masker.Flush(); tail != "" {
+		answerBuilder.WriteString(tail)
+		if err := s.sendSSE(w, flusher, sseEvent{Type: "token", Content: tail}); err != nil {
+			log.Printf("[chat] StreamChat 发送尾部 token 失败: %v", err)
+		}
+	}
+
+	// 流式结束后保存聊天记录（脱敏后的答案与 Sources）
 	assistantMsg, err := s.saveChatMessages(userID, session.SessionID, question, answerBuilder.String(), sources)
 	if err != nil {
 		log.Printf("[chat] StreamChat 保存助手消息失败: %v", err)
