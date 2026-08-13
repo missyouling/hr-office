@@ -49,13 +49,22 @@ func main() {
 	db := connectDB(dsn)
 
 	// 自动建表，保证在全新库（如 CI E2E 环境）也能直接运行；已存在的表为 no-op
-	if err := db.AutoMigrate(&models.User{}, &models.Role{}, &models.UserRole{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Role{},
+		&models.Permission{},
+		&models.RolePermission{},
+		&models.UserRole{},
+	); err != nil {
 		log.Fatalf("AutoMigrate 表失败: %v", err)
 	}
 
 	// 确保 4 个核心角色存在（幂等）
 	if err := ensureRoles(db); err != nil {
 		log.Fatalf("初始化角色失败: %v", err)
+	}
+	if err := ensurePermissions(db); err != nil {
+		log.Fatalf("初始化权限失败: %v", err)
 	}
 
 	fmt.Println("═══ E2E 测试账号 Seed ═══")

@@ -72,6 +72,14 @@ func seedRBAC(db *gorm.DB) error {
 		{Module: "users", Action: "create", Label: "创建", SortOrder: 71},
 		{Module: "users", Action: "edit", Label: "编辑", SortOrder: 72},
 		{Module: "users", Action: "delete", Label: "删除", SortOrder: 73},
+		// 发票管理
+		{Module: "invoice", Action: "view", Label: "查看", SortOrder: 80},
+		{Module: "invoice", Action: "create", Label: "创建", SortOrder: 81},
+		{Module: "invoice", Action: "edit", Label: "编辑", SortOrder: 82},
+		{Module: "invoice", Action: "delete", Label: "删除", SortOrder: 83},
+		{Module: "invoice", Action: "submit", Label: "提交", SortOrder: 84},
+		{Module: "invoice", Action: "approve", Label: "审批", SortOrder: 85},
+		{Module: "invoice", Action: "reject", Label: "驳回", SortOrder: 86},
 	}
 
 	for _, perm := range permissions {
@@ -111,6 +119,8 @@ func seedRBAC(db *gorm.DB) error {
 			"settings-view",
 			"backups-view",
 			"users-view",
+			"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
+			"invoice-submit", "invoice-approve", "invoice-reject",
 		}
 		assignPermissionsToRole(db, managerRole.ID, managerPerms)
 	}
@@ -126,6 +136,8 @@ func seedRBAC(db *gorm.DB) error {
 			"announcements-view", "announcements-edit",
 			"settings-view",
 			"backups-view",
+			"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
+			"invoice-submit",
 		}
 		assignPermissionsToRole(db, editorRole.ID, editorPerms)
 	}
@@ -139,6 +151,7 @@ func seedRBAC(db *gorm.DB) error {
 			"dormitory-view",
 			"archives-view",
 			"announcements-view",
+			"invoice-view",
 		}
 		assignPermissionsToRole(db, viewerRole.ID, viewerPerms)
 	}

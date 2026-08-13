@@ -14,6 +14,7 @@ import type { Invoice } from "@/lib/api-invoice";
 import InvoicesTab from "./tabs/InvoicesTab";
 import PendingApprovalTab from "./tabs/PendingApprovalTab";
 import StatsTab from "./tabs/StatsTab";
+import InvoiceArchiveTab from "./tabs/InvoiceArchiveTab";
 import { InvoiceDialog } from "./dialogs/InvoiceDialog";
 import { InvoiceDetailDialog } from "./dialogs/InvoiceDetailDialog";
 import { InvoiceUploadWorkbench } from "./upload/InvoiceUploadWorkbench";
@@ -22,9 +23,21 @@ interface InvoiceManagementProps {
   onBack?: () => void;
 }
 
+/** 管理员专属权限（manager 及以下角色默认不具备），用于区分 admin 与 manager 的审批语义 */
+const ADMIN_ONLY_PERMISSIONS = ["users.delete", "settings.edit", "backups.create"] as const;
+
+/**
+ * 扁平权限中是否包含任一管理员专属权限。
+ * 后端认证接口不再返回 user.role（见 frontend/lib/types.ts 中 role 废弃说明），
+ * 因此管理员身份需从权限内容本身推断。
+ */
+function hasAdminPermission(permissions: string[] | undefined | null): boolean {
+  if (!permissions || permissions.length === 0) return false;
+  return ADMIN_ONLY_PERMISSIONS.some((p) => permissions.includes(p));
+}
+
 export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
   const { user } = useAuth();
-  const role = normalizeRole(user?.role ?? "viewer");
   const { can } = usePermissions();
 
   const [activeTab, setActiveTab] = useState("list");
@@ -64,10 +77,18 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
     setDetailInvoice(invoice);
   }, []);
 
-  /** manager+ 可查看统计和待审批 */
-  const canManage = ["admin", "super_admin", "manager"].includes(role);
-  /** admin 可审批 */
-  const isAdmin = ["admin", "super_admin"].includes(role);
+  /**
+   * manager+（有审批权）可查看归档管理与统计分析。
+   * 基于扁平权限 invoice.approve：manager/admin 有，editor/viewer 无。
+   */
+  const canManage = can("invoice", "approve");
+  /**
+   * admin 可审批：需具备审批权且为管理员。
+   * manager 同样拥有 invoice.approve，故需叠加管理员专属权限或 role 兜底，
+   * 避免把 manager 误判为 admin 而暴露待审批页签。
+   */
+  const hasAdminRole = ["admin", "super_admin"].includes(normalizeRole(user?.role ?? "viewer"));
+  const isAdmin = can("invoice", "approve") && (hasAdminPermission(user?.permissions) || hasAdminRole);
   /** 可上传解析（创建发票草稿） */
   const canUpload = can("invoice", "create");
 
@@ -108,6 +129,7 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex w-full justify-start">
           <TabsTrigger value="list">发票列表</TabsTrigger>
+          {canManage && <TabsTrigger value="archive">归档管理</TabsTrigger>}
           {canUpload && <TabsTrigger value="upload">上传解析</TabsTrigger>}
           {isAdmin && <TabsTrigger value="pending">待审批</TabsTrigger>}
           {canManage && <TabsTrigger value="stats">统计分析</TabsTrigger>}
@@ -120,6 +142,12 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
             refreshKey={refreshKey}
           />
         </TabsContent>
+
+        {canManage && (
+          <TabsContent value="archive" className="space-y-4">
+            <InvoiceArchiveTab onViewDetail={handleViewDetail} refreshKey={refreshKey} />
+          </TabsContent>
+        )}
 
         {canUpload && (
           <TabsContent value="upload" className="space-y-4">

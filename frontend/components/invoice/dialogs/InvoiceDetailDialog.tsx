@@ -11,9 +11,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Archive, Download, Eye, FileX, Printer } from "lucide-react";
 import { PermissionGate } from "@/components/permission-gate";
 import { useAuth } from "@/lib/auth";
 import { normalizeRole } from "@/lib/permissions";
@@ -46,8 +56,17 @@ export function InvoiceDetailDialog({ open, onOpenChange, invoice, onSuccess, on
   const [loading, setLoading] = useState(false);
   const [reimburseAmount, setReimburseAmount] = useState("");
   const [showReimburseInput, setShowReimburseInput] = useState(false);
+  /** 确认归档返回的关联预警 */
+  const [confirmWarnings, setConfirmWarnings] = useState<string[]>([]);
+  const [warningsOpen, setWarningsOpen] = useState(false);
 
   if (!invoice) return null;
+
+  /** 是否有受控附件（attachment_file_id 为主，attachment_url 兼容遗留数据） */
+  const hasAttachment = invoice.attachment_file_id != null || Boolean(invoice.attachment_url);
+
+  /** 附件是否可访问：后端仅允许待确认（pending）状态读取附件，已确认/作废后锁定 */
+  const attachmentAccessible = invoice.archive_status === "pending" && hasAttachment;
 
   /** 执行操作 */
   const handleAction = async (action: () => Promise<unknown>, successMsg: string) => {
@@ -60,6 +79,121 @@ export function InvoiceDetailDialog({ open, onOpenChange, invoice, onSuccess, on
     } catch (err) {
       const message = err instanceof Error ? err.message : "操作失败";
       toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 受控原件预览：Blob URL 新窗口打开，关闭/超时后清理 URL */
+  const handlePreviewAttachment = async () => {
+    setLoading(true);
+    try {
+      const blob = await invoiceApi.getAttachment(invoice.id);
+      const url = URL.createObjectURL(blob);
+      const previewWindow = window.open(url, "_blank");
+      if (!previewWindow) {
+        toast.error("浏览器阻止了预览窗口，请允许弹窗后重试");
+        URL.revokeObjectURL(url);
+        return;
+      }
+      previewWindow.onload = () => previewWindow.focus();
+      const cleanup = () => URL.revokeObjectURL(url);
+      previewWindow.addEventListener("beforeunload", cleanup, { once: true });
+      // 兜底：onload/关闭事件未触发时也释放 Blob URL，避免内存泄漏
+      setTimeout(cleanup, 60_000);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "原件预览失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 附件下载：Blob + 临时 a 标签触发浏览器下载 */
+  const handleDownloadAttachment = async () => {
+    setLoading(true);
+    try {
+      const blob = await invoiceApi.downloadAttachment(invoice.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `发票附件_${invoice.invoice_no || invoice.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("附件已开始下载");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "附件下载失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 浏览器打印：打开 PDF 后调用 print，失败提示 */
+  const handlePrintAttachment = async () => {
+    setLoading(true);
+    try {
+      const blob = await invoiceApi.getAttachment(invoice.id);
+      const url = URL.createObjectURL(blob);
+      const printWindow = window.open(url, "_blank");
+      if (!printWindow) {
+        toast.error("浏览器阻止了打印窗口，请允许弹窗后重试");
+        URL.revokeObjectURL(url);
+        return;
+      }
+      printWindow.onload = () => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch {
+          toast.error("自动打印失败，请在新窗口中手动打印");
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      // 兜底：onload 未触发时也释放 Blob URL
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "打印失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 管理员确认归档：成功后有后端关联预警则弹窗展示 */
+  const handleConfirmArchive = async () => {
+    setLoading(true);
+    try {
+      const result = await invoiceApi.confirm(invoice.id);
+      const warnings = result.warnings ?? [];
+      if (warnings.length > 0) {
+        setConfirmWarnings(warnings);
+        setWarningsOpen(true);
+        toast.success("发票已确认归档，存在关联预警");
+      } else {
+        toast.success("发票已确认归档");
+      }
+      onSuccess();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "确认归档失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 管理员作废归档：作废原因必填（window.prompt），取消或空原因不执行 */
+  const handleVoidArchive = async () => {
+    const reason = window.prompt("请输入作废原因：");
+    if (!reason) return;
+    setLoading(true);
+    try {
+      await invoiceApi.void(invoice.id, reason);
+      toast.success("发票已作废");
+      onSuccess();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "作废失败");
     } finally {
       setLoading(false);
     }
@@ -89,6 +223,21 @@ export function InvoiceDetailDialog({ open, onOpenChange, invoice, onSuccess, on
   /** 渲染操作按钮 */
   const renderActions = () => {
     const buttons: React.ReactNode[] = [];
+
+    // 附件操作：仅待确认状态且有附件时可用（后端锁定 confirmed/voided 附件）
+    if (attachmentAccessible) {
+      buttons.push(
+        <Button key="preview" variant="outline" size="sm" disabled={loading} onClick={handlePreviewAttachment}>
+          <Eye className="mr-1.5 h-4 w-4" />原件预览
+        </Button>,
+        <Button key="download" variant="outline" size="sm" disabled={loading} onClick={handleDownloadAttachment}>
+          <Download className="mr-1.5 h-4 w-4" />下载附件
+        </Button>,
+        <Button key="print" variant="outline" size="sm" disabled={loading} onClick={handlePrintAttachment}>
+          <Printer className="mr-1.5 h-4 w-4" />打印
+        </Button>,
+      );
+    }
 
     // 草稿状态：editor+ 可提交/编辑/删除
     if (invoice.status === "draft") {
@@ -173,6 +322,24 @@ export function InvoiceDetailDialog({ open, onOpenChange, invoice, onSuccess, on
       }
     }
 
+    // 归档操作：admin 可确认归档（已审批且待确认）与作废（待确认/已确认）
+    if (["admin", "super_admin"].includes(role)) {
+      if (invoice.status === "approved" && invoice.archive_status === "pending") {
+        buttons.push(
+          <Button key="confirm-archive" variant="default" size="sm" disabled={loading} onClick={handleConfirmArchive}>
+            <Archive className="mr-1.5 h-4 w-4" />确认归档
+          </Button>,
+        );
+      }
+      if (invoice.archive_status === "pending" || invoice.archive_status === "confirmed") {
+        buttons.push(
+          <Button key="void-archive" variant="destructive" size="sm" disabled={loading} onClick={handleVoidArchive}>
+            <FileX className="mr-1.5 h-4 w-4" />作废
+          </Button>,
+        );
+      }
+    }
+
     return buttons;
   };
 
@@ -208,6 +375,28 @@ export function InvoiceDetailDialog({ open, onOpenChange, invoice, onSuccess, on
           </DialogFooter>
         )}
       </DialogContent>
+
+      {/* 确认归档关联预警 */}
+      <AlertDialog open={warningsOpen} onOpenChange={setWarningsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>发票已确认归档，存在关联预警</AlertDialogTitle>
+            <AlertDialogDescription>
+              发票 {invoice.invoice_no || `#${invoice.id}`} 已归档，但检测到以下关联预警，请留意：
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="space-y-2">
+            {confirmWarnings.map((warning, index) => (
+              <li key={index} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {warning}
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setWarningsOpen(false)}>知道了</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

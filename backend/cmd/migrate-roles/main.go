@@ -192,6 +192,14 @@ func seedPermissions(db *gorm.DB) error {
 		{Module: "users", Action: "create", Label: "创建", SortOrder: 71},
 		{Module: "users", Action: "edit", Label: "编辑", SortOrder: 72},
 		{Module: "users", Action: "delete", Label: "删除", SortOrder: 73},
+		// 发票模块：含提交/审批/驳回等流程动作（归档走 admin 中间件，不设专用动作）
+		{Module: "invoice", Action: "view", Label: "查看", SortOrder: 80},
+		{Module: "invoice", Action: "create", Label: "创建", SortOrder: 81},
+		{Module: "invoice", Action: "edit", Label: "编辑", SortOrder: 82},
+		{Module: "invoice", Action: "delete", Label: "删除", SortOrder: 83},
+		{Module: "invoice", Action: "submit", Label: "提交", SortOrder: 84},
+		{Module: "invoice", Action: "approve", Label: "审批", SortOrder: 85},
+		{Module: "invoice", Action: "reject", Label: "驳回", SortOrder: 86},
 	}
 
 	for _, p := range perms {
@@ -211,7 +219,7 @@ func seedRolePermissions(db *gorm.DB) error {
 	if err := assignAllToRole(db, models.RoleAdmin); err != nil {
 		return err
 	}
-	// manager：所有模块 view/create/edit（不含 delete）
+	// manager：所有模块 view/create/edit（不含 delete），发票模块含流程动作
 	if err := assignPermsToRole(db, models.RoleManager, []string{
 		"employee-view", "employee-create", "employee-edit",
 		"insurance-view", "insurance-create", "insurance-edit",
@@ -219,10 +227,12 @@ func seedRolePermissions(db *gorm.DB) error {
 		"archives-view", "archives-create", "archives-edit",
 		"announcements-view", "announcements-create", "announcements-edit",
 		"settings-view", "backups-view", "users-view",
+		"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
+		"invoice-submit", "invoice-approve", "invoice-reject",
 	}); err != nil {
 		return err
 	}
-	// editor：所有模块 view+edit
+	// editor：所有模块 view+edit，发票模块含 submit（无 approve/reject）
 	if err := assignPermsToRole(db, models.RoleEditor, []string{
 		"employee-view", "employee-edit",
 		"insurance-view", "insurance-edit",
@@ -230,13 +240,15 @@ func seedRolePermissions(db *gorm.DB) error {
 		"archives-view", "archives-edit",
 		"announcements-view", "announcements-edit",
 		"settings-view", "backups-view",
+		"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
+		"invoice-submit",
 	}); err != nil {
 		return err
 	}
 	// viewer：所有业务模块 view（不含 settings/backups，验收标准：viewer 看不到系统设置）
 	if err := assignPermsToRole(db, models.RoleViewer, []string{
 		"employee-view", "insurance-view", "dormitory-view", "archives-view",
-		"announcements-view",
+		"announcements-view", "invoice-view",
 	}); err != nil {
 		return err
 	}
