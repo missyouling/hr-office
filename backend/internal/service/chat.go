@@ -33,8 +33,9 @@ type ChatResponse struct {
 
 // sseEvent SSE 事件结构
 type sseEvent struct {
-	Type    string `json:"type"`
-	Content string `json:"content,omitempty"`
+	Type      string `json:"type"`
+	Content   string `json:"content,omitempty"`
+	MessageID *uint  `json:"message_id,omitempty"`
 }
 
 // NewChatService 构造函数
@@ -431,13 +432,18 @@ func (s *ChatService) StreamChat(w http.ResponseWriter, userID uint, sessionID s
 		return
 	}
 
-	// 发送完成事件
-	if err := s.sendSSE(w, flusher, sseEvent{Type: "done"}); err != nil {
-		log.Printf("[chat] StreamChat 发送 done 事件失败: %v", err)
+	// 流式结束后保存聊天记录
+	assistantMsg, err := s.saveChatMessages(userID, session.SessionID, question, answerBuilder.String(), sources)
+	if err != nil {
+		log.Printf("[chat] StreamChat 保存助手消息失败: %v", err)
+		s.sendSSE(w, flusher, sseEvent{Type: "error", Content: "保存助手消息失败"})
+		return
 	}
 
-	// 流式结束后保存聊天记录
-	s.saveChatMessages(userID, session.SessionID, question, answerBuilder.String(), sources)
+	// 仅在助手消息成功保存后回传真实消息 ID。
+	if err := s.sendSSE(w, flusher, sseEvent{Type: "done", MessageID: &assistantMsg.ID}); err != nil {
+		log.Printf("[chat] StreamChat 发送 done 事件失败: %v", err)
+	}
 }
 
 // sendSSE 向客户端发送一个 SSE 事件并立即刷新
@@ -489,8 +495,8 @@ func (s *ChatService) enrichSystemPromptWithScope(systemPrompt string, session *
 		systemPrompt, strings.Join(parts, "\n"))
 }
 
-// saveChatMessages 保存用户与助手消息
-func (s *ChatService) saveChatMessages(userID uint, sessionID string, question, answer string, sources []SearchResult) {
+// saveChatMessages 保存用户与助手消息，并返回成功保存的助手消息。
+func (s *ChatService) saveChatMessages(userID uint, sessionID string, question, answer string, sources []SearchResult) (*models.ChatMessage, error) {
 	userMsg := &models.ChatMessage{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -511,7 +517,9 @@ func (s *ChatService) saveChatMessages(userID uint, sessionID string, question, 
 	}
 	if err := s.db.Create(assistantMsg).Error; err != nil {
 		log.Printf("[chat] 保存助手消息失败: %v", err)
+		return nil, err
 	}
+	return assistantMsg, nil
 }
 
 // GetChatHistory 获取会话历史

@@ -64,6 +64,7 @@ import { getSourceModuleLabel } from "@/components/knowledge/utils";
 
 interface Message {
   id: string;
+  messageId?: number;
   role: "user" | "assistant";
   content: string;
   sources?: SearchResult[];
@@ -101,10 +102,10 @@ export function ChatPanel() {
   const [ratedMap, setRatedMap] = useState<Record<string, "positive" | "negative">>({});
   const [feedbackDialog, setFeedbackDialog] = useState<{
     open: boolean;
-    messageId: string;
+    messageId: number | null;
     rating: "positive" | "negative";
     comment: string;
-  }>({ open: false, messageId: "", rating: "positive", comment: "" });
+  }>({ open: false, messageId: null, rating: "positive", comment: "" });
 
   // ─── 知识库范围选择器 ──────────────────────────────────
   const [selectedKbId, setSelectedKbId] = useState<number | null>(null); // null=全部可见KB
@@ -247,7 +248,12 @@ export function ChatPanel() {
         );
       },
       // onDone — 流式完成
-      () => {
+      (messageId) => {
+        if (messageId !== undefined) {
+          setMessages((prev) => prev.map((message) =>
+            message.id === assistantId ? { ...message, messageId } : message,
+          ));
+        }
         setSessionsLoading(false);
         setIsLoading(false);
         abortRef.current = null;
@@ -295,7 +301,11 @@ export function ChatPanel() {
 
   // ─── 反馈 ──────────────────────────────────────────────
 
-  const openFeedbackDialog = useCallback((messageId: string, rating: "positive" | "negative") => {
+  const openFeedbackDialog = useCallback((messageId: number | undefined, rating: "positive" | "negative") => {
+    if (messageId === undefined) {
+      toast.info("该回答未生成有效记录，暂时无法提交反馈");
+      return;
+    }
     setFeedbackDialog({ open: true, messageId, rating, comment: "" });
   }, []);
 
@@ -304,7 +314,7 @@ export function ChatPanel() {
   }, []);
 
   const handleSubmitFeedback = useCallback(async () => {
-    if (!feedbackDialog.messageId) return;
+    if (feedbackDialog.messageId === null) return;
     try {
       await submitFeedback({
         message_id: feedbackDialog.messageId,
@@ -312,7 +322,7 @@ export function ChatPanel() {
         rating: feedbackDialog.rating,
         comment: feedbackDialog.comment.trim() || undefined,
       });
-      setRatedMap((prev) => ({ ...prev, [feedbackDialog.messageId]: feedbackDialog.rating }));
+      setRatedMap((prev) => ({ ...prev, [String(feedbackDialog.messageId)]: feedbackDialog.rating }));
       toast.success("反馈已提交，感谢您的建议");
       closeFeedbackDialog();
     } catch (error) {
@@ -610,23 +620,27 @@ export function ChatPanel() {
                           {message.content && (
                             <div className="flex items-center gap-1 px-1">
                               <button
-                                onClick={() => openFeedbackDialog(message.id, "positive")}
-                                title="有帮助"
+                                onClick={() => openFeedbackDialog(message.messageId, "positive")}
+                                title={message.messageId ? "有帮助" : "回答记录不可用，无法反馈"}
+                                aria-label="标记回答有帮助"
+                                disabled={!message.messageId}
                                 className={`p-1.5 rounded-md transition-colors ${
-                                  ratedMap[message.id] === "positive"
+                                  ratedMap[String(message.messageId)] === "positive"
                                     ? "text-primary bg-accent"
-                                    : "text-muted-foreground hover:text-primary hover:bg-accent"
+                                    : "text-muted-foreground hover:text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                                 }`}
                               >
                                 <ThumbsUp className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => openFeedbackDialog(message.id, "negative")}
-                                title="没有帮助"
+                                onClick={() => openFeedbackDialog(message.messageId, "negative")}
+                                title={message.messageId ? "没有帮助" : "回答记录不可用，无法反馈"}
+                                aria-label="标记回答没有帮助"
+                                disabled={!message.messageId}
                                 className={`p-1.5 rounded-md transition-colors ${
-                                  ratedMap[message.id] === "negative"
+                                  ratedMap[String(message.messageId)] === "negative"
                                     ? "text-primary bg-accent"
-                                    : "text-muted-foreground hover:text-primary hover:bg-accent"
+                                    : "text-muted-foreground hover:text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                                 }`}
                               >
                                 <ThumbsDown className="w-3.5 h-3.5" />

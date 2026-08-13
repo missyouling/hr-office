@@ -488,11 +488,18 @@ func main() {
 		&api.BackupSettings{},
 		// 发票管理（P7.3）
 		&models.Invoice{},
+		&models.InvoiceItem{},
+		&models.InvoiceParsingTask{},
+		&models.InvoiceFileCleanupTask{},
+		&models.InvoiceCorrectionAudit{},
 		&models.KnowledgeBase{},
 		&models.KBAccessRule{},
 		&models.KBFieldMask{},
 	); err != nil {
 		log.Printf("auto migrate warning: %v", err)
+	}
+	if err := models.MigrateInvoiceSchema(db); err != nil {
+		log.Fatalf("发票模型迁移失败: %v", err)
 	}
 	ensureUserPreferenceIndex(db)
 	ensureModelUsageLogsTable(db)
@@ -558,6 +565,10 @@ func main() {
 
 	// Create handlers
 	handler := api.NewHandler(db)
+	cleanupContext, stopInvoiceCleanup := context.WithCancel(context.Background())
+	defer stopInvoiceCleanup()
+	handler.StartInvoiceFileCleanup(cleanupContext, 100, time.Hour)
+	handler.StartInvoiceParsingWorker(cleanupContext)
 	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailVerificationService, emailService, auditmw.NewLoginRateLimiter())
 	auditHandler := api.NewAuditHandler(db, auditService)
 	monitoringHandler := api.NewMonitoringHandler(db, monitoringService)

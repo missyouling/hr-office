@@ -63,7 +63,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		if err != nil {
 			t.Fatalf("创建 SQLite 测试数据库失败: %v", err)
 		}
-		
+
 		// 启用外键约束（SQLite 需要显式启用）
 		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
 			t.Fatalf("启用 SQLite 外键约束失败: %v", err)
@@ -75,8 +75,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("获取数据库连接对象失败: %v", err)
 	}
 
+	// SQLite 内存库每个连接是独立数据库，固定单连接防止异步隔离
 	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetMaxOpenConns(2)
+	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	t.Cleanup(func() {

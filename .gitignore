@@ -99,6 +99,7 @@ SUPABASE_MIGRATION_PLAN.md
 SUPABASE_MIGRATION_README.md
 SUPABASE_SQL_EXECUTION_GUIDE.md
 .worktrees/
+.slim/deepwork/
 
 # AI 编码工具配置目录
 .adal/

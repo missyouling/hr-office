@@ -33,18 +33,21 @@ import (
 )
 
 type Handler struct {
-	db               *gorm.DB
-	process          *service.Processor
-	ocrService       *service.OCRService
-	embeddingService *service.EmbeddingService
-	retrievalService *service.RetrievalService
-	chatService      *service.ChatService
-	tagService       *service.TagService
-	chunkService     *service.ChunkService
-	kbIngestService  *service.KBIngestService
-	storageRouter    *storage.StorageRouter
-	uploadBaseDir    string
-	uploadBaseURL    string
+	db                     *gorm.DB
+	process                *service.Processor
+	ocrService             *service.OCRService
+	embeddingService       *service.EmbeddingService
+	retrievalService       *service.RetrievalService
+	chatService            *service.ChatService
+	tagService             *service.TagService
+	chunkService           *service.ChunkService
+	kbIngestService        *service.KBIngestService
+	invoicePDFText         invoiceTextExtractor
+	invoiceOCRText         invoiceTextExtractor
+	invoiceParseBeforeSave func()
+	storageRouter          *storage.StorageRouter
+	uploadBaseDir          string
+	uploadBaseURL          string
 }
 
 type batchUploadItem struct {
@@ -215,6 +218,8 @@ func NewHandler(db *gorm.DB) *Handler {
 		tagService:       tagSvc,
 		chunkService:     service.NewChunkService(db, embSvc),
 		kbIngestService:  kbIngestSvc,
+		invoicePDFText:   docreaderInvoiceExtractor{client: docClient},
+		invoiceOCRText:   ocrInvoiceExtractor{service: service.NewOCRService(db)},
 		storageRouter:    storage.NewStorageRouter(db),
 		uploadBaseDir:    uploadDir,
 		uploadBaseURL:    uploadURL,
@@ -484,6 +489,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/feedback", func(fr chi.Router) {
 		// 任何登录用户均可提交反馈（无需额外权限中间件）
 		fr.Post("/", h.submitFeedback)
+		fr.Get("/mine", h.myFeedback)
 
 		// manager 及以上可查看反馈列表 + 统计
 		fr.Group(func(mgr chi.Router) {
@@ -494,6 +500,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 		// 仅 admin 可回复反馈
 		fr.With(middleware.RequireAdmin(h.db)).Put("/{id}/reply", h.replyFeedback)
+		fr.With(middleware.RequireAdmin(h.db)).Put("/{id}/close", h.closeFeedback)
 	})
 
 	// 发票管理（P7.3）

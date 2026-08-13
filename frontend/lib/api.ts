@@ -2786,7 +2786,7 @@ export async function chatKnowledgeStream(
   question: string,
   sessionId: string,
   onToken: (token: string) => void,
-  onDone: () => void,
+  onDone: (messageId?: number) => void,
   onError: (error: string) => void,
   signal?: AbortSignal,
   kbId?: number | null,
@@ -2854,11 +2854,12 @@ export async function chatKnowledgeStream(
             const data = JSON.parse(line.slice(6)) as {
               type: string;
               content?: string;
+              message_id?: number;
             };
             if (data.type === "token" && data.content !== undefined) {
               onToken(data.content);
             } else if (data.type === "done") {
-              onDone();
+              onDone(typeof data.message_id === "number" ? data.message_id : undefined);
               return;
             } else if (data.type === "error") {
               onError(data.content || "未知错误");
@@ -2910,21 +2911,33 @@ export interface ChatFeedback {
   user_id: number;
   message_id: string;
   session_id?: string;
-  rating: string;
+  rating: FeedbackRating;
   comment: string;
   reply: string;
   replied_at?: string;
+  status: FeedbackStatus;
+  closed_at?: string;
   created_at: string;
   updated_at: string;
   username?: string;
   full_name?: string;
+  question: string;
+  answer: string;
+  sources: SearchResult[];
+  answer_unavailable: boolean;
 }
+
+export type FeedbackRating = "positive" | "negative";
+export type FeedbackStatus = "pending" | "replied" | "closed";
 
 export interface ChatFeedbackStats {
   total: number;
   positive: number;
   negative: number;
   positive_rate: number;
+  pending: number;
+  replied: number;
+  closed: number;
   recent_negative: ChatFeedback[];
 }
 
@@ -2935,25 +2948,58 @@ export interface ChatFeedbackListResponse {
   page_size: number;
 }
 
-export async function submitFeedback(data: {
-  message_id: string;
+export interface FeedbackListParams {
+  page?: number;
+  rating?: FeedbackRating;
+  status?: FeedbackStatus;
+  start_at?: string;
+  end_at?: string;
+  user_id?: number;
+}
+
+export interface FeedbackStatsParams {
+  start_at?: string;
+  end_at?: string;
+}
+
+export function buildFeedbackQuery(params?: FeedbackListParams | FeedbackStatsParams): string {
+  if (!params) return "";
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") searchParams.set(key, String(value));
+  });
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
+}
+
+export function mapFeedbackPayload(data: {
+  message_id: number;
   session_id?: string;
-  rating: string;
+  rating: FeedbackRating;
+  comment?: string;
+}) {
+  return { ...data, message_id: String(data.message_id) };
+}
+
+export async function submitFeedback(data: {
+  message_id: number;
+  session_id?: string;
+  rating: FeedbackRating;
   comment?: string;
 }): Promise<ChatFeedback> {
   return request<ChatFeedback>("/feedback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify(mapFeedbackPayload(data)),
   });
 }
 
-export async function listFeedback(params?: { rating?: string; page?: number }): Promise<ChatFeedbackListResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.rating) searchParams.set("rating", params.rating);
-  if (params?.page) searchParams.set("page", String(params.page));
-  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  return request<ChatFeedbackListResponse>(`/feedback${query}`);
+export async function listFeedback(params?: FeedbackListParams): Promise<ChatFeedbackListResponse> {
+  return request<ChatFeedbackListResponse>(`/feedback${buildFeedbackQuery(params)}`);
+}
+
+export async function listMyFeedback(page = 1): Promise<ChatFeedbackListResponse> {
+  return request<ChatFeedbackListResponse>(`/feedback/mine${buildFeedbackQuery({ page })}`);
 }
 
 export async function replyFeedback(id: number, reply: string): Promise<ChatFeedback> {
@@ -2964,8 +3010,12 @@ export async function replyFeedback(id: number, reply: string): Promise<ChatFeed
   });
 }
 
-export async function fetchFeedbackStats(): Promise<ChatFeedbackStats> {
-  return request<ChatFeedbackStats>("/feedback/stats");
+export async function closeFeedback(id: number): Promise<ChatFeedback> {
+  return request<ChatFeedback>(`/feedback/${id}/close`, { method: "PUT" });
+}
+
+export async function fetchFeedbackStats(params?: FeedbackStatsParams): Promise<ChatFeedbackStats> {
+  return request<ChatFeedbackStats>(`/feedback/stats${buildFeedbackQuery(params)}`);
 }
 
 // 档案标签列表

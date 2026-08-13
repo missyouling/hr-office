@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -24,13 +25,13 @@ type OCRService struct {
 
 // OCRResult OCR 提取结果
 type OCRResult struct {
-	Text       string `json:"text"`        // 提取的文本
-	Markdown   string `json:"markdown"`    // Markdown 格式
-	Provider   string `json:"provider"`    // 使用的服务商
-	Model      string `json:"model"`       // 使用的模型
-	Success    bool   `json:"success"`     // 是否成功
-	Error      string `json:"error"`       // 错误信息
-	RawResult  string `json:"raw_result"`  // 原始结果（JSON 字符串）
+	Text      string `json:"text"`       // 提取的文本
+	Markdown  string `json:"markdown"`   // Markdown 格式
+	Provider  string `json:"provider"`   // 使用的服务商
+	Model     string `json:"model"`      // 使用的模型
+	Success   bool   `json:"success"`    // 是否成功
+	Error     string `json:"error"`      // 错误信息
+	RawResult string `json:"raw_result"` // 原始结果（JSON 字符串）
 }
 
 // NewOCRService 构造函数
@@ -51,6 +52,28 @@ func NewOCRService(db *gorm.DB) *OCRService {
 // 响应: 解析 result.layoutParsingResults[].markdown.text
 // Fallback: 如果 API 返回非 200 或超时(30s)，尝试视觉模型 fallback（记录日志，返回空结果+错误标记）
 func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*OCRResult, error) {
+	return s.ExtractSyncWithContext(context.Background(), userID, filePath, fileType)
+}
+
+// ExtractSyncWithContext 允许后台受控任务取消外部 OCR 请求。
+func (s *OCRService) ExtractSyncWithContext(ctx context.Context, userID uint, filePath string, fileType int) (*OCRResult, error) {
+	config, err := s.GetOCRConfig(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.extractSyncWithConfig(ctx, &userID, filePath, fileType, config, true)
+}
+
+// ExtractGlobalDefaultWithContext 仅供无用户归属的后台任务使用严格全局默认 OCR 配置。
+func (s *OCRService) ExtractGlobalDefaultWithContext(ctx context.Context, filePath string, fileType int) (*OCRResult, error) {
+	config, err := s.GetGlobalDefaultOCRConfig()
+	if err != nil {
+		return nil, err
+	}
+	return s.extractSyncWithConfig(ctx, nil, filePath, fileType, config, false)
+}
+
+func (s *OCRService) extractSyncWithConfig(ctx context.Context, usageUserID *uint, filePath string, fileType int, config *models.ModelConfig, allowFallback bool) (*OCRResult, error) {
 	startTime := time.Now()
 
 	// 读取文件
@@ -59,16 +82,6 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 		return &OCRResult{
 			Success: false,
 			Error:   fmt.Sprintf("failed to read file: %v", err),
-		}, nil
-	}
-
-	// 获取 OCR 配置
-	config, err := s.GetOCRConfig(userID)
-	if err != nil {
-		log.Printf("[OCR] failed to get config: %v", err)
-		return &OCRResult{
-			Success: false,
-			Error:   fmt.Sprintf("failed to get OCR config: %v", err),
 		}, nil
 	}
 
@@ -102,7 +115,7 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 		}, nil
 	}
 
-	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(reqBodyJSON))
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(reqBodyJSON))
 	if err != nil {
 		return &OCRResult{
 			Success: false,
@@ -120,42 +133,42 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 	elapsed := time.Since(startTime)
 
 	if err != nil {
-		// Log failed call
-		if config != nil {
-			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		s.recordOCRFailure(usageUserID, config, elapsed, err.Error())
+		if allowFallback {
+			return s.fallbackExtract(*usageUserID, filePath, fileType)
 		}
-		log.Printf("[OCR] API request failed: %v, attempting fallback", err)
-		return s.fallbackExtract(userID, filePath, fileType)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	// 读取响应
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		if config != nil {
-			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		s.recordOCRFailure(usageUserID, config, elapsed, err.Error())
+		if allowFallback {
+			return s.fallbackExtract(*usageUserID, filePath, fileType)
 		}
-		log.Printf("[OCR] failed to read response: %v", err)
-		return s.fallbackExtract(userID, filePath, fileType)
+		return nil, err
 	}
 
 	// 检查状态码
 	if resp.StatusCode != http.StatusOK {
-		if config != nil {
-			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), fmt.Sprintf("HTTP %d", resp.StatusCode))
+		err := fmt.Errorf("OCR API returned HTTP %d", resp.StatusCode)
+		s.recordOCRFailure(usageUserID, config, elapsed, err.Error())
+		if allowFallback {
+			return s.fallbackExtract(*usageUserID, filePath, fileType)
 		}
-		log.Printf("[OCR] API returned status %d, attempting fallback", resp.StatusCode)
-		return s.fallbackExtract(userID, filePath, fileType)
+		return nil, err
 	}
 
 	// 解析响应
 	var apiResp map[string]interface{}
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		if config != nil {
-			go s.recordUsage(userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), err.Error())
+		s.recordOCRFailure(usageUserID, config, elapsed, err.Error())
+		if allowFallback {
+			return s.fallbackExtract(*usageUserID, filePath, fileType)
 		}
-		log.Printf("[OCR] failed to parse response: %v", err)
-		return s.fallbackExtract(userID, filePath, fileType)
+		return nil, err
 	}
 
 	// 提取文本
@@ -180,8 +193,9 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 	if config != nil {
 		provider = config.Provider
 		model = config.ModelName
-		// Record successful usage
-		go s.recordUsage(userID, config, "success", 0, 0, int(elapsed.Milliseconds()), "")
+		if usageUserID != nil {
+			go s.recordUsage(*usageUserID, config, "success", 0, 0, int(elapsed.Milliseconds()), "")
+		}
 	}
 
 	return &OCRResult{
@@ -192,6 +206,12 @@ func (s *OCRService) ExtractSync(userID uint, filePath string, fileType int) (*O
 		Success:   true,
 		RawResult: string(respBody),
 	}, nil
+}
+
+func (s *OCRService) recordOCRFailure(userID *uint, config *models.ModelConfig, elapsed time.Duration, message string) {
+	if userID != nil && config != nil {
+		go s.recordUsage(*userID, config, "failed", 0, 0, int(elapsed.Milliseconds()), message)
+	}
 }
 
 // recordUsage records model usage asynchronously
@@ -266,43 +286,4 @@ func (s *OCRService) CheckJobStatus(jobID uint) (*models.OCRJob, error) {
 		return nil, fmt.Errorf("failed to find job: %w", err)
 	}
 	return &job, nil
-}
-
-// GetOCRConfig 从 model_configs 表获取 OCR 配置
-func (s *OCRService) GetOCRConfig(userID uint) (*models.ModelConfig, error) {
-	var config models.ModelConfig
-
-	// 先查找用户的默认 OCR 配置
-	if err := s.db.Where("user_id = ? AND config_type = ? AND is_default = ?", userID, "ocr", true).
-		First(&config).Error; err == nil {
-		return &config, nil
-	}
-
-	// 如果没有默认配置，查找任何启用的 OCR 配置
-	if err := s.db.Where("user_id = ? AND config_type = ? AND enabled = ?", userID, "ocr", true).
-		First(&config).Error; err == nil {
-		return &config, nil
-	}
-
-	// 如果用户没有配置，查找全局默认配置
-	if err := s.db.Where("config_type = ? AND is_default = ?", "ocr", true).
-		First(&config).Error; err == nil {
-		return &config, nil
-	}
-
-	// 没有找到任何配置，返回 nil（不是错误）
-	return nil, nil
-}
-
-// fallbackExtract 视觉模型 fallback（占位实现）
-// 实际应该调用视觉模型 API，这里仅记录日志并返回空结果
-func (s *OCRService) fallbackExtract(userID uint, filePath string, fileType int) (*OCRResult, error) {
-	log.Printf("[OCR] Fallback: attempting visual model for user %d, file: %s, type: %d", userID, filePath, fileType)
-
-	// TODO: 实现视觉模型 fallback
-	// 这里仅返回空结果，标记为失败
-	return &OCRResult{
-		Success: false,
-		Error:   "OCR API failed and fallback not yet implemented",
-	}, nil
 }

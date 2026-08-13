@@ -111,6 +111,8 @@ func (rw *responseWriter) Flush() {
 	}
 }
 
+// 发票归档审计动作（P7.3.4，业务层事务内审计使用 models 常量，此处仅用于路径识别）
+
 // determineActionFromPath determines the audit action based on HTTP method and path
 func determineActionFromPath(method, path string) (models.ActionType, string, *string) {
 	pathParts := strings.Split(strings.Trim(path, "/"), "/")
@@ -259,6 +261,30 @@ func determineActionFromPath(method, path string) (models.ActionType, string, *s
 			action = models.ActionSystemMetrics
 		}
 		resource = "system"
+
+	case "invoices":
+		resource = "invoices"
+		if len(pathParts) > 2 {
+			id := pathParts[1]
+			resourceID = &id
+			switch pathParts[2] {
+			case "confirm":
+				action = models.ActionConfirmInvoice
+			case "void":
+				action = models.ActionVoidInvoice
+			case "correct":
+				action = models.ActionCorrectInvoice
+			case "export":
+				action = models.ActionExportInvoices
+			}
+		} else if len(pathParts) == 2 {
+			if pathParts[1] == "export" {
+				action = models.ActionExportInvoices
+			} else {
+				id := pathParts[1]
+				resourceID = &id
+			}
+		}
 
 	case "version":
 		action = models.ActionSystemInfo

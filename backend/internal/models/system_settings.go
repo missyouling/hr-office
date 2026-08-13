@@ -69,16 +69,16 @@ type StorageRule struct {
 // SysFile 文件元数据表
 type SysFile struct {
 	ID              uint           `json:"id" gorm:"primaryKey"`
-	StorageType     string         `json:"storage_type" gorm:"size:30;index"` // local/s3/webdav
-	Path            string         `json:"path" gorm:"size:500;index"`        // storage path
-	OriginalName    string         `json:"original_name" gorm:"size:255"`     // original filename
-	Size            int64          `json:"size"`                              // file size in bytes
-	ContentType     string         `json:"content_type" gorm:"size:100"`      // MIME type
-	ETag            string         `json:"etag" gorm:"size:100"`              // file hash/etag
-	StorageConfigID *uint          `json:"storage_config_id" gorm:"index"`    // FK to StorageConfig
-	CreatedBy       *uint          `json:"created_by" gorm:"index"`           // FK to User who uploaded
-	IsFallback      bool           `json:"is_fallback" gorm:"default:false"`  // whether file is in fallback storage
-	PrimaryConfigID *uint          `json:"primary_config_id" gorm:"index"`    // original storage config ID (when fallback)
+	StorageType     string         `json:"storage_type" gorm:"size:30;index"`            // local/s3/webdav
+	Path            string         `json:"path" gorm:"size:500;index"`                   // storage path
+	OriginalName    string         `json:"original_name" gorm:"size:255"`                // original filename
+	Size            int64          `json:"size"`                                         // file size in bytes
+	ContentType     string         `json:"content_type" gorm:"size:100"`                 // MIME type
+	ETag            string         `json:"etag" gorm:"size:100"`                         // file hash/etag
+	StorageConfigID *uint          `json:"storage_config_id" gorm:"index"`               // FK to StorageConfig
+	CreatedBy       *uint          `json:"created_by" gorm:"index"`                      // FK to User who uploaded
+	IsFallback      bool           `json:"is_fallback" gorm:"default:false"`             // whether file is in fallback storage
+	PrimaryConfigID *uint          `json:"primary_config_id" gorm:"index"`               // original storage config ID (when fallback)
 	MigrationStatus string         `json:"migration_status" gorm:"size:20;default:none"` // none/pending/completed/failed
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
@@ -97,6 +97,20 @@ type SMTPConfig struct {
 	UseTLS    bool      `json:"use_tls" gorm:"default:false"` // 是否使用TLS
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BuyerEntitySetting 购方主体设置（单行记录，ID 固定为 1）。
+// 复用 system settings 机制，不新建独立模型文件。
+type BuyerEntitySetting struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"size:200"`         // 购方主体名称
+	TaxNo       string    `json:"tax_no" gorm:"size:50"`        // 购方税号
+	Address     string    `json:"address" gorm:"size:300"`      // 地址
+	Phone       string    `json:"phone" gorm:"size:50"`         // 电话
+	BankName    string    `json:"bank_name" gorm:"size:200"`    // 开户行
+	BankAccount string    `json:"bank_account" gorm:"size:100"` // 账号
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // NotificationConfig 通知配置（统一表）

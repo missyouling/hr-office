@@ -57,7 +57,7 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
   // - 「反馈管理」无独立权限资源，沿用角色判断
   // - 备份/用户管理菜单当前未在侧边栏注册，若后续新增需分别用 backups.view / users.view 过滤
   const showSystemSettings = hasPermission("settings", "view");
-  const showFeedback = user?.role === "admin" || user?.role === "super_admin";
+  const showFeedback = hasPermission("users", "view");
   const showDepartments =
     hasPermission("department", "view") || user?.role === "admin" || user?.role === "super_admin";
 
