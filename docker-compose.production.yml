@@ -1,7 +1,7 @@
 services:
   # PostgreSQL 数据库服务
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: siapp-postgres-prod
     environment:
       POSTGRES_DB: ${SIAPP_DB_NAME:-siapp}

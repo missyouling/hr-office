@@ -117,6 +117,12 @@ type Document struct {
 	ContentText string `json:"content_text" gorm:"type:text"`                    // OCR 提取的文本内容
 	OCRStatus   string `json:"ocr_status" gorm:"size:20;default:none"`           // OCR 状态
 
+	// 影子文档来源元数据（P9.1：非 archives 源记录入库时创建，空表示档案正常文档）
+	SourceType string `json:"source_type" gorm:"size:50;index"` // 来源模块 employee/dormitory/insurance/office/canteen/invoice
+	SourceID   uint   `json:"source_id" gorm:"index"`           // 源记录主键 ID
+	SourceKBID *uint  `json:"source_kb_id" gorm:"index"`        // 入库时所属知识库 ID
+	SourceDept string `json:"source_dept" gorm:"size:150"`      // 源记录部门（如员工所属部门）
+
 	// 其他
 	Remarks   string    `json:"remarks" gorm:"type:text"`             // 备注
 	Status    string    `json:"status" gorm:"size:20;default:active"` // 状态

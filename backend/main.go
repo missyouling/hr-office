@@ -210,6 +210,23 @@ func relaxSocialInsuranceConstraints(db *gorm.DB) {
 	}
 }
 
+// ensureShadowDocumentUniqueIndex 为影子文档创建联合唯一部分索引
+// 唯一键: (source_type, source_id, source_kb_id)，仅约束影子文档（source_type 非空）
+// SQLite 与 PostgreSQL 均支持部分索引（CREATE UNIQUE INDEX ... WHERE），
+// 保证并发 ingest 同源记录写入同一知识库时数据库层兜底防重。
+func ensureShadowDocumentUniqueIndex(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	if err := db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_shadow_unique
+		ON documents (source_type, source_id, source_kb_id)
+		WHERE source_type IS NOT NULL AND source_type != ''
+	`).Error; err != nil {
+		log.Printf("[kb-infra] failed to create shadow document unique index: %v", err)
+	}
+}
+
 // ensureKnowledgeBaseInfrastructure 确保知识库基础设施可用
 // 在 GORM AutoMigrate 之后执行：
 //  1. 启用 pgvector 扩展
@@ -505,6 +522,7 @@ func main() {
 	ensureModelUsageLogsTable(db)
 	relaxSocialInsuranceConstraints(db)
 	ensureKnowledgeBaseInfrastructure(db)
+	ensureShadowDocumentUniqueIndex(db)
 
 	// Seed document categories
 	if err := seedDocumentCategories(db); err != nil {

@@ -140,15 +140,8 @@ func TestSearch_KBIDFilter(t *testing.T) {
 	w1 := httptest.NewRecorder()
 	router.ServeHTTP(w1, req1)
 
-	// 注意：searchKnowledge handler 本身不校验 kb_id 权限！
-	// 权限校验见 P9.2 完整描述——此处需要 handler 内调用 HasAccess。
-	// 当前实现：parseKbIDFromQuery 只解析不校验，需在 handler 内显式校验。
-	// 由于当前 handler 已添加校验逻辑，此处验证 403。
-	//
-	// 快速检查：如果 handler 已正确添加权限校验，无权限用户应收到非 200
-	if w1.Code == http.StatusOK {
-		// 如果返回 200，说明 handler 中尚未接入权限校验；这是宽松场景
-		t.Logf("注意：当前 handler 未在下游拦截无权限用户，状态码=%d", w1.Code)
+	if w1.Code != http.StatusForbidden {
+		t.Errorf("无权限用户检索私有知识库期望 403，实际 %d，body: %s", w1.Code, w1.Body.String())
 	}
 
 	// 场景 2：有权限用户（所有者）带 kb_id 检索 → 200

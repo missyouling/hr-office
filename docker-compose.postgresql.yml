@@ -6,7 +6,7 @@ version: '3.8'
 services:
   # PostgreSQL 数据库
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: siapp-postgres
     environment:
       # 初始超级用户

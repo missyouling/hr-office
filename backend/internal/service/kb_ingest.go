@@ -6,12 +6,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"siapp/internal/models"
@@ -31,6 +34,7 @@ type KBIngestService struct {
 	db           *gorm.DB
 	parser       docParser // 文档解析器（*docreader.Client 实现该接口）
 	embeddingSvc *EmbeddingService
+	dialect      dbDialect // 数据库方言能力（向量写入策略）
 }
 
 // NewKBIngestService 创建知识库入库服务
@@ -40,6 +44,7 @@ func NewKBIngestService(db *gorm.DB, docClient *docreader.Client, embeddingSvc *
 		db:           db,
 		parser:       docClient, // *docreader.Client 实现了 docParser 接口
 		embeddingSvc: embeddingSvc,
+		dialect:      newDBDialect(db),
 	}
 }
 
@@ -56,6 +61,8 @@ type IngestResult struct {
 	Ingested int      `json:"ingested"`
 	Skipped  int      `json:"skipped"`
 	Errors   []string `json:"errors,omitempty"`
+	// P9.1：向量化失败的分块数（维度不符/API 失败/空向量），不影响 ingested 统计
+	EmbeddingFailed int `json:"embedding_failed,omitempty"`
 }
 
 // ============================================================
@@ -84,13 +91,15 @@ func (s *KBIngestService) Ingest(ctx context.Context, userID uint, req IngestReq
 
 	// 3. 逐条入库
 	for _, rec := range records {
-		if err := s.ingestRecord(ctx, userID, req.KBID, rec); err != nil {
+		embedFailed, err := s.ingestRecord(ctx, userID, req.KBID, req.SourceModule, rec)
+		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Skipped++
 			log.Printf("[kb_ingest] 记录 %d 入库失败: %v", rec.ID, err)
 			continue
 		}
 		result.Ingested++
+		result.EmbeddingFailed += embedFailed
 	}
 
 	return result, nil
@@ -102,9 +111,20 @@ func (s *KBIngestService) Ingest(ctx context.Context, userID uint, req IngestReq
 
 // sourceRecord 统一源记录视图
 type sourceRecord struct {
-	ID        uint      // 源记录主键
-	Text      string    // 序列化后的文本
-	CreatedAt time.Time // 创建时间
+	ID         uint      // 源记录主键
+	UserID     uint      // 源记录所属用户（影子文档 user_id 元数据）
+	Title      string    // 源记录可读标题（影子文档 file_name）
+	Department string    // 源记录部门（影子文档部门元数据）
+	Text       string    // 序列化后的文本
+	CreatedAt  time.Time // 创建时间
+}
+
+// sourceUserID 兼容 *uint 用户字段：nil 视为 0（全局数据）
+func sourceUserID(p *uint) uint {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // querySourceModule 按 source_module 查对应源表，返回统一视图切片
@@ -124,8 +144,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 		if err := baseQuery(s.db).Find(&items).Error; err != nil {
 			return nil, fmt.Errorf("查询员工数据失败: %w", err)
 		}
-		return toSourceRecords(items, func(e models.Employee) (uint, time.Time, any) {
-			return e.ID, e.CreatedAt, e
+		return toSourceRecords(items, func(e models.Employee) sourceRecord {
+			return sourceRecord{ID: e.ID, UserID: e.UserID, Title: "员工-" + e.Name, Department: e.Department, CreatedAt: e.CreatedAt}
 		}), nil
 
 	case "dormitory":
@@ -133,8 +153,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 		if err := baseQuery(s.db).Find(&items).Error; err != nil {
 			return nil, fmt.Errorf("查询宿舍合同失败: %w", err)
 		}
-		return toSourceRecords(items, func(c models.DormContract) (uint, time.Time, any) {
-			return c.ID, c.CreatedAt, c
+		return toSourceRecords(items, func(c models.DormContract) sourceRecord {
+			return sourceRecord{ID: c.ID, UserID: sourceUserID(c.UserID), Title: "宿舍合同-" + c.EmployeeName, Department: c.EmployeeDept, CreatedAt: c.CreatedAt}
 		}), nil
 
 	case "insurance":
@@ -142,8 +162,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 		if err := baseQuery(s.db).Find(&items).Error; err != nil {
 			return nil, fmt.Errorf("查询社保记录失败: %w", err)
 		}
-		return toSourceRecords(items, func(r models.SocialInsuranceRecord) (uint, time.Time, any) {
-			return r.ID, r.CreatedAt, r
+		return toSourceRecords(items, func(r models.SocialInsuranceRecord) sourceRecord {
+			return sourceRecord{ID: r.ID, UserID: r.UserID, Title: "社保-" + r.EmployeeName, Department: r.Department, CreatedAt: r.CreatedAt}
 		}), nil
 
 	case "archives":
@@ -162,6 +182,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 			}
 			records = append(records, sourceRecord{
 				ID:        d.ID,
+				UserID:    d.UserID,
+				Title:     d.FileName,
 				Text:      text,
 				CreatedAt: d.CreatedAt,
 			})
@@ -173,8 +195,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 		if err := baseQuery(s.db).Find(&items).Error; err != nil {
 			return nil, fmt.Errorf("查询办公用品采购失败: %w", err)
 		}
-		return toSourceRecords(items, func(o models.OfficePurchase) (uint, time.Time, any) {
-			return o.ID, o.CreatedAt, o
+		return toSourceRecords(items, func(o models.OfficePurchase) sourceRecord {
+			return sourceRecord{ID: o.ID, UserID: sourceUserID(o.UserID), Title: "办公采购-" + o.OrderNo, CreatedAt: o.CreatedAt}
 		}), nil
 
 	case "canteen":
@@ -182,8 +204,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 		if err := baseQuery(s.db).Find(&items).Error; err != nil {
 			return nil, fmt.Errorf("查询食堂采购失败: %w", err)
 		}
-		return toSourceRecords(items, func(c models.CanteenPurchase) (uint, time.Time, any) {
-			return c.ID, c.CreatedAt, c
+		return toSourceRecords(items, func(c models.CanteenPurchase) sourceRecord {
+			return sourceRecord{ID: c.ID, UserID: sourceUserID(c.UserID), Title: "食堂采购-" + c.OrderNo, CreatedAt: c.CreatedAt}
 		}), nil
 
 	case "invoice":
@@ -191,8 +213,8 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 		if err := baseQuery(s.db).Find(&items).Error; err != nil {
 			return nil, fmt.Errorf("查询发票数据失败: %w", err)
 		}
-		return toSourceRecords(items, func(i models.Invoice) (uint, time.Time, any) {
-			return i.ID, i.CreatedAt, i
+		return toSourceRecords(items, func(i models.Invoice) sourceRecord {
+			return sourceRecord{ID: i.ID, UserID: sourceUserID(i.UserID), Title: "发票-" + i.InvoiceNo, CreatedAt: i.CreatedAt}
 		}), nil
 
 	default:
@@ -201,20 +223,17 @@ func (s *KBIngestService) querySourceModule(module, since string) ([]sourceRecor
 }
 
 // toSourceRecords 泛型转换函数：将模型切片转为统一 sourceRecord 切片
-func toSourceRecords[T any](items []T, extract func(T) (uint, time.Time, any)) []sourceRecord {
+func toSourceRecords[T any](items []T, extract func(T) sourceRecord) []sourceRecord {
 	records := make([]sourceRecord, 0, len(items))
 	for _, item := range items {
-		id, createdAt, value := extract(item)
-		text, err := json.Marshal(value)
+		rec := extract(item)
+		text, err := json.Marshal(item)
 		if err != nil {
-			log.Printf("[kb_ingest] 序列化记录 %d 失败: %v", id, err)
+			log.Printf("[kb_ingest] 序列化记录 %d 失败: %v", rec.ID, err)
 			continue
 		}
-		records = append(records, sourceRecord{
-			ID:        id,
-			Text:      string(text),
-			CreatedAt: createdAt,
-		})
+		rec.Text = string(text)
+		records = append(records, rec)
 	}
 	return records
 }
@@ -224,25 +243,121 @@ func toSourceRecords[T any](items []T, extract func(T) (uint, time.Time, any)) [
 // ============================================================
 
 // ingestRecord 处理单条源记录的完整入库链路
-func (s *KBIngestService) ingestRecord(ctx context.Context, userID uint, kbID uint, rec sourceRecord) error {
-	// 1. 写临时文件 → docreader 解析
+// sourceModule 用于区分 archives（真实文档，直接复用其 ID）与非 archives（创建/复用影子 Document）
+// 顺序：先解析（失败不触碰任何表）→ 事务内创建/复用影子文档 + 清理旧分块 + 写入新分块
+// 返回：向量化失败的分块数（不影响 ingested 统计）
+func (s *KBIngestService) ingestRecord(ctx context.Context, userID uint, kbID uint, sourceModule string, rec sourceRecord) (int, error) {
+	// 1. 写临时文件 → docreader 解析（失败时不留任何残留）
 	result, err := s.parseRecord(ctx, rec)
 	if err != nil {
-		return fmt.Errorf("文档解析失败: %w", err)
+		return 0, fmt.Errorf("文档解析失败: %w", err)
 	}
 
-	// 2. 解析结果写入 DocumentChunk
-	docID := rec.ID // 用源记录 ID 作为 DocID
-	chunkCount, err := docreader.IngestToChunks(s.db, result, docID)
+	// 2-4. 事务内完成：影子文档 + 旧分块清理 + 新分块写入，任一失败整体回滚
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		return 0, fmt.Errorf("开启事务失败: %w", tx.Error)
+	}
+
+	docID := rec.ID
+	if sourceModule != "archives" {
+		doc, err := s.findOrCreateShadowDocument(tx, kbID, sourceModule, rec)
+		if err != nil {
+			tx.Rollback()
+			return 0, fmt.Errorf("创建影子文档失败: %w", err)
+		}
+		docID = doc.ID
+	}
+
+	// 幂等重建：清理该文档旧分块，避免重复 ingest 堆积孤儿 chunk
+	if err := tx.Where("doc_id = ?", docID).Delete(&models.DocumentChunk{}).Error; err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("清理旧分块失败: %w", err)
+	}
+
+	// 解析结果写入 DocumentChunk（DocID 始终指向真实 documents.id）
+	chunkCount, err := docreader.IngestToChunks(tx, result, docID)
 	if err != nil {
-		return fmt.Errorf("写入分块失败: %w", err)
+		tx.Rollback()
+		return 0, fmt.Errorf("写入分块失败: %w", err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		return 0, fmt.Errorf("提交事务失败: %w", err)
 	}
 	log.Printf("[kb_ingest] 记录 %d 解析完成，写入 %d 个分块", rec.ID, chunkCount)
 
-	// 3. 向量化已创建的分块（失败不中断）
-	s.embedChunks(userID, docID)
+	// 5. 向量化已创建的分块（事务外，失败不中断，返回失败数）
+	embedFailed := s.embedChunks(userID, docID)
+	return embedFailed, nil
+}
 
-	return nil
+// findOrCreateShadowDocument 为源记录幂等创建/复用影子 Document
+// 唯一键为 (source_type, source_id, source_kb_id)：同一业务源记录可同时进入多个知识库，
+// 每个 KB 拥有独立的影子文档与 chunks，互不覆盖。
+// 并发安全：依赖 documents 表上的联合唯一部分索引（见 ensureShadowDocumentUniqueIndex），
+// 创建冲突时回查复用已存在的影子文档。
+func (s *KBIngestService) findOrCreateShadowDocument(tx *gorm.DB, kbID uint, sourceModule string, rec sourceRecord) (*models.Document, error) {
+	var doc models.Document
+	err := tx.Where("source_type = ? AND source_id = ? AND source_kb_id = ?", sourceModule, rec.ID, kbID).First(&doc).Error
+	if err == nil {
+		// 复用：刷新内容与元数据（源记录可能已更新）
+		if err := tx.Model(&doc).Updates(map[string]interface{}{
+			"user_id":      rec.UserID,
+			"file_name":    rec.Title,
+			"content_text": rec.Text,
+			"source_dept":  rec.Department,
+			"source_kb_id": kbID,
+			"updated_at":   time.Now(),
+		}).Error; err != nil {
+			return nil, err
+		}
+		return &doc, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	doc = models.Document{
+		UserID:       rec.UserID,
+		DocumentCode: fmt.Sprintf("INGEST-%s-%d-%d", sourceModule, kbID, rec.ID), // 含 kbID：同源记录可进入多个 KB，避免 document_code 唯一冲突
+		FileName:     rec.Title,
+		ContentText:  rec.Text,
+		OCRStatus:    "completed",
+		Status:       "active",
+		SourceType:   sourceModule,
+		SourceID:     rec.ID,
+		SourceKBID:   &kbID,
+		SourceDept:   rec.Department,
+	}
+	// SavePoint：Create 冲突后回滚到该点恢复事务可用状态。
+	// PostgreSQL 中事务内语句失败后整个事务进入 aborted 状态，后续命令会被拒绝
+	// （"current transaction is aborted"），因此必须在失败事务内回查前先 RollbackTo。
+	// SQLite 同样支持 SAVEPOINT，行为一致。
+	tx.SavePoint("sp_shadow_create")
+	if err := tx.Create(&doc).Error; err != nil {
+		// 并发下唯一索引冲突：另一事务已创建同键影子文档
+		if isUniqueViolation(err) {
+			if rb := tx.RollbackTo("sp_shadow_create"); rb.Error != nil {
+				return nil, fmt.Errorf("回滚 SavePoint 失败: %w", rb.Error)
+			}
+			if err2 := tx.Where("source_type = ? AND source_id = ? AND source_kb_id = ?", sourceModule, rec.ID, kbID).First(&doc).Error; err2 == nil {
+				return &doc, nil
+			}
+		}
+		return nil, err
+	}
+	return &doc, nil
+}
+
+// isUniqueViolation 判断错误是否为唯一约束冲突（SQLite/PostgreSQL 通用）
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "unique index")
 }
 
 // parseRecord 将源记录文本转为 ParseResult
@@ -269,21 +384,37 @@ func (s *KBIngestService) parseRecord(ctx context.Context, rec sourceRecord) (*d
 	return s.parser.Parse(ctx, parseReq)
 }
 
+// embeddingDim 当前系统支持的向量维度（与迁移 vector(768) 一致）
+const embeddingDim = 768
+
+// validateVectorDim 校验向量维度与系统支持一致
+// PostgreSQL 原生向量列固定维度，维度不符时拒绝写入并计入 embedding_failed/pending
+func validateVectorDim(vec []float64) error {
+	if len(vec) != embeddingDim {
+		return fmt.Errorf("向量维度 %d 与系统支持的 %d 不符", len(vec), embeddingDim)
+	}
+	return nil
+}
+
 // embedChunks 对指定 docID 的所有分块生成向量
-// 向量化失败不中断流程，标记 index_status="pending" 等待后续重试
-func (s *KBIngestService) embedChunks(userID uint, docID uint) {
+// 向量化失败不中断流程，标记 index_status="pending" 等待后续重试；
+// 返回失败的分块数（维度不符/API 失败/空向量），供 IngestResult.EmbeddingFailed 统计。
+func (s *KBIngestService) embedChunks(userID uint, docID uint) int {
 	var chunks []models.DocumentChunk
 	if err := s.db.Where("doc_id = ? AND index_status = ?", docID, models.IndexStatusProcessing).Find(&chunks).Error; err != nil {
 		log.Printf("[kb_ingest] 查询分块失败: %v", err)
-		return
+		return 0
 	}
 
+	failed := 0
+	postgres := s.dialect.isPostgres()
 	for i := range chunks {
 		chunk := &chunks[i]
 		embedText := chunk.EmbeddingContent()
 		if embedText == "" {
 			chunk.IndexStatus = models.IndexStatusFailed
 			s.db.Model(chunk).Update("index_status", models.IndexStatusFailed)
+			failed++
 			continue
 		}
 
@@ -293,20 +424,47 @@ func (s *KBIngestService) embedChunks(userID uint, docID uint) {
 			log.Printf("[kb_ingest] 分块 %d 向量化失败: %v", chunk.ID, err)
 			chunk.IndexStatus = "pending" // 标记待重试
 			s.db.Model(chunk).Update("index_status", "pending")
+			failed++
 			continue
 		}
 		if len(vec) == 0 {
 			log.Printf("[kb_ingest] 分块 %d 向量为空，标记 pending", chunk.ID)
 			chunk.IndexStatus = "pending"
 			s.db.Model(chunk).Update("index_status", "pending")
+			failed++
 			continue
 		}
 
-		// 写入向量 JSON 副本并更新状态
-		vecJSON, _ := json.Marshal(vec)
-		s.db.Model(chunk).Updates(map[string]interface{}{
-			"embedding_json": vecJSON,
-			"index_status":   models.IndexStatusReady,
-		})
+		// 按数据库能力写入向量（PostgreSQL 原生向量列 / SQLite JSON 降级）
+		if err := s.writeChunkVector(chunk.ID, vec, postgres); err != nil {
+			log.Printf("[kb_ingest] 分块 %d 向量写入失败: %v", chunk.ID, err)
+			chunk.IndexStatus = "pending"
+			s.db.Model(chunk).Update("index_status", "pending")
+			failed++
+			continue
+		}
 	}
+	return failed
+}
+
+// writeChunkVector 按数据库能力写入向量：
+//   - PostgreSQL：写原生 embedding 向量列（raw SQL）+ embedding_json 副本；写入前校验维度
+//   - SQLite：仅写 embedding_json 副本（无原生向量类型，降级存储，不校验维度）
+//
+// 不硬编码数据库 ID，始终以 chunkID 定位目标行。
+func (s *KBIngestService) writeChunkVector(chunkID uint, vec []float64, postgres bool) error {
+	vecJSON, _ := json.Marshal(vec)
+	if postgres {
+		if err := validateVectorDim(vec); err != nil {
+			return err
+		}
+		return s.db.Exec(
+			"UPDATE document_chunks SET embedding = ?::vector, embedding_json = ?, index_status = ? WHERE id = ?",
+			vectorToPGString(vec), datatypes.JSON(vecJSON), models.IndexStatusReady, chunkID,
+		).Error
+	}
+	return s.db.Model(&models.DocumentChunk{}).Where("id = ?", chunkID).Updates(map[string]interface{}{
+		"embedding_json": vecJSON,
+		"index_status":   models.IndexStatusReady,
+	}).Error
 }

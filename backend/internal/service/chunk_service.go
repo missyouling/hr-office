@@ -193,6 +193,9 @@ func (s *ChunkService) reindexChunk(chunkID uint, docID uint) {
 }
 
 // writeChunkVector 通过 raw SQL 写入 pgvector 向量和 JSON 副本
+// 【方言说明】仅 PostgreSQL 使用（依赖 pgvector 的 ::vector 类型）。
+// 不在 P9.1 路径上：P9.1 走 KBIngestService 的方言化 writeChunkVector；
+// 此处仅服务 ChunkService 手动重索引入口（用户级重试），SQLite 环境下不会触发。
 func (s *ChunkService) writeChunkVector(chunkID uint, vec []float64) error {
 	vecStr := vectorToPGString(vec)
 	vecJSON, _ := json.Marshal(vec)

@@ -317,6 +317,10 @@ func (s *EmbeddingService) IngestDocumentWithConfig(userID uint, docID uint, con
 }
 
 // writeChunkVector 通过 raw SQL 写入 pgvector 向量和 JSON 副本
+// 【方言说明】仅 PostgreSQL 使用（依赖 pgvector 的 ::vector 类型）。
+// 不在 P9.1 路径上：P9.1（非 archives 源记录入库）走 KBIngestService 的方言化
+// writeChunkVector（SQLite 降级写 embedding_json），此处仅服务旧文档分块入口
+// （EmbeddingService 处理 archives 文档），SQLite 环境下调用方不会触发（PG-only）。
 func (s *EmbeddingService) writeChunkVector(chunkID uint, vec []float64) error {
 	vecStr := vectorToPGString(vec)
 	vecJSON, _ := json.Marshal(vec)

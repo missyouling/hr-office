@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"siapp/internal/models"
@@ -16,6 +18,7 @@ import (
 type RetrievalService struct {
 	db               *gorm.DB
 	embeddingService *EmbeddingService
+	dialect          dbDialect // 数据库方言能力（向量检索/模糊匹配策略）
 }
 
 // SearchResult 搜索结果（chunk 级别粒度）
@@ -45,6 +48,7 @@ func NewRetrievalService(db *gorm.DB, embeddingService *EmbeddingService) *Retri
 	return &RetrievalService{
 		db:               db,
 		embeddingService: embeddingService,
+		dialect:          newDBDialect(db),
 	}
 }
 
@@ -53,10 +57,11 @@ func NewRetrievalService(db *gorm.DB, embeddingService *EmbeddingService) *Retri
 // ============================================================
 
 // HybridSearch 混合检索
-// 1. 向量检索: pgvector HNSW 索引，cosine 距离
-// 2. 全文检索: PostgreSQL tsvector GIN 索引
+// 1. 向量检索: pgvector HNSW 索引（PostgreSQL）/ 应用层余弦（SQLite 降级）
+// 2. 全文检索: PostgreSQL tsvector GIN 索引 / LIKE 降级
 // 3. RRF 融合合并
-// kbID=0 表示搜索全部可见知识库；kbID>0 时限定在指定知识库范围内
+// kbID>0 时限定在指定知识库范围内（source_kb_id = kbID，调用方已校验权限）；
+// kbID=0 时解析当前用户有权限的 KB 集合，仅在这些 KB 范围内检索（空集合不放开全量）。
 func (s *RetrievalService) HybridSearch(ctx context.Context, userID uint, query string, limit int, kbID uint) ([]SearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return []SearchResult{}, fmt.Errorf("query cannot be empty")
@@ -65,15 +70,11 @@ func (s *RetrievalService) HybridSearch(ctx context.Context, userID uint, query 
 		limit = 10
 	}
 
-	// 确定 KB 过滤所需的 user_id
-	var kbUserID uint // 0 = 不过滤
+	// 校验指定 KB 存在（kbID>0 时）
 	if kbID > 0 {
 		var kb models.KnowledgeBase
 		if err := s.db.First(&kb, kbID).Error; err != nil {
 			return nil, fmt.Errorf("知识库不存在: %v", err)
-		}
-		if kb.UserID != nil {
-			kbUserID = *kb.UserID
 		}
 	}
 
@@ -87,11 +88,11 @@ func (s *RetrievalService) HybridSearch(ctx context.Context, userID uint, query 
 	chVec := make(chan pair, 1)
 
 	go func() {
-		r, e := s.FullTextSearch(userID, query, limit*2, kbUserID)
+		r, e := s.FullTextSearch(userID, query, limit*2, kbID)
 		chFTS <- pair{r, e}
 	}()
 	go func() {
-		r, e := s.vectorSearch(userID, query, limit*2, kbUserID)
+		r, e := s.vectorSearch(userID, query, limit*2, kbID)
 		chVec <- pair{r, e}
 	}()
 
@@ -116,13 +117,46 @@ func (s *RetrievalService) HybridSearch(ctx context.Context, userID uint, query 
 }
 
 // ============================================================
+// KB 范围过滤
+// ============================================================
+
+// docScopeSQL 生成 documents 表的 KB 范围过滤条件（含参数）
+// alias 为 documents 表别名（空表示无别名，用于单表查询）。
+// 语义：
+//   - kbID>0：仅命中该 KB 的影子文档（source_kb_id = kbID，调用方已校验权限）
+//   - kbID=0 管理员：全量可见（返回恒真条件，不做任何过滤）
+//   - kbID=0 普通用户：可访问 KB 的影子文档（source_kb_id IN 有权限 KB，
+//     不限制 user_id——跨用户授权 KB 默认搜索可命中）
+//     OR 当前用户自己的档案文档（source_kb_id IS NULL AND user_id = 当前用户）
+//     —— 空权限集合时仅档案文档可检索，绝不放开全量
+func (s *RetrievalService) docScopeSQL(alias string, userID uint, kbID uint) (string, []interface{}) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	if kbID > 0 {
+		return prefix + "source_kb_id = ?", []interface{}{kbID}
+	}
+	// 管理员：全量可见（不做任何过滤）
+	if userIsAdmin(s.db, userID) {
+		return "1 = 1", nil
+	}
+	kbIDs := AccessibleKBIDs(s.db, userID)
+	if len(kbIDs) == 0 {
+		return prefix + "source_kb_id IS NULL AND " + prefix + "user_id = ?", []interface{}{userID}
+	}
+	return "(" + prefix + "source_kb_id IN (?) OR (" + prefix + "source_kb_id IS NULL AND " + prefix + "user_id = ?))",
+		[]interface{}{kbIDs, userID}
+}
+
+// ============================================================
 // 全文检索（tsvector）
 // ============================================================
 
 // FullTextSearch 使用 PostgreSQL tsvector 全文检索
 // 搜索范围: documents.content_tsv + document_chunks.content_tsv
-// kbUserID=0 表示不按知识库所有者过滤
-func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, kbUserID uint) ([]SearchResult, error) {
+// kbID>0 限定指定知识库；kbID=0 解析用户有权限 KB 集合（见 docScopeSQL）
+func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, kbID uint) ([]SearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return []SearchResult{}, fmt.Errorf("query cannot be empty")
 	}
@@ -133,18 +167,16 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 	// 使用 plainto_tsquery('simple', ...) 做纯分词匹配
 	// 'simple' 配置不做词典归一化（中文友好：按字符边界分词）
 
-	// 确定文档过滤的 user_id：kbUserID>0 时用知识库所有者，否则用请求者
-	docUserID := userID
-	if kbUserID > 0 {
-		docUserID = kbUserID
-	}
+	// 解析 KB 范围过滤条件（含参数）
+	scopeSQL, scopeArgs := s.docScopeSQL("d", userID, kbID)
+
 	sql := `
 		SELECT 'doc' AS source, d.id AS doc_id, 0 AS chunk_id,
 		       ts_rank(d.content_tsv, plainto_tsquery('simple', ?)) AS score,
 		       d.file_name AS title,
 		       LEFT(COALESCE(d.content_text, ''), 200) AS snippet
 		FROM documents d
-		WHERE d.user_id = ? AND d.content_tsv @@ plainto_tsquery('simple', ?)
+		WHERE ` + scopeSQL + ` AND d.content_tsv @@ plainto_tsquery('simple', ?)
 
 		UNION ALL
 
@@ -153,12 +185,19 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 		       '' AS title,
 		       LEFT(dc.content, 200) AS snippet
 		FROM document_chunks dc
-		JOIN documents d ON d.id = dc.doc_id AND d.user_id = ?
-		WHERE dc.content_tsv @@ plainto_tsquery('simple', ?)
+		JOIN documents d ON d.id = dc.doc_id
+		WHERE ` + scopeSQL + ` AND dc.content_tsv @@ plainto_tsquery('simple', ?)
 
 		ORDER BY score DESC
 		LIMIT ?
 	`
+
+	// 参数顺序：SELECT1(query, scopeArgs..., query) + SELECT2(query, scopeArgs..., query) + limit
+	args := []interface{}{query}
+	args = append(args, scopeArgs...)
+	args = append(args, query, query)
+	args = append(args, scopeArgs...)
+	args = append(args, query, limit)
 
 	var rows []struct {
 		Source  string
@@ -168,10 +207,10 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 		Title   string
 		Snippet string
 	}
-	if err := s.db.Raw(sql, query, docUserID, query, query, docUserID, query, limit).Scan(&rows).Error; err != nil {
-		// 降级：没有 tsvector 索引或匹配不到时用 ILIKE
-		log.Printf("[retrieval] tsvector search failed, falling back to ILIKE: %v", err)
-		return s.fallbackFullTextSearch(docUserID, query, limit)
+	if err := s.db.Raw(sql, args...).Scan(&rows).Error; err != nil {
+		// 降级：没有 tsvector 索引或匹配不到时用 LIKE/ILIKE
+		log.Printf("[retrieval] tsvector search failed, falling back to LIKE: %v", err)
+		return s.fallbackFullTextSearch(userID, query, limit, kbID)
 	}
 
 	results := make([]SearchResult, 0, len(rows))
@@ -204,12 +243,16 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 	return results, nil
 }
 
-// fallbackFullTextSearch ILIKE 降级方案
-func (s *RetrievalService) fallbackFullTextSearch(userID uint, query string, limit int) ([]SearchResult, error) {
+// fallbackFullTextSearch LIKE/ILIKE 降级方案（SQLite 无 tsvector 时使用）
+func (s *RetrievalService) fallbackFullTextSearch(userID uint, query string, limit int, kbID uint) ([]SearchResult, error) {
 	searchPattern := "%" + strings.TrimSpace(query) + "%"
+	scopeSQL, scopeArgs := s.docScopeSQL("", userID, kbID)
+	likeName := s.dialect.likeExpr("file_name")
+	likeContent := s.dialect.likeExpr("content_text")
 
 	var docs []models.Document
-	if err := s.db.Where("user_id = ? AND (file_name ILIKE ? OR content_text ILIKE ?)", userID, searchPattern, searchPattern).
+	if err := s.db.Where(scopeSQL, scopeArgs...).
+		Where("("+likeName+" OR "+likeContent+")", searchPattern, searchPattern).
 		Limit(limit).
 		Find(&docs).Error; err != nil {
 		return []SearchResult{}, fmt.Errorf("fallback search: %v", err)
@@ -249,8 +292,10 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 	var results []GlobalSearchResult
 
 	// 搜索档案文档
+	likeName := s.dialect.likeExpr("file_name")
+	likeContent := s.dialect.likeExpr("content_text")
 	var docs []models.Document
-	if err := s.db.Where("user_id = ? AND (file_name ILIKE ? OR content_text ILIKE ?)", userID, searchPattern, searchPattern).
+	if err := s.db.Where("user_id = ? AND ("+likeName+" OR "+likeContent+")", userID, searchPattern, searchPattern).
 		Limit(limit).
 		Find(&docs).Error; err == nil {
 		for _, doc := range docs {
@@ -269,8 +314,11 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 	}
 
 	// 搜索员工
+	likeName2 := s.dialect.likeExpr("name")
+	likeID := s.dialect.likeExpr("id_number")
+	likeDept := s.dialect.likeExpr("department")
 	var employees []models.Employee
-	if err := s.db.Where("user_id = ? AND (name ILIKE ? OR id_number ILIKE ? OR department ILIKE ?)", userID, searchPattern, searchPattern, searchPattern).
+	if err := s.db.Where("user_id = ? AND ("+likeName2+" OR "+likeID+" OR "+likeDept+")", userID, searchPattern, searchPattern, searchPattern).
 		Limit(limit).
 		Find(&employees).Error; err == nil {
 		for _, emp := range employees {
@@ -286,8 +334,9 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 	}
 
 	// 搜索宿舍房间
+	likeRoom := s.dialect.likeExpr("room_number")
 	var rooms []models.DormRoom
-	if err := s.db.Where("user_id = ? AND room_number ILIKE ?", userID, searchPattern).
+	if err := s.db.Where("user_id = ? AND "+likeRoom, userID, searchPattern).
 		Limit(limit).
 		Find(&rooms).Error; err == nil {
 		for _, room := range rooms {
@@ -312,11 +361,11 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 // 向量检索（pgvector HNSW）
 // ============================================================
 
-// vectorSearch 使用 pgvector 做近似最近邻搜索
-// 对比现有实现：不再全表加载到内存计算余弦相似度，
-// 而是利用 pgvector HNSW 索引做 O(log n) 检索
-// kbUserID=0 表示不按知识库所有者过滤
-func (s *RetrievalService) vectorSearch(userID uint, query string, limit int, kbUserID uint) ([]SearchResult, error) {
+// vectorSearch 向量检索
+// PostgreSQL：pgvector HNSW 近似最近邻（cosine 距离）
+// SQLite：embedding_json 候选在应用层计算余弦相似度、排序、截断（降级，不静默吞错）
+// kbID>0 限定指定知识库；kbID=0 解析用户有权限 KB 集合（见 docScopeSQL）
+func (s *RetrievalService) vectorSearch(userID uint, query string, limit int, kbID uint) ([]SearchResult, error) {
 	// 生成查询向量
 	queryVec, err := s.embeddingService.GenerateEmbedding(userID, query)
 	if err != nil {
@@ -326,24 +375,26 @@ func (s *RetrievalService) vectorSearch(userID uint, query string, limit int, kb
 		return []SearchResult{}, nil // 无配置时返回空
 	}
 
-	// 转换为 pgvector 格式: '[0.1,0.2,...]'
-	vecStr := vectorToPGString(queryVec)
-
-	// 确定文档过滤的 user_id：kbUserID>0 时用知识库所有者，否则用请求者
-	docUserID := userID
-	if kbUserID > 0 {
-		docUserID = kbUserID
+	if s.dialect.isPostgres() {
+		return s.vectorSearchPG(userID, queryVec, limit, kbID)
 	}
+	return s.vectorSearchSQLite(userID, queryVec, limit, kbID)
+}
 
-	// pgvector HNSW ANN 检索（cosine 距离 <=>）
+// vectorSearchPG pgvector HNSW ANN 检索（cosine 距离 <=>）
+func (s *RetrievalService) vectorSearchPG(userID uint, queryVec []float64, limit int, kbID uint) ([]SearchResult, error) {
+	vecStr := vectorToPGString(queryVec)
+	scopeSQL, scopeArgs := s.docScopeSQL("d", userID, kbID)
+
 	sql := `
 		SELECT dc.id AS chunk_id, dc.doc_id, dc.chunk_index,
 		       1 - (dc.embedding <=> ?::vector) AS similarity, -- <=> = cosine distance; 1 - distance = similarity
 		       dc.content AS content,
 		       d.file_name AS title
 		FROM document_chunks dc
-		JOIN documents d ON d.id = dc.doc_id AND d.user_id = ?
-		WHERE dc.index_status = 'ready'
+		JOIN documents d ON d.id = dc.doc_id
+		WHERE ` + scopeSQL + `
+		  AND dc.index_status = 'ready'
 		  AND dc.chunk_type != 'parent_text'
 		  AND dc.embedding IS NOT NULL
 		ORDER BY dc.embedding <=> ?::vector
@@ -359,8 +410,12 @@ func (s *RetrievalService) vectorSearch(userID uint, query string, limit int, kb
 		Title      string
 	}
 
+	args := []interface{}{vecStr}
+	args = append(args, scopeArgs...)
+	args = append(args, vecStr, limit)
+
 	var rows []row
-	if err := s.db.Raw(sql, vecStr, docUserID, vecStr, limit).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(sql, args...).Scan(&rows).Error; err != nil {
 		return []SearchResult{}, fmt.Errorf("vector search: %v", err)
 	}
 
@@ -394,11 +449,113 @@ func (s *RetrievalService) vectorSearch(userID uint, query string, limit int, kb
 	return results, nil
 }
 
+// vectorSearchSQLite SQLite 向量降级检索：
+// 读取 embedding_json 非空的 ready 分块，应用层计算余弦相似度、排序、截断。
+// 与 pgvector 路径保持一致的 KB 范围过滤与去重语义。
+func (s *RetrievalService) vectorSearchSQLite(userID uint, queryVec []float64, limit int, kbID uint) ([]SearchResult, error) {
+	scopeSQL, scopeArgs := s.docScopeSQL("d", userID, kbID)
+
+	type row struct {
+		ChunkID       uint
+		DocID         uint
+		ChunkIndex    int
+		Content       string
+		Title         string
+		EmbeddingJSON datatypes.JSON
+	}
+
+	var rows []row
+	q := s.db.Table("document_chunks dc").
+		Select("dc.id AS chunk_id, dc.doc_id, dc.chunk_index, dc.content, d.file_name AS title, dc.embedding_json").
+		Joins("JOIN documents d ON d.id = dc.doc_id").
+		Where(scopeSQL, scopeArgs...).
+		Where("dc.index_status = ?", models.IndexStatusReady).
+		Where("dc.chunk_type != ?", models.ChunkTypeParent).
+		Where("dc.embedding_json IS NOT NULL")
+	if err := q.Scan(&rows).Error; err != nil {
+		return []SearchResult{}, fmt.Errorf("sqlite vector search: %v", err)
+	}
+
+	// 应用层余弦相似度计算
+	type scored struct {
+		row row
+		sim float64
+	}
+	scoredRows := make([]scored, 0, len(rows))
+	for _, r := range rows {
+		vec, err := VectorFromJSON(r.EmbeddingJSON)
+		if err != nil {
+			continue // 损坏的 JSON 跳过
+		}
+		sim := cosineSimilarity(queryVec, vec)
+		if sim <= 0 {
+			continue // 无相似度或负相似度不参与排序
+		}
+		scoredRows = append(scoredRows, scored{row: r, sim: sim})
+	}
+
+	// 按相似度降序排序
+	for i := 0; i < len(scoredRows)-1; i++ {
+		for j := i + 1; j < len(scoredRows); j++ {
+			if scoredRows[j].sim > scoredRows[i].sim {
+				scoredRows[i], scoredRows[j] = scoredRows[j], scoredRows[i]
+			}
+		}
+	}
+
+	// 截断 + 每文档去重（与 pgvector 路径一致）
+	results := make([]SearchResult, 0, len(scoredRows))
+	seenDocs := make(map[uint]bool)
+	for _, sr := range scoredRows {
+		if seenDocs[sr.row.DocID] {
+			continue
+		}
+		seenDocs[sr.row.DocID] = true
+
+		snippet := sr.row.Content
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "..."
+		}
+		results = append(results, SearchResult{
+			ChunkID:    sr.row.ChunkID,
+			DocID:      sr.row.DocID,
+			Score:      sr.sim,
+			Snippet:    snippet,
+			Title:      sr.row.Title,
+			Content:    sr.row.Content,
+			MatchType:  "vector",
+			ChunkIndex: sr.row.ChunkIndex,
+		})
+		if len(results) >= limit {
+			break
+		}
+	}
+	return results, nil
+}
+
+// cosineSimilarity 计算两个向量的余弦相似度（维度不一致或零向量返回 0）
+func cosineSimilarity(a, b []float64) float64 {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
 // ============================================================
 // 粗粒度搜索（按文档级聚合 chunk 结果）
 // ============================================================
 
 // SearchChunks 按 chunk 粒度搜索（不做文档级聚合），用于 chunk 级引用定位
+// 检索范围按 kb_id=0 语义解析用户有权限 KB 集合（见 docScopeSQL）
 func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([]SearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return []SearchResult{}, fmt.Errorf("query cannot be empty")
@@ -407,7 +564,7 @@ func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([
 		limit = 20
 	}
 
-	// 并行向量检索
+	// 生成查询向量
 	queryVec, err := s.embeddingService.GenerateEmbedding(userID, query)
 	if err != nil {
 		return []SearchResult{}, fmt.Errorf("failed to generate query embedding: %v", err)
@@ -416,7 +573,16 @@ func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([
 		return []SearchResult{}, nil
 	}
 
+	if s.dialect.isPostgres() {
+		return s.searchChunksPG(userID, queryVec, limit)
+	}
+	return s.searchChunksSQLite(userID, queryVec, limit)
+}
+
+// searchChunksPG pgvector chunk 级检索
+func (s *RetrievalService) searchChunksPG(userID uint, queryVec []float64, limit int) ([]SearchResult, error) {
 	vecStr := vectorToPGString(queryVec)
+	scopeSQL, scopeArgs := s.docScopeSQL("d", userID, 0)
 
 	sql := `
 		SELECT dc.id AS chunk_id, dc.doc_id, dc.chunk_index,
@@ -426,8 +592,9 @@ func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([
 		       dc.start_at, dc.end_at,
 		       d.file_name AS title
 		FROM document_chunks dc
-		JOIN documents d ON d.id = dc.doc_id AND d.user_id = ?
-		WHERE dc.index_status = 'ready'
+		JOIN documents d ON d.id = dc.doc_id
+		WHERE ` + scopeSQL + `
+		  AND dc.index_status = 'ready'
 		  AND dc.embedding IS NOT NULL
 		ORDER BY dc.embedding <=> ?::vector
 		LIMIT ?
@@ -445,8 +612,12 @@ func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([
 		Title      string
 	}
 
+	args := []interface{}{vecStr}
+	args = append(args, scopeArgs...)
+	args = append(args, vecStr, limit)
+
 	var rows []row
-	if err := s.db.Raw(sql, vecStr, userID, vecStr, limit).Scan(&rows).Error; err != nil {
+	if err := s.db.Raw(sql, args...).Scan(&rows).Error; err != nil {
 		return []SearchResult{}, fmt.Errorf("chunk search: %v", err)
 	}
 
@@ -468,6 +639,78 @@ func (s *RetrievalService) SearchChunks(userID uint, query string, limit int) ([
 		})
 	}
 
+	return results, nil
+}
+
+// searchChunksSQLite SQLite 向量降级 chunk 级检索（应用层余弦）
+func (s *RetrievalService) searchChunksSQLite(userID uint, queryVec []float64, limit int) ([]SearchResult, error) {
+	scopeSQL, scopeArgs := s.docScopeSQL("d", userID, 0)
+
+	type row struct {
+		ChunkID       uint
+		DocID         uint
+		ChunkIndex    int
+		Content       string
+		Title         string
+		EmbeddingJSON datatypes.JSON
+	}
+
+	var rows []row
+	q := s.db.Table("document_chunks dc").
+		Select("dc.id AS chunk_id, dc.doc_id, dc.chunk_index, dc.content, d.file_name AS title, dc.embedding_json").
+		Joins("JOIN documents d ON d.id = dc.doc_id").
+		Where(scopeSQL, scopeArgs...).
+		Where("dc.index_status = ?", models.IndexStatusReady).
+		Where("dc.embedding_json IS NOT NULL")
+	if err := q.Scan(&rows).Error; err != nil {
+		return []SearchResult{}, fmt.Errorf("sqlite chunk search: %v", err)
+	}
+
+	type scored struct {
+		row row
+		sim float64
+	}
+	scoredRows := make([]scored, 0, len(rows))
+	for _, r := range rows {
+		vec, err := VectorFromJSON(r.EmbeddingJSON)
+		if err != nil {
+			continue
+		}
+		sim := cosineSimilarity(queryVec, vec)
+		if sim <= 0 {
+			continue
+		}
+		scoredRows = append(scoredRows, scored{row: r, sim: sim})
+	}
+
+	for i := 0; i < len(scoredRows)-1; i++ {
+		for j := i + 1; j < len(scoredRows); j++ {
+			if scoredRows[j].sim > scoredRows[i].sim {
+				scoredRows[i], scoredRows[j] = scoredRows[j], scoredRows[i]
+			}
+		}
+	}
+
+	results := make([]SearchResult, 0, len(scoredRows))
+	for _, sr := range scoredRows {
+		snippet := sr.row.Content
+		if len(snippet) > 300 {
+			snippet = snippet[:300] + "..."
+		}
+		results = append(results, SearchResult{
+			ChunkID:    sr.row.ChunkID,
+			DocID:      sr.row.DocID,
+			Score:      sr.sim,
+			Snippet:    snippet,
+			Content:    sr.row.Content,
+			Title:      sr.row.Title,
+			MatchType:  "vector",
+			ChunkIndex: sr.row.ChunkIndex,
+		})
+		if len(results) >= limit {
+			break
+		}
+	}
 	return results, nil
 }
 

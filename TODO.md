@@ -67,12 +67,12 @@
 - [x] 3. 后端：持久化解析工作器与字段提取——任务恢复、PDF 文本优先/OCR 兜底、发票专用字段规则、低置信度/缺失/金额异常、失败重试；单文件失败不影响批次其他任务（交付物：invoice 解析 service + worker + 单测；依赖：1,2）
   - [x] P7.3.3 解析安全修复：提取前快照并以快照 CAS 写入，防止覆盖人工修改；OCR 错误可重试、空/低质文本不可重试；状态写入脱离已取消工作上下文；独立电子票号、无效日期保护、金额异常和税号低置信度标记。
 - [x] 4. 后端：归档与业务规则 API——草稿编辑、admin 确认/作废/已确认更正（原因+差异审计）、增值税票代码号码或电子票号强判重、其他凭证哈希预警、采购可选关联与供应商/金额/日期预警、购方主体 admin 设置、查询统计与 CSV 导出（交付物：invoice API + 权限/审计 + 集成测试；依赖：1,2,3）
-- [ ] 5. 前端：上传与解析工作台——批量 PDF 拖拽上传、每份任务状态/失败重试、识别字段编辑、低置信度高亮、人工补录最低门槛、草稿权限控制（交付物：invoice 上传/编辑组件 + API 类型 + Vitest；依赖：2,3）
-- [ ] 6. 前端：归档管理与打印导出——筛选/统计/关联预警、受控原件预览下载打印、归档打印单、字段 CSV/Excel 导出、确认/作废/更正原因交互、已确认/已作废状态展示（交付物：InvoiceManagement 增强 + 打印/导出组件 + Vitest；依赖：4,5）
-- [ ] 7. 验收：模型/API/解析工作器单元与集成测试；前端 lint/tsc/Vitest/build；端到端“上传→解析→补录→确认→查询/打印→作废”主流程；30 天清理任务、判重、附件鉴权与 RBAC 验证（依赖：1-6）
+- [ ] 5. 前端：上传与解析工作台——批量 PDF 拖拽上传、每份任务状态/失败重试、识别字段编辑、低置信度高亮、人工补录最低门槛、草稿权限控制（交付物：invoice 上传/编辑组件 + API 类型 + Vitest；依赖：2,3）【待开发】
+- [ ] 6. 前端：归档管理与打印导出——筛选/统计/关联预警、受控原件预览下载打印、归档打印单、字段 CSV 导出、确认/作废/更正原因交互、已确认/已作废状态展示（交付物：InvoiceManagement 增强 + 打印/导出组件 + Vitest；依赖：4,5）【待开发；本期仅 CSV，不实现 Excel】
+- [ ] 7. 验收：模型/API/解析工作器单元与集成测试；前端 lint/tsc/Vitest/build；端到端“上传→解析→补录→确认→查询/打印→作废”主流程；30 天清理任务、判重、附件鉴权与 RBAC 验证（依赖：1-6）【待开发】
 
-【总进度】3 / 7 完成
-【下一步】P7.3.4：归档与业务规则 API
+【总进度】4 / 7 完成
+【下一步】P9.1/P9.2：先修复知识库检索链路，再推进 P7.3 前端
 
 【总进度】15 / 18 完成（P7.4 3 项 + P7.1 7 项 + P7.2 5 项）
 【下一步】P7.3：发票管理卡片；P7.2 端到端实测在具备临时全局 LLM 配置的测试环境补跑
@@ -149,22 +149,22 @@
 > 背景：P8 交付后遗留两项已确认未实施：① ingest API 是 stub，需打通 docreader→分块→向量化→入库全链路；② 悬浮问答面板（chat-panel）未按用户知识库权限过滤检索范围（Q8=B 决策）。
 
 ### P9.1 后端 ingest 全链路实装
-- [ ] 1.1 后端：ingest 实装——docreader.Parse → IngestToChunks → embedding 向量化 → 写入 DocumentChunk + 关联 KB（交付物：api/knowledge_base.go ingest handler 替换 stub + service/kb_ingest.go；依赖：无）
-- [ ] 1.2 后端：入库结果统计返回（scanned/ingested/skipped/errors 明细）（交付物：同上；依赖：1.1）
-- [ ] 1.3 后端：单测覆盖 ingest 链路（mock docreader + 内存 SQLite 验证 chunk 写入与 KB 关联）（交付物：service/kb_ingest_test.go；依赖：1.1）
+- [x] 1.1 后端：完成 ingest 到可检索闭环——修复非 archives 源记录与 `documents` 的关联，并确保向量列与 JSON 副本同步写入（交付物：knowledge_base.go + service/kb_ingest.go + retrieval.go；依赖：无）
+- [x] 1.2 后端：保留并验证入库结果统计（scanned/ingested/skipped/errors 明细）（交付物：同上；依赖：1.1）
+- [x] 1.3 后端：补齐 ingest→检索集成测试（SQLite 降级 + PostgreSQL/pgvector 实测，验证 chunk 写入、KB 关联、全文/向量检索命中、并发幂等与事务回滚）（交付物：kb_ingest_*_test.go + retrieval 集成测试；依赖：1.1）
 
 ### P9.2 后端检索按 KB 权限过滤
-- [ ] 2.1 后端：/api/knowledge/search 与 /api/knowledge/chat 增加 kb_id 参数 + HasAccess 校验（非 admin 仅可检索自己有权限的 KB）（交付物：api/knowledge.go 修改 + service/retrieval.go 扩展；依赖：无）
-- [ ] 2.2 后端：脱敏在检索结果返回前应用（复用 kb_mask.ApplyFieldMask）（交付物：service/retrieval.go + service/kb_mask.go 集成；依赖：2.1）
-- [ ] 2.3 后端：单测覆盖权限过滤与脱敏（交付物：api/knowledge_test.go 扩展；依赖：2.1,2.2）
+- [ ] 2.1 后端：search/chat/流式 chat 统一增加 `kb_id` 参数与 HasAccess 校验（非 admin 仅可检索自己有权限的 KB）（交付物：knowledge.go + chat.go + retrieval.go；依赖：无）【普通 search/chat 已接入，SSE 流式链路未接入】
+- [ ] 2.2 后端：全文检索、向量检索和问答 prompt/Sources 返回前统一应用字段脱敏，修正规则字段与结果字段映射（交付物：retrieval.go + kb_mask.go + chat.go；依赖：2.1）【部分已实现，问答链路待修复】
+- [ ] 2.3 后端：补强权限过滤、脱敏内容、流式越权拒绝的单测与集成测试（交付物：knowledge_test.go + kb_ingest_test.go；依赖：2.1,2.2）【现有断言偏宽松】
 
 ### P9.3 前端 chat-panel 范围过滤
-- [ ] 3.1 前端：chat-panel 增加知识库范围选择器（下拉列出当前用户可见 KB，默认全部）（交付物：components/chat-panel.tsx 修改；依赖：P9.2）
-- [ ] 3.2 前端：检索请求带 kb_id 参数，响应中脱敏字段正常显示（交付物：lib/api.ts chat 相关函数 + chat-panel.tsx；依赖：3.1）
-- [ ] 3.3 验收：完整链路实测——入库→脱敏检索→权限隔离问答全通；go build/test + tsc/lint 全绿（依赖：全部）
+- [ ] 3.1 前端：chat-panel 知识库范围选择器与 SSE 请求链路生效（下拉列出当前用户可见 KB，默认全部）（交付物：chat-panel.tsx + 后端 SSE；依赖：P9.2）【选择器已实现，后端 SSE 未生效】
+- [ ] 3.2 前端：检索及流式问答请求带 `kb_id`，响应中的脱敏字段正常显示（交付物：lib/api.ts + chat-panel.tsx；依赖：3.1）【请求参数已传递，服务端尚未完整接收】
+- [ ] 3.3 验收：完整链路实测——入库→脱敏检索→权限隔离问答全通；go build/test + tsc/lint 全绿（依赖：全部）【待开发】
 
-【总进度】0 / 9 完成
-【下一步】P9.1.1：ingest 全链路实装
+【总进度】3 / 9 完成
+【下一步】P9.2：修复 search/chat/SSE 的 kb_id 权限与全链路脱敏
 
 ## P10：前端 UI 全站治理（借鉴 CDK 设计语言）🔜 已确认方案
 
@@ -226,11 +226,11 @@
 - [x] 5.1 全站 lint `npm run lint -- components/` 0 errors + go test storage 全绿
 - [x] 5.2 TODO/agentmemory 更新 + git commit + push
 
-【总进度】0 / 13 完成
-【下一步】P11.1.1：修复 storage DSN
+【总进度】14 / 14 完成 ✅
+【下一步】已完成；后续优先推进 P9 检索链路收尾
 
-【总进度】0 / 19 完成
-【下一步】P10.0.1：@designer 输出 ui-design-p9.md 规范
+【总进度】17 / 17 完成 ✅
+【下一步】已完成；后续优先推进 P9 检索链路收尾
 
 ### P6 交付摘要
 - 后端：19 个 GORM 模型 + 99 个 HTTP 路由 + 6 个单测（office_analytics 6 例 + canteen_analytics 2 例 + migrate 3 例）
