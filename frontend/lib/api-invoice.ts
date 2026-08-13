@@ -43,6 +43,8 @@ export interface Invoice {
   approver_id?: number | null;
   approved_at?: string | null;
   approval_remark?: string;
+  /** 后端解析字段置信度与缺失字段摘要 */
+  field_confidence?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,6 +75,88 @@ export interface InvoiceListParams {
   applicant_id?: number;
   page?: number;
   page_size?: number;
+}
+
+// ========== P7.3 上传与解析任务类型 ==========
+
+/** 解析任务状态 */
+export type InvoiceParsingTaskStatus = "pending" | "running" | "succeeded" | "failed";
+
+/** 批量上传中单个文件的处理结果 */
+export interface InvoiceUploadItem {
+  original_name: string;
+  invoice_id?: number;
+  task_id?: number;
+  /** "pending" 表示已受理待解析；"failed" 表示上传/创建失败 */
+  status: "pending" | "failed";
+  error_code?: string;
+  error?: string;
+  /** 检测到内容相同的既有发票时为 true（重复预警） */
+  duplicate_warning?: boolean;
+}
+
+/** 批量上传接口响应 */
+export interface InvoiceUploadResult {
+  items: InvoiceUploadItem[];
+}
+
+/** 识别字段（带置信度，契约可选扩展；后端未返回时前端按字段缺失处理） */
+export interface ParsedInvoiceField {
+  key: string;
+  label: string;
+  value?: string | number | null;
+  /** 0~1 置信度，低于阈值时前端高亮 */
+  confidence?: number;
+}
+
+/** 发票解析任务详情（GET /invoices/{id}/parsing-task 与 retry 接口返回） */
+export interface ParsingTaskDetail {
+  id: number;
+  invoice_id: number;
+  status: InvoiceParsingTaskStatus;
+  attempt_count?: number;
+  max_attempts?: number;
+  error_code?: string;
+  last_error?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  /** 识别字段明细（可选，后端未实现时缺省） */
+  fields?: ParsedInvoiceField[];
+}
+
+/** 上传可选参数（关联采购来源） */
+export interface InvoiceUploadOptions {
+  source_type?: string;
+  source_id?: number;
+}
+
+/**
+ * 归一化解析任务详情响应：
+ * 兼容后端两种返回形态——直接返回任务对象，或包装为 { task: {...} }。
+ */
+export function normalizeParsingTaskDetail(payload: unknown): ParsingTaskDetail {
+  const raw = (payload && typeof payload === "object" && ("task" in payload || "item" in payload)
+    ? (payload as { task?: unknown; item?: unknown }).task ?? (payload as { item?: unknown }).item
+    : payload) as Partial<ParsingTaskDetail> | null;
+  if (!raw || typeof raw !== "object" || typeof raw.id !== "number") {
+    throw new Error("解析任务详情格式错误");
+  }
+  return {
+    id: raw.id,
+    invoice_id: raw.invoice_id ?? 0,
+    status: raw.status ?? "pending",
+    attempt_count: raw.attempt_count,
+    max_attempts: raw.max_attempts,
+    error_code: raw.error_code,
+    last_error: raw.last_error,
+    started_at: raw.started_at,
+    completed_at: raw.completed_at,
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+    fields: raw.fields,
+  };
 }
 
 // ========== 内部请求工具 ==========
@@ -184,5 +268,36 @@ export const invoiceApi = {
   /** 获取发票统计 */
   stats: (): Promise<InvoiceStats> => {
     return request<InvoiceStats>("/invoices/stats");
+  },
+
+  // ========== P7.3 批量上传与解析任务 ==========
+
+  /**
+   * 批量上传 PDF 发票（multipart/form-data）。
+   * 后端逐文件返回结果：status 为 "pending"（已受理待解析）或 "failed"（失败）。
+   */
+  upload: (files: File[], options?: InvoiceUploadOptions): Promise<InvoiceUploadResult> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+    if (options?.source_type) formData.append("source_type", options.source_type);
+    if (options?.source_id) formData.append("source_id", String(options.source_id));
+    return request<InvoiceUploadResult>("/invoices/upload", {
+      method: "POST",
+      body: formData,
+    });
+  },
+
+  /** 获取发票解析任务详情 */
+  getParsingTask: async (id: number): Promise<ParsingTaskDetail> => {
+    const payload = await request<unknown>(`/invoices/${id}/parsing-task`);
+    return normalizeParsingTaskDetail(payload);
+  },
+
+  /** 触发失败解析任务重试，返回最新任务详情 */
+  retryParsingTask: async (id: number): Promise<ParsingTaskDetail> => {
+    const payload = await request<unknown>(`/invoices/${id}/parsing-task/retry`, {
+      method: "POST",
+    });
+    return normalizeParsingTaskDetail(payload);
   },
 };

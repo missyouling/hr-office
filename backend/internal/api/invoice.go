@@ -51,6 +51,9 @@ func (h *Handler) registerInvoiceRoutes(r chi.Router) {
 			sr.Put("/", h.updateInvoice)
 			sr.Delete("/", h.deleteInvoice)
 			sr.Post("/submit", h.submitInvoice)
+			// 解析任务查询与手动重试（任意可访问发票的用户）
+			sr.Get("/parsing-task", h.getInvoiceParsingTask)
+			sr.Post("/parsing-task/retry", h.retryInvoiceParsingTask)
 
 			// 审批与归档操作（仅 admin）
 			sr.Group(func(adm chi.Router) {

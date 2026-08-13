@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
 import { normalizeRole } from "@/lib/permissions";
+import { usePermissions } from "@/hooks/use-permissions";
 import type { Invoice } from "@/lib/api-invoice";
 
 import InvoicesTab from "./tabs/InvoicesTab";
@@ -15,6 +16,7 @@ import PendingApprovalTab from "./tabs/PendingApprovalTab";
 import StatsTab from "./tabs/StatsTab";
 import { InvoiceDialog } from "./dialogs/InvoiceDialog";
 import { InvoiceDetailDialog } from "./dialogs/InvoiceDetailDialog";
+import { InvoiceUploadWorkbench } from "./upload/InvoiceUploadWorkbench";
 
 interface InvoiceManagementProps {
   onBack?: () => void;
@@ -23,6 +25,7 @@ interface InvoiceManagementProps {
 export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
   const { user } = useAuth();
   const role = normalizeRole(user?.role ?? "viewer");
+  const { can } = usePermissions();
 
   const [activeTab, setActiveTab] = useState("list");
 
@@ -65,6 +68,8 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
   const canManage = ["admin", "super_admin", "manager"].includes(role);
   /** admin 可审批 */
   const isAdmin = ["admin", "super_admin"].includes(role);
+  /** 可上传解析（创建发票草稿） */
+  const canUpload = can("invoice", "create");
 
   return (
     <PageTransition className="mx-auto flex w-full flex-col gap-4 p-2 md:p-4">
@@ -103,6 +108,7 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex w-full justify-start">
           <TabsTrigger value="list">发票列表</TabsTrigger>
+          {canUpload && <TabsTrigger value="upload">上传解析</TabsTrigger>}
           {isAdmin && <TabsTrigger value="pending">待审批</TabsTrigger>}
           {canManage && <TabsTrigger value="stats">统计分析</TabsTrigger>}
         </TabsList>
@@ -114,6 +120,12 @@ export default function InvoiceManagement({ onBack }: InvoiceManagementProps) {
             refreshKey={refreshKey}
           />
         </TabsContent>
+
+        {canUpload && (
+          <TabsContent value="upload" className="space-y-4">
+            <InvoiceUploadWorkbench onDone={handleRefresh} />
+          </TabsContent>
+        )}
 
         {isAdmin && (
           <TabsContent value="pending" className="space-y-4">
