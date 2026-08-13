@@ -32,6 +32,9 @@ type SearchResult struct {
 	Content    string `json:"content,omitempty"`     // chunk 完整内容
 	MatchType  string `json:"match_type"`            // keyword / vector / both
 	ChunkIndex int    `json:"chunk_index,omitempty"` // chunk 在文档中的序号
+	// KBID 结果所属知识库 ID（source_kb_id；0 表示无 KB 关联，如用户档案文档）
+	// 用于 kb_id=0 检索时按每条结果所属 KB 应用脱敏规则
+	KBID uint `json:"kb_id,omitempty"`
 }
 
 // GlobalSearchResult 全局搜索结果
@@ -174,7 +177,8 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 		SELECT 'doc' AS source, d.id AS doc_id, 0 AS chunk_id,
 		       ts_rank(d.content_tsv, plainto_tsquery('simple', ?)) AS score,
 		       d.file_name AS title,
-		       LEFT(COALESCE(d.content_text, ''), 200) AS snippet
+		       LEFT(COALESCE(d.content_text, ''), 200) AS snippet,
+		       COALESCE(d.source_kb_id, 0) AS kb_id
 		FROM documents d
 		WHERE ` + scopeSQL + ` AND d.content_tsv @@ plainto_tsquery('simple', ?)
 
@@ -183,7 +187,8 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 		SELECT 'chunk' AS source, dc.doc_id, dc.id AS chunk_id,
 		       ts_rank(dc.content_tsv, plainto_tsquery('simple', ?)) AS score,
 		       '' AS title,
-		       LEFT(dc.content, 200) AS snippet
+		       LEFT(dc.content, 200) AS snippet,
+		       COALESCE(d.source_kb_id, 0) AS kb_id
 		FROM document_chunks dc
 		JOIN documents d ON d.id = dc.doc_id
 		WHERE ` + scopeSQL + ` AND dc.content_tsv @@ plainto_tsquery('simple', ?)
@@ -206,6 +211,7 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 		Score   float64
 		Title   string
 		Snippet string
+		KBID    uint
 	}
 	if err := s.db.Raw(sql, args...).Scan(&rows).Error; err != nil {
 		// 降级：没有 tsvector 索引或匹配不到时用 LIKE/ILIKE
@@ -237,6 +243,7 @@ func (s *RetrievalService) FullTextSearch(userID uint, query string, limit int, 
 			Snippet:   snippet,
 			Title:     row.Title,
 			MatchType: "keyword",
+			KBID:      row.KBID,
 		})
 	}
 
@@ -264,12 +271,17 @@ func (s *RetrievalService) fallbackFullTextSearch(userID uint, query string, lim
 		if len(snippet) > 200 {
 			snippet = snippet[:200] + "..."
 		}
+		kbID := uint(0)
+		if doc.SourceKBID != nil {
+			kbID = *doc.SourceKBID
+		}
 		results = append(results, SearchResult{
 			DocID:     doc.ID,
 			Score:     0.5,
 			Snippet:   snippet,
 			Title:     doc.FileName,
 			MatchType: "keyword",
+			KBID:      kbID,
 		})
 	}
 	return results, nil
@@ -390,7 +402,8 @@ func (s *RetrievalService) vectorSearchPG(userID uint, queryVec []float64, limit
 		SELECT dc.id AS chunk_id, dc.doc_id, dc.chunk_index,
 		       1 - (dc.embedding <=> ?::vector) AS similarity, -- <=> = cosine distance; 1 - distance = similarity
 		       dc.content AS content,
-		       d.file_name AS title
+		       d.file_name AS title,
+		       COALESCE(d.source_kb_id, 0) AS kb_id
 		FROM document_chunks dc
 		JOIN documents d ON d.id = dc.doc_id
 		WHERE ` + scopeSQL + `
@@ -408,6 +421,7 @@ func (s *RetrievalService) vectorSearchPG(userID uint, queryVec []float64, limit
 		Similarity float64
 		Content    string
 		Title      string
+		KBID       uint
 	}
 
 	args := []interface{}{vecStr}
@@ -443,6 +457,7 @@ func (s *RetrievalService) vectorSearchPG(userID uint, queryVec []float64, limit
 			Content:    r.Content,
 			MatchType:  "vector",
 			ChunkIndex: r.ChunkIndex,
+			KBID:       r.KBID,
 		})
 	}
 
@@ -461,12 +476,13 @@ func (s *RetrievalService) vectorSearchSQLite(userID uint, queryVec []float64, l
 		ChunkIndex    int
 		Content       string
 		Title         string
+		KBID          uint
 		EmbeddingJSON datatypes.JSON
 	}
 
 	var rows []row
 	q := s.db.Table("document_chunks dc").
-		Select("dc.id AS chunk_id, dc.doc_id, dc.chunk_index, dc.content, d.file_name AS title, dc.embedding_json").
+		Select("dc.id AS chunk_id, dc.doc_id, dc.chunk_index, dc.content, d.file_name AS title, COALESCE(d.source_kb_id, 0) AS kb_id, dc.embedding_json").
 		Joins("JOIN documents d ON d.id = dc.doc_id").
 		Where(scopeSQL, scopeArgs...).
 		Where("dc.index_status = ?", models.IndexStatusReady).
@@ -525,6 +541,7 @@ func (s *RetrievalService) vectorSearchSQLite(userID uint, queryVec []float64, l
 			Content:    sr.row.Content,
 			MatchType:  "vector",
 			ChunkIndex: sr.row.ChunkIndex,
+			KBID:       sr.row.KBID,
 		})
 		if len(results) >= limit {
 			break
@@ -590,7 +607,8 @@ func (s *RetrievalService) searchChunksPG(userID uint, queryVec []float64, limit
 		       LEFT(dc.content, 300) AS snippet,
 		       dc.content AS content,
 		       dc.start_at, dc.end_at,
-		       d.file_name AS title
+		       d.file_name AS title,
+		       COALESCE(d.source_kb_id, 0) AS kb_id
 		FROM document_chunks dc
 		JOIN documents d ON d.id = dc.doc_id
 		WHERE ` + scopeSQL + `
@@ -610,6 +628,7 @@ func (s *RetrievalService) searchChunksPG(userID uint, queryVec []float64, limit
 		StartAt    int
 		EndAt      int
 		Title      string
+		KBID       uint
 	}
 
 	args := []interface{}{vecStr}
@@ -636,6 +655,7 @@ func (s *RetrievalService) searchChunksPG(userID uint, queryVec []float64, limit
 			Title:      r.Title,
 			MatchType:  "vector",
 			ChunkIndex: r.ChunkIndex,
+			KBID:       r.KBID,
 		})
 	}
 
@@ -652,12 +672,13 @@ func (s *RetrievalService) searchChunksSQLite(userID uint, queryVec []float64, l
 		ChunkIndex    int
 		Content       string
 		Title         string
+		KBID          uint
 		EmbeddingJSON datatypes.JSON
 	}
 
 	var rows []row
 	q := s.db.Table("document_chunks dc").
-		Select("dc.id AS chunk_id, dc.doc_id, dc.chunk_index, dc.content, d.file_name AS title, dc.embedding_json").
+		Select("dc.id AS chunk_id, dc.doc_id, dc.chunk_index, dc.content, d.file_name AS title, COALESCE(d.source_kb_id, 0) AS kb_id, dc.embedding_json").
 		Joins("JOIN documents d ON d.id = dc.doc_id").
 		Where(scopeSQL, scopeArgs...).
 		Where("dc.index_status = ?", models.IndexStatusReady).
@@ -706,6 +727,7 @@ func (s *RetrievalService) searchChunksSQLite(userID uint, queryVec []float64, l
 			Title:      sr.row.Title,
 			MatchType:  "vector",
 			ChunkIndex: sr.row.ChunkIndex,
+			KBID:       sr.row.KBID,
 		})
 		if len(results) >= limit {
 			break
@@ -783,13 +805,29 @@ func VectorFromJSON(data []byte) ([]float64, error) {
 }
 
 // ApplyMaskToResults 对检索结果应用知识库字段脱敏（P9.2）
-// - admin 角色豁免（由 ApplyFieldMask 内部的 ExemptRole 机制处理）
-// - 对 Content、Snippet、Title 字段按知识库脱敏规则处理
-func (s *RetrievalService) ApplyMaskToResults(db *gorm.DB, user *models.User, kbID uint, results []SearchResult) []SearchResult {
+//   - kbID>0 时所有结果按该 KB 的脱敏规则处理
+//   - kbID=0 时按每条结果所属 KB（SearchResult.KBID）应用对应规则；无 KB 关联的结果跳过
+//   - 返回所有结果的敏感值映射（原始值→脱敏值，用于最终答案/SSE 增量脱敏）与
+//     豁免原始值列表（ExemptRole 命中时提取，答案/SSE 防御层须跳过这些值）
+//   - 脱敏失败返回错误（安全失败：调用方不得返回原文）
+func (s *RetrievalService) ApplyMaskToResults(db *gorm.DB, user *models.User, kbID uint, results []SearchResult) ([]SearchResult, map[string]string, []string, error) {
+	sensitive := map[string]string{}
+	var exempt []string
 	for i := range results {
-		results[i].Content = ApplyFieldMask(db, user, kbID, "content", results[i].Content)
-		results[i].Snippet = ApplyFieldMask(db, user, kbID, "snippet", results[i].Snippet)
-		results[i].Title = ApplyFieldMask(db, user, kbID, "title", results[i].Title)
+		targetKB := kbID
+		if targetKB == 0 {
+			targetKB = results[i].KBID
+		}
+		if targetKB == 0 {
+			continue // 无 KB 关联（如用户档案文档），无脱敏规则
+		}
+		masked, vals, ex, err := MaskSearchResult(db, user, targetKB, results[i])
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		results[i] = masked
+		mergeSensitive(sensitive, vals)
+		exempt = append(exempt, ex...)
 	}
-	return results
+	return results, sensitive, exempt, nil
 }
