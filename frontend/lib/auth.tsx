@@ -68,19 +68,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/auth");
   }, [router]);
 
-  const validateToken = useCallback(async (authToken: string) => {
+  const validateToken = useCallback(async (authToken: string, isActive: () => boolean = () => true) => {
     try {
       const userData = normalizeAuthUser(await getUserProfile(authToken));
+      if (!isActive()) return;
       setUser(userData);
       setDegraded(false); // 验证成功则清除降级标记
     } catch (error) {
       console.error("Token validation error:", error);
       // P7.1 场景区分：网络错误 → 降级(保留缓存用户)；认证错误 → 登出
       if (isNetworkError(error)) {
+        if (!isActive()) return;
         setDegraded(true);
         // 保留 localStorage 中的缓存用户，不做登出
         return;
       }
+      // 组件已卸载时不再触发登出（避免 router.push 与状态更新）
+      if (!isActive()) return;
       logout();
       throw error;
     }
@@ -88,20 +92,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // 初始化认证状态
   useEffect(() => {
+    // active 生命周期保护：组件卸载后异步 initAuth 完成时不再更新状态/跳转
+    let active = true;
+
     const initAuth = async () => {
       try {
         const storedToken = localStorage.getItem("token");
         const storedUser = localStorage.getItem("user");
 
         if (storedToken && storedUser) {
+          if (!active) return;
           setToken(storedToken);
           setUser(JSON.parse(storedUser));
 
           // 验证 token 有效性
-          await validateToken(storedToken);
+          await validateToken(storedToken, () => active);
         } else {
           // 无凭证，跳转登录页
           if (typeof window !== 'undefined' && window.location.pathname !== '/auth') {
+            if (!active) return;
             router.push('/auth');
           }
         }
@@ -109,24 +118,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("Auth initialization error:", error);
         // P7.1 场景区分
         if (isNetworkError(error)) {
+          if (!active) return;
           setDegraded(true);
           // 保留 localStorage 缓存，不清除
         } else {
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
           localStorage.removeItem("user");
+          if (!active) return;
           setToken(null);
           setUser(null);
           if (typeof window !== 'undefined') {
+            if (!active) return;
             router.push('/auth');
           }
         }
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
 
     initAuth();
+
+    return () => {
+      active = false;
+    };
   }, [validateToken, router]);
 
   const login = (newToken: string, newUser: User, refreshToken?: string) => {

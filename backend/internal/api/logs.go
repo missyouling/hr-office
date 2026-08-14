@@ -15,6 +15,7 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
+	"siapp/internal/middleware"
 	"siapp/internal/models"
 )
 
@@ -73,16 +74,16 @@ type LogBackup struct {
 
 // AlertRule represents an alert rule
 type AlertRule struct {
-	ID                   int64          `json:"id" gorm:"primaryKey"`
-	Name                 string         `json:"name" gorm:"size:255;not null"`
-	Keywords             datatypes.JSON `json:"keywords" gorm:"type:text[]"`
-	Threshold            int            `json:"threshold" gorm:"default:10"`
-	TimeWindow           int            `json:"time_window" gorm:"default:5"`
-	Enabled              bool           `json:"enabled" gorm:"default:true;index"`
-	NotificationChannel  string         `json:"notification_channel" gorm:"size:100;default:'in-app'"`
-	CreatedBy            string         `json:"created_by" gorm:"size:100"`
-	CreatedAt            time.Time      `json:"created_at"`
-	UpdatedAt            time.Time      `json:"updated_at"`
+	ID                  int64          `json:"id" gorm:"primaryKey"`
+	Name                string         `json:"name" gorm:"size:255;not null"`
+	Keywords            datatypes.JSON `json:"keywords" gorm:"type:text[]"`
+	Threshold           int            `json:"threshold" gorm:"default:10"`
+	TimeWindow          int            `json:"time_window" gorm:"default:5"`
+	Enabled             bool           `json:"enabled" gorm:"default:true;index"`
+	NotificationChannel string         `json:"notification_channel" gorm:"size:100;default:'in-app'"`
+	CreatedBy           string         `json:"created_by" gorm:"size:100"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
 }
 
 // TableName specifies table names for GORM
@@ -100,18 +101,26 @@ func (AlertRule) TableName() string {
 
 func (h *LogHandler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Get("/", h.QueryLogs)
-	r.Get("/export", h.ExportLogs)
-	r.Post("/backup", h.CreateBackup)
-	r.Get("/backups", h.ListBackups)
-	r.Delete("/backups/{id}", h.DeleteBackup)
-	r.Post("/cleanup", h.CleanupLogs)
-	r.Get("/alert-rules", h.ListAlertRules)
-	r.Post("/alert-rules", h.CreateAlertRule)
-	r.Put("/alert-rules/{id}", h.UpdateAlertRule)
-	r.Delete("/alert-rules/{id}", h.DeleteAlertRule)
-	r.Get("/backup-settings", h.GetBackupSettings)
-	r.Post("/backup-settings", h.UpdateBackupSettings)
+	// 读操作：logs.view（日志查询/导出/备份列表/告警规则列表/备份设置读取）
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequirePermission(h.db, "logs", "view"))
+		r.Get("/", h.QueryLogs)
+		r.Get("/export", h.ExportLogs)
+		r.Get("/backups", h.ListBackups)
+		r.Get("/alert-rules", h.ListAlertRules)
+		r.Get("/backup-settings", h.GetBackupSettings)
+	})
+	// 写操作：logs.manage（备份/清理/告警规则/备份设置更新）
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequirePermission(h.db, "logs", "manage"))
+		r.Post("/backup", h.CreateBackup)
+		r.Delete("/backups/{id}", h.DeleteBackup)
+		r.Post("/cleanup", h.CleanupLogs)
+		r.Post("/alert-rules", h.CreateAlertRule)
+		r.Put("/alert-rules/{id}", h.UpdateAlertRule)
+		r.Delete("/alert-rules/{id}", h.DeleteAlertRule)
+		r.Post("/backup-settings", h.UpdateBackupSettings)
+	})
 	return r
 }
 
@@ -681,7 +690,7 @@ func (h *LogHandler) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"status": "success",
+		"status":  "success",
 		"message": "backup deleted",
 	})
 }
@@ -707,9 +716,9 @@ func (h *LogHandler) CleanupLogs(w http.ResponseWriter, r *http.Request) {
 	totalDeleted := auditResult.RowsAffected + systemResult.RowsAffected
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"status": "success",
-		"message": fmt.Sprintf("deleted %d logs older than 30 days", totalDeleted),
-		"audit_logs_deleted": auditResult.RowsAffected,
+		"status":              "success",
+		"message":             fmt.Sprintf("deleted %d logs older than 30 days", totalDeleted),
+		"audit_logs_deleted":  auditResult.RowsAffected,
 		"system_logs_deleted": systemResult.RowsAffected,
 	})
 }
@@ -750,12 +759,12 @@ func (h *LogHandler) ListAlertRules(w http.ResponseWriter, r *http.Request) {
 // CreateAlertRule inserts into alert_rules table
 func (h *LogHandler) CreateAlertRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name                 string   `json:"name"`
-		Keywords             []string `json:"keywords"`
-		Threshold            int      `json:"threshold"`
-		TimeWindow           int      `json:"time_window"`
-		Enabled              bool     `json:"enabled"`
-		NotificationChannel  string   `json:"notification_channel"`
+		Name                string   `json:"name"`
+		Keywords            []string `json:"keywords"`
+		Threshold           int      `json:"threshold"`
+		TimeWindow          int      `json:"time_window"`
+		Enabled             bool     `json:"enabled"`
+		NotificationChannel string   `json:"notification_channel"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -813,12 +822,12 @@ func (h *LogHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name                 string   `json:"name"`
-		Keywords             []string `json:"keywords"`
-		Threshold            int      `json:"threshold"`
-		TimeWindow           int      `json:"time_window"`
-		Enabled              bool     `json:"enabled"`
-		NotificationChannel  string   `json:"notification_channel"`
+		Name                string   `json:"name"`
+		Keywords            []string `json:"keywords"`
+		Threshold           int      `json:"threshold"`
+		TimeWindow          int      `json:"time_window"`
+		Enabled             bool     `json:"enabled"`
+		NotificationChannel string   `json:"notification_channel"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -839,13 +848,13 @@ func (h *LogHandler) UpdateAlertRule(w http.ResponseWriter, r *http.Request) {
 	keywordsJSON, _ := json.Marshal(req.Keywords)
 
 	updates := map[string]interface{}{
-		"name":                   req.Name,
-		"keywords":               keywordsJSON,
-		"threshold":              req.Threshold,
-		"time_window":            req.TimeWindow,
-		"enabled":                req.Enabled,
-		"notification_channel":   req.NotificationChannel,
-		"updated_at":             time.Now(),
+		"name":                 req.Name,
+		"keywords":             keywordsJSON,
+		"threshold":            req.Threshold,
+		"time_window":          req.TimeWindow,
+		"enabled":              req.Enabled,
+		"notification_channel": req.NotificationChannel,
+		"updated_at":           time.Now(),
 	}
 
 	if err := h.db.Model(&rule).Updates(updates).Error; err != nil {
@@ -884,7 +893,7 @@ func (h *LogHandler) DeleteAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"status": "success",
+		"status":  "success",
 		"message": "alert rule deleted",
 	})
 }

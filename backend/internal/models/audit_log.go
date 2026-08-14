@@ -43,6 +43,7 @@ const (
 	ActionSendVerificationEmail ActionType = "SEND_VERIFICATION_EMAIL"
 	ActionVerifyEmail           ActionType = "VERIFY_EMAIL"
 	ActionResendVerification    ActionType = "RESEND_VERIFICATION"
+	ActionUpdateProfile         ActionType = "UPDATE_PROFILE"
 
 	// Period management actions
 	ActionCreatePeriod  ActionType = "CREATE_PERIOD"
@@ -88,6 +89,15 @@ const (
 	ActionCorrectInvoice    ActionType = "CORRECT_INVOICE"
 	ActionExportInvoices    ActionType = "EXPORT_INVOICES"
 	ActionUpdateBuyerEntity ActionType = "UPDATE_BUYER_ENTITY"
+
+	// RBAC 业务审计（P5，角色/权限/用户角色变更）
+	ActionRoleCreate       ActionType = "ROLE_CREATE"
+	ActionRoleUpdate       ActionType = "ROLE_UPDATE"
+	ActionRoleDelete       ActionType = "ROLE_DELETE"
+	ActionRolePermUpdate   ActionType = "ROLE_PERMISSION_UPDATE"
+	ActionPermissionCreate ActionType = "PERMISSION_CREATE"
+	ActionPermissionDelete ActionType = "PERMISSION_DELETE"
+	ActionUserRoleUpdate   ActionType = "USER_ROLE_UPDATE"
 )
 
 // LogStatus defines the status of logged actions

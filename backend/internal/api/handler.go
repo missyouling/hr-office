@@ -48,6 +48,7 @@ type Handler struct {
 	storageRouter          *storage.StorageRouter
 	uploadBaseDir          string
 	uploadBaseURL          string
+	avatarStore            *storage.AvatarStore
 }
 
 type batchUploadItem struct {
@@ -208,6 +209,12 @@ func NewHandler(db *gorm.DB) *Handler {
 	docClient := docreader.NewClient(docreaderAddr)
 	kbIngestSvc := service.NewKBIngestService(db, docClient, embSvc)
 
+	// 专用头像存储：独立于通用 StorageConfig 机制，避免默认本地存储配置损坏时头像不可用
+	avatarStore, err := storage.NewAvatarStore(resolveAvatarDir())
+	if err != nil {
+		log.Printf("failed to init avatar store: %v", err)
+	}
+
 	return &Handler{
 		db:               db,
 		process:          service.NewProcessor(db),
@@ -223,6 +230,7 @@ func NewHandler(db *gorm.DB) *Handler {
 		storageRouter:    storage.NewStorageRouter(db),
 		uploadBaseDir:    uploadDir,
 		uploadBaseURL:    uploadURL,
+		avatarStore:      avatarStore,
 	}
 }
 
@@ -242,6 +250,24 @@ func resolveUploadBaseDir() string {
 	}
 
 	return "./uploads"
+}
+
+// resolveAvatarDir 解析专用头像存储根目录。
+// 优先使用 SIAPP_AVATAR_DIR 环境变量（Docker 具名卷挂载点）；
+// 否则默认与数据库同目录下的 avatars 子目录。
+func resolveAvatarDir() string {
+	if dir := strings.TrimSpace(os.Getenv("SIAPP_AVATAR_DIR")); dir != "" {
+		return filepath.Clean(dir)
+	}
+	if dbPath := strings.TrimSpace(os.Getenv("SIAPP_DATABASE_PATH")); dbPath != "" {
+		if !filepath.IsAbs(dbPath) {
+			if abs, err := filepath.Abs(dbPath); err == nil {
+				dbPath = abs
+			}
+		}
+		return filepath.Join(filepath.Dir(dbPath), "avatars")
+	}
+	return "./data/avatars"
 }
 
 func resolveTemplateBaseDir() string {
@@ -344,10 +370,11 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 	// 档案管理
 	r.Route("/archives", func(ar chi.Router) {
-		ar.Get("/categories", h.listDocumentCategories)
-		ar.Post("/categories", h.createCategoryCode)
-		ar.Put("/categories/{categoryID}", h.updateCategoryCode)
-		ar.Delete("/categories/{categoryID}", h.deleteCategory)
+		// 一级分类配置（archives.view 读 / archives.create 增 / archives.edit 改 / archives.delete 删）
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/categories", h.listDocumentCategories)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/categories", h.createCategoryCode)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/categories/{categoryID}", h.updateCategoryCode)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/categories/{categoryID}", h.deleteCategory)
 		ar.Get("/documents", h.listDocuments)
 		ar.Post("/documents", h.createDocument)
 		ar.Put("/documents/{docID}", h.updateDocument)
@@ -362,49 +389,50 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		ar.Get("/reminder-settings", h.getExpirationReminderSettings)
 		ar.Put("/reminder-settings", h.updateExpirationReminderSettings)
 
-		// 档案字段定义管理
-		ar.Get("/field-groups", h.listFieldGroups)
-		ar.Post("/field-groups", h.createFieldGroup)
-		ar.Put("/field-groups/{groupID}", h.updateFieldGroup)
-		ar.Delete("/field-groups/{groupID}", h.deleteFieldGroup)
-		ar.Get("/field-definitions", h.listFieldDefinitions)
-		ar.Post("/field-definitions", h.createFieldDefinition)
-		ar.Put("/field-definitions/{fieldID}", h.updateFieldDefinition)
-		ar.Delete("/field-definitions/{fieldID}", h.deleteFieldDefinition)
-		ar.Get("/shared-fields", h.listSharedFields)
-		ar.Get("/sub-categories/{subCategoryID}/fields", h.getFieldsBySubCategory)
+		// 档案字段定义管理（archives.view 读 / archives.create 增 / archives.edit 改 / archives.delete 删）
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/field-groups", h.listFieldGroups)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/field-groups", h.createFieldGroup)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/field-groups/{groupID}", h.updateFieldGroup)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/field-groups/{groupID}", h.deleteFieldGroup)
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/field-definitions", h.listFieldDefinitions)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/field-definitions", h.createFieldDefinition)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/field-definitions/{fieldID}", h.updateFieldDefinition)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/field-definitions/{fieldID}", h.deleteFieldDefinition)
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/shared-fields", h.listSharedFields)
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/sub-categories/{subCategoryID}/fields", h.getFieldsBySubCategory)
 
-		// 二级分类管理
-		ar.Post("/sub-categories", h.createSubCategory)
-		ar.Put("/sub-categories/{subCategoryID}", h.updateSubCategoryCode)
-		ar.Delete("/sub-categories/{subCategoryID}", h.deleteSubCategory)
+		// 二级分类配置（archives.create 增 / archives.edit 改 / archives.delete 删）
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/sub-categories", h.createSubCategory)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/sub-categories/{subCategoryID}", h.updateSubCategoryCode)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/sub-categories/{subCategoryID}", h.deleteSubCategory)
 
-		// 保管期限配置
-		ar.Get("/retention-periods", h.listRetentionPeriods)
-		ar.Post("/retention-periods", h.createRetentionPeriod)
-		ar.Put("/retention-periods/{periodID}", h.updateRetentionPeriod)
-		ar.Delete("/retention-periods/{periodID}", h.deleteRetentionPeriod)
+		// 保管期限配置（archives.view 读 / archives.create 增 / archives.edit 改 / archives.delete 删）
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/retention-periods", h.listRetentionPeriods)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/retention-periods", h.createRetentionPeriod)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/retention-periods/{periodID}", h.updateRetentionPeriod)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/retention-periods/{periodID}", h.deleteRetentionPeriod)
 
-		// 存档地点配置
-		ar.Get("/storage-locations", h.listStorageLocations)
-		ar.Post("/storage-locations", h.createStorageLocation)
-		ar.Put("/storage-locations/{locationID}", h.updateStorageLocation)
-		ar.Delete("/storage-locations/{locationID}", h.deleteStorageLocation)
+		// 存档地点配置（archives.view 读 / archives.create 增 / archives.edit 改 / archives.delete 删）
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/storage-locations", h.listStorageLocations)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/storage-locations", h.createStorageLocation)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/storage-locations/{locationID}", h.updateStorageLocation)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/storage-locations/{locationID}", h.deleteStorageLocation)
 
-		// 编码规则配置
-		ar.Get("/code-rules", h.listCodeRules)
-		ar.Post("/code-rules", h.createCodeRule)
-		ar.Put("/code-rules/{ruleID}", h.updateCodeRule)
-		ar.Delete("/code-rules/{ruleID}", h.deleteCodeRule)
-		ar.Get("/code-rules/preview", h.getCodeRulePreview)
+		// 编码规则配置（archives.view 读 / archives.create 增 / archives.edit 改 / archives.delete 删）
+		// 注意：静态路径 /code-rules/preview 必须注册在参数路径 /code-rules/{ruleID} 之前
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/code-rules", h.listCodeRules)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/code-rules", h.createCodeRule)
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/code-rules/preview", h.getCodeRulePreview)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/code-rules/{ruleID}", h.updateCodeRule)
+		ar.With(middleware.RequirePermission(h.db, "archives", "delete")).Delete("/code-rules/{ruleID}", h.deleteCodeRule)
 
-		// 档案全局配置
-		ar.Get("/config", h.listArchiveConfig)
-		ar.Put("/config", h.updateArchiveConfig)
+		// 档案全局配置（archives.view 读 / archives.edit 写）
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/config", h.listArchiveConfig)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/config", h.updateArchiveConfig)
 
-		// 列配置管理
-		ar.Get("/column-config", h.listColumnConfig)
-		ar.Post("/column-config", h.saveColumnConfig)
+		// 列配置管理（archives.view 读 / archives.create 增 / archives.edit 改）
+		ar.With(middleware.RequirePermission(h.db, "archives", "view")).Get("/column-config", h.listColumnConfig)
+		ar.With(middleware.RequirePermission(h.db, "archives", "create")).Post("/column-config", h.saveColumnConfig)
 
 		// 标签管理（P1 — 知识组织）
 		ar.Get("/tags", h.listArchiveTags)
@@ -425,7 +453,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		ar.Put("/chunks/{chunkID}", h.updateDocumentChunk)
 		ar.Get("/chunks/{chunkID}/revisions", h.listChunkRevisions)
 		ar.Post("/chunks/{chunkID}/revert", h.revertDocumentChunk)
-		ar.Put("/column-config", h.saveColumnConfig)
+		ar.With(middleware.RequirePermission(h.db, "archives", "edit")).Put("/column-config", h.saveColumnConfig)
 	})
 
 	// OCR 服务
@@ -449,26 +477,32 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		kr.Delete("/sessions/{sessionID}", h.deleteSession)
 	})
 
-	// 模型配置
+	// 模型配置（系统设置：settings.view 读 / settings.create|edit|delete 写）
 	r.Route("/settings/models", func(mr chi.Router) {
-		mr.Get("/", h.ListModelConfigs)
-		mr.Post("/", h.CreateModelConfig)
-		mr.Get("/providers", h.ListBuiltInProviders)
-		mr.Get("/fetch-models", h.FetchModelsByEndpoint)
-		mr.Get("/usage", h.GetModelUsageStats)
-		mr.Get("/usage/trend", h.GetModelUsageTrend)
-		mr.Get("/usage/by-model", h.GetModelUsageByModel)
-		mr.Delete("/usage/cleanup", h.CleanupOldUsageLogs)
-		mr.Put("/{configId}", h.UpdateModelConfig)
-		mr.Delete("/{configId}", h.DeleteModelConfig)
-		mr.Post("/{configId}/test", h.TestModelConfig)
-		mr.Get("/{configId}/available-models", h.ListAvailableModels)
+		mr.Group(func(r chi.Router) {
+			r.Use(middleware.RequirePermission(h.db, "settings", "view"))
+			r.Get("/", h.ListModelConfigs)
+			r.Get("/providers", h.ListBuiltInProviders)
+			r.Get("/fetch-models", h.FetchModelsByEndpoint)
+			r.Get("/usage", h.GetModelUsageStats)
+			r.Get("/usage/trend", h.GetModelUsageTrend)
+			r.Get("/usage/by-model", h.GetModelUsageByModel)
+			r.Get("/{configId}/available-models", h.ListAvailableModels)
+		})
+		mr.With(middleware.RequirePermission(h.db, "settings", "create")).Post("/", h.CreateModelConfig)
+		mr.With(middleware.RequirePermission(h.db, "settings", "edit")).Put("/{configId}", h.UpdateModelConfig)
+		mr.With(middleware.RequirePermission(h.db, "settings", "delete")).Delete("/{configId}", h.DeleteModelConfig)
+		mr.With(middleware.RequirePermission(h.db, "settings", "edit")).Post("/{configId}/test", h.TestModelConfig)
+		mr.With(middleware.RequirePermission(h.db, "settings", "delete")).Delete("/usage/cleanup", h.CleanupOldUsageLogs)
 	})
 
 	// 全局搜索
 	r.Get("/search/global", h.globalSearch)
 
-	r.Route("/user", h.registerPreferenceRoutes)
+	r.Route("/user", func(ur chi.Router) {
+		h.registerPreferenceRoutes(ur)
+		h.registerAvatarRoutes(ur)
+	})
 
 	r.Route("/provident-fund", func(pr chi.Router) {
 		pr.Get("/records", h.listProvidentRecords)
@@ -509,43 +543,49 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	// 知识库管理（P8.2）
 	RegisterKnowledgeBaseRoutes(r, h.db, h.kbIngestService)
 
+	// RBAC 管理（rbac.manage 权限在注册函数内部挂载）
 	r.Route("/rbac", h.registerRolePermissionRoutes)
 	r.Route("/users", h.registerUserRoleRoutes)
 	r.Route("/departments", h.registerDepartmentRoutes)
 
-	// 系统配置 (管理员)
+	// 系统配置 (settings.view 读 / settings.edit 写，避免普通登录用户读取存储/SMTP 密钥配置)
 	r.Route("/admin", func(ar chi.Router) {
 		// 存储配置
-		ar.Get("/storage", h.getStorageConfig)
-		ar.Put("/storage", h.saveStorageConfig)
-		ar.Post("/storage/test", h.testStorageConnection)
+		ar.With(middleware.RequirePermission(h.db, "settings", "view")).Get("/storage", h.getStorageConfig)
+		ar.With(middleware.RequirePermission(h.db, "settings", "edit")).Put("/storage", h.saveStorageConfig)
+		ar.With(middleware.RequirePermission(h.db, "settings", "edit")).Post("/storage/test", h.testStorageConnection)
 
 		// SMTP配置
-		ar.Get("/smtp", h.getSMTPConfig)
-		ar.Put("/smtp", h.saveSMTPConfig)
-		ar.Post("/smtp/test", h.testSMTPConnection)
+		ar.With(middleware.RequirePermission(h.db, "settings", "view")).Get("/smtp", h.getSMTPConfig)
+		ar.With(middleware.RequirePermission(h.db, "settings", "edit")).Put("/smtp", h.saveSMTPConfig)
+		ar.With(middleware.RequirePermission(h.db, "settings", "edit")).Post("/smtp/test", h.testSMTPConnection)
 	})
 
 	r.Route("/admin/storage", func(sr chi.Router) {
-		sr.Get("/", h.listStorageConfigs)
-		sr.Post("/", h.createStorageConfig)
-		sr.Put("/{id}", h.updateStorageConfig)
-		sr.Delete("/{id}", h.deleteStorageConfig)
-		sr.Get("/{id}/status", h.getStorageStatus)
-		sr.Get("/{id}/capacity", h.getStorageCapacity)
-		sr.Post("/{id}/set-primary", h.setStoragePrimary)
-		sr.Post("/test", h.testStorageConnectionNew)
-		sr.Post("/directories", h.listStorageDirectories)
-		// 模块配置
-		sr.Get("/modules", h.listStorageModules)
-		sr.Post("/modules", h.createStorageModule)
-		sr.Put("/modules/{id}", h.updateStorageModule)
-		sr.Delete("/modules/{id}", h.deleteStorageModule)
-		sr.Get("/rules", h.listStorageRules)
-		sr.Post("/rules", h.createStorageRule)
-		sr.Put("/rules", h.updateStorageRules)
-		sr.Put("/rules/{id}", h.updateStorageRule)
-		sr.Delete("/rules/{id}", h.deleteStorageRule)
+		sr.Group(func(r chi.Router) {
+			r.Use(middleware.RequirePermission(h.db, "settings", "view"))
+			r.Get("/", h.listStorageConfigs)
+			r.Get("/{id}/status", h.getStorageStatus)
+			r.Get("/{id}/capacity", h.getStorageCapacity)
+			r.Get("/modules", h.listStorageModules)
+			r.Get("/rules", h.listStorageRules)
+		})
+		sr.Group(func(r chi.Router) {
+			r.Use(middleware.RequirePermission(h.db, "settings", "edit"))
+			r.Post("/", h.createStorageConfig)
+			r.Put("/{id}", h.updateStorageConfig)
+			r.Delete("/{id}", h.deleteStorageConfig)
+			r.Post("/{id}/set-primary", h.setStoragePrimary)
+			r.Post("/test", h.testStorageConnectionNew)
+			r.Post("/directories", h.listStorageDirectories)
+			r.Post("/modules", h.createStorageModule)
+			r.Put("/modules/{id}", h.updateStorageModule)
+			r.Delete("/modules/{id}", h.deleteStorageModule)
+			r.Post("/rules", h.createStorageRule)
+			r.Put("/rules", h.updateStorageRules)
+			r.Put("/rules/{id}", h.updateStorageRule)
+			r.Delete("/rules/{id}", h.deleteStorageRule)
+		})
 	})
 	// /notifications moved to main.go
 	r.Route("/periods/{periodID}", func(pr chi.Router) {

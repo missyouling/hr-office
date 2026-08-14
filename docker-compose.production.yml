@@ -28,11 +28,14 @@ services:
       - "${BACKEND_PORT:-8080}:8080"
     env_file:
       - .env.production  # 加载生产环境配置
+    environment:
+      - SIAPP_AVATAR_DIR=/app/data/avatars  # 用户头像专用存储（独立具名卷）
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - backend_data_prod:/app/data  # 生产环境数据持久化
+      - avatar_data_prod:/app/data/avatars  # 用户头像专用存储（独立卷）
       - ./logs:/app/logs  # 日志文件挂载
     restart: unless-stopped
     healthcheck:
@@ -138,6 +141,14 @@ volumes:
       type: none
       o: bind
       device: /var/lib/siapp/data
+
+  # 用户头像专用存储（独立卷，与通用上传目录隔离）
+  avatar_data_prod:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/siapp/avatars
 
 networks:
   # 生产环境网络

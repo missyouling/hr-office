@@ -14,10 +14,11 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { NavMain, type NavMainItem } from "@/components/layout/nav-main";
 import { NavDocuments } from "@/components/layout/nav-documents";
-import { NavUser } from "@/components/layout/nav-user";
+import { NavUser, type SettingsMode } from "@/components/layout/nav-user";
 
 const NAV_ITEMS: NavMainItem[] = [
   { id: "landing", label: "工作台", icon: Home },
@@ -37,10 +38,12 @@ const HELP_LINKS: [] = [];
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   currentView: string;
   onViewChange: (id: string) => void;
+  onOpenSettings: (mode: SettingsMode) => void;
 }
 
-export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarProps) {
+export function AppSidebar({ currentView, onViewChange, onOpenSettings, ...props }: AppSidebarProps) {
   const { user, hasPermission } = useAuth();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   const availableNavItems = NAV_ITEMS.filter((item) => {
     if (item.id === "organization" || item.id === "audit" || item.id === "monitoring") {
@@ -68,13 +71,25 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
     ...(showFeedback ? [FEEDBACK_ITEM] : []),
   ];
 
+  const handleViewChange = (id: string) => {
+    onViewChange(id);
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
   return (
-    <Sidebar collapsible="icon" variant="inset" className="relative" style={{ "--sidebar-width": "16rem", "--sidebar-width-icon": "3.5rem" } as React.CSSProperties} {...props}>
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-sidebar-border"
+      style={{ "--sidebar-width": "11.875rem", "--sidebar-width-icon": "4rem" } as React.CSSProperties}
+      {...props}
+    >
       <div className="flex h-full flex-col">
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild className="h-auto items-center gap-2 rounded-xl px-2 py-1.5">
+              <SidebarMenuButton asChild tooltip="人事行政管理系统" className="h-auto items-center gap-2 rounded-md px-2 py-1.5">
                 <Link href="/">
                   <SquareArrowUpRight className="h-5 w-5" />
                   <span className="rolling-text text-base font-semibold">
@@ -88,7 +103,7 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent className="flex-1 space-y-2">
-          <NavMain items={allNavItems} activeId={currentView} onSelect={onViewChange} />
+          <NavMain items={allNavItems} activeId={currentView} onSelect={handleViewChange} />
         </SidebarContent>
         <SidebarFooter className="mt-auto space-y-3 pb-6">
           <SidebarSeparator />
@@ -96,6 +111,10 @@ export function AppSidebar({ currentView, onViewChange, ...props }: AppSidebarPr
           <NavUser
             displayName={user?.full_name || user?.email || "未登录"}
             subLine={user?.email}
+            onOpenSettings={(mode) => {
+              onOpenSettings(mode);
+              if (isMobile) setOpenMobile(false);
+            }}
           />
         </SidebarFooter>
       </div>

@@ -4,12 +4,59 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
 
+	"siapp/internal/auth"
+	"siapp/internal/middleware"
 	"siapp/internal/models"
 )
+
+// systemRoleNames 系统内置角色名，禁止通过 API 创建同名角色（防止越权伪造系统角色）
+var systemRoleNames = map[string]bool{
+	"admin":       true,
+	"super_admin": true,
+	"manager":     true,
+	"editor":      true,
+	"viewer":      true,
+	"user":        true,
+}
+
+// isSystemRoleName 判断角色名是否为系统内置角色名
+func isSystemRoleName(name string) bool {
+	return systemRoleNames[strings.ToLower(strings.TrimSpace(name))]
+}
+
+// isAdminRoleName 判断角色名是否为管理员级角色（admin / super_admin）
+func isAdminRoleName(name string) bool {
+	return name == models.RoleAdmin || name == "super_admin"
+}
+
+// logRBACAudit 记录 RBAC 业务审计日志（含操作者与变更详情）
+func logRBACAudit(r *http.Request, action models.ActionType, resource string, resourceID *string, details map[string]interface{}) {
+	auditService := middleware.GetAuditServiceFromContext(r.Context())
+	if auditService == nil {
+		return
+	}
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		userID = 0
+	}
+	uid := &userID
+	auditService.LogAction(r.Context(), models.CreateAuditLogParams{
+		UserID:     uid,
+		Action:     action,
+		Resource:   resource,
+		ResourceID: resourceID,
+		Method:     r.Method,
+		Path:       r.URL.Path,
+		Status:     models.StatusSuccess,
+		StatusCode: http.StatusOK,
+		Details:    &models.LogDetails{Custom: details},
+	})
+}
 
 type rolePayload struct {
 	Name        string `json:"name"`
@@ -32,6 +79,8 @@ type userRolePayload struct {
 }
 
 func (h *Handler) registerRolePermissionRoutes(r chi.Router) {
+	// 全部 RBAC 路由需 rbac.manage 权限（防止普通用户管理角色/权限）
+	r.Use(middleware.RequirePermission(h.db, "rbac", "manage"))
 	r.Get("/roles", h.listRoles)
 	r.Post("/roles", h.createRole)
 	r.Put("/roles/{id}", h.updateRole)
@@ -67,6 +116,12 @@ func (h *Handler) createRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 禁止创建系统内置角色名（防止越权伪造系统角色）
+	if isSystemRoleName(payload.Name) {
+		respondError(w, http.StatusForbidden, "cannot create system role", nil)
+		return
+	}
+
 	role := models.Role{
 		Name:        payload.Name,
 		Label:       payload.Label,
@@ -78,6 +133,12 @@ func (h *Handler) createRole(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to create role", err)
 		return
 	}
+
+	roleIDStr := strconv.FormatUint(uint64(role.ID), 10)
+	logRBACAudit(r, models.ActionRoleCreate, "roles", &roleIDStr, map[string]interface{}{
+		"name":  role.Name,
+		"label": role.Label,
+	})
 
 	writeJSON(w, role)
 }
@@ -117,6 +178,11 @@ func (h *Handler) updateRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.db.First(&role, id)
+	roleIDStr := strconv.FormatUint(id, 10)
+	logRBACAudit(r, models.ActionRoleUpdate, "roles", &roleIDStr, map[string]interface{}{
+		"label":       role.Label,
+		"description": role.Description,
+	})
 	writeJSON(w, role)
 }
 
@@ -143,6 +209,11 @@ func (h *Handler) deleteRole(w http.ResponseWriter, r *http.Request) {
 		tx.Where("role_id = ?", id).Delete(&models.UserRole{})
 		tx.Delete(&role)
 		return nil
+	})
+
+	roleIDStr := strconv.FormatUint(id, 10)
+	logRBACAudit(r, models.ActionRoleDelete, "roles", &roleIDStr, map[string]interface{}{
+		"name": role.Name,
 	})
 
 	writeJSON(w, map[string]string{"message": "deleted"})
@@ -191,12 +262,30 @@ func (h *Handler) updateRolePermissions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// PermissionIDs 必须全部存在，防止写入无效权限关联
+	if len(payload.PermissionIDs) > 0 {
+		var count int64
+		if err := h.db.Model(&models.Permission{}).Where("id IN ?", payload.PermissionIDs).Count(&count).Error; err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to validate permissions", err)
+			return
+		}
+		if count != int64(len(payload.PermissionIDs)) {
+			respondError(w, http.StatusBadRequest, "some permission ids do not exist", nil)
+			return
+		}
+	}
+
 	h.db.Transaction(func(tx *gorm.DB) error {
 		tx.Where("role_id = ?", id).Delete(&models.RolePermission{})
 		for _, permID := range payload.PermissionIDs {
 			tx.Create(&models.RolePermission{RoleID: uint(id), PermissionID: permID})
 		}
 		return nil
+	})
+
+	roleIDStr := strconv.FormatUint(id, 10)
+	logRBACAudit(r, models.ActionRolePermUpdate, "roles", &roleIDStr, map[string]interface{}{
+		"permission_ids": payload.PermissionIDs,
 	})
 
 	writeJSON(w, map[string]string{"message": "permissions updated"})
@@ -230,6 +319,12 @@ func (h *Handler) createPermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	permIDStr := strconv.FormatUint(uint64(permission.ID), 10)
+	logRBACAudit(r, models.ActionPermissionCreate, "permissions", &permIDStr, map[string]interface{}{
+		"module": permission.Module,
+		"action": permission.Action,
+	})
+
 	writeJSON(w, permission)
 }
 
@@ -240,18 +335,42 @@ func (h *Handler) deletePermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var permission models.Permission
+	if err := h.db.First(&permission, id).Error; err != nil {
+		respondError(w, http.StatusNotFound, "permission not found", err)
+		return
+	}
+
+	// 系统权限保护：被任一角色引用的权限不可删除（种子权限均被 admin 角色引用）
+	var refCount int64
+	if err := h.db.Model(&models.RolePermission{}).Where("permission_id = ?", id).Count(&refCount).Error; err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to check permission usage", err)
+		return
+	}
+	if refCount > 0 {
+		respondError(w, http.StatusForbidden, "cannot delete permission in use by roles", nil)
+		return
+	}
+
 	h.db.Transaction(func(tx *gorm.DB) error {
 		tx.Where("permission_id = ?", id).Delete(&models.RolePermission{})
 		tx.Delete(&models.Permission{}, id)
 		return nil
 	})
 
+	permIDStr := strconv.FormatUint(id, 10)
+	logRBACAudit(r, models.ActionPermissionDelete, "permissions", &permIDStr, map[string]interface{}{
+		"module": permission.Module,
+		"action": permission.Action,
+	})
+
 	writeJSON(w, map[string]string{"message": "deleted"})
 }
 
 func (h *Handler) registerUserRoleRoutes(r chi.Router) {
-	r.Post("/{id}/roles", h.assignUserRoles)
-	r.Get("/{id}/roles", h.getUserRoles)
+	// 查看用户角色需 users.view；分配角色属 RBAC 敏感操作需 rbac.manage
+	r.With(middleware.RequirePermission(h.db, "users", "view")).Get("/{id}/roles", h.getUserRoles)
+	r.With(middleware.RequirePermission(h.db, "rbac", "manage")).Post("/{id}/roles", h.assignUserRoles)
 }
 
 func (h *Handler) assignUserRoles(w http.ResponseWriter, r *http.Request) {
@@ -292,6 +411,36 @@ func (h *Handler) assignUserRoles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 角色自锁保护：操作者不能移除自己的最后管理员角色
+	operatorID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "unauthorized", err)
+		return
+	}
+	if uint(userID) == operatorID {
+		hasAdminNow := userHasAdminRole(h.db, uint(userID))
+		hasAdminAfter := roleIDsContainAdmin(h.db, validRoleIDs)
+		if hasAdminNow && !hasAdminAfter {
+			respondError(w, http.StatusForbidden, "cannot remove your own last admin role", nil)
+			return
+		}
+	}
+
+	// 最后管理员保护：禁止移除系统中最后一个 admin/super_admin 用户的管理员角色
+	targetHasAdmin := userHasAdminRole(h.db, uint(userID))
+	if targetHasAdmin && !roleIDsContainAdmin(h.db, validRoleIDs) {
+		var otherAdminCount int64
+		h.db.Model(&models.Role{}).
+			Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+			Where("roles.name IN ? AND user_roles.user_id != ?", []string{models.RoleAdmin, "super_admin"}, userID).
+			Distinct("user_roles.user_id").
+			Count(&otherAdminCount)
+		if otherAdminCount == 0 {
+			respondError(w, http.StatusForbidden, "cannot remove the last admin user", nil)
+			return
+		}
+	}
+
 	h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&models.UserRole{}).Error; err != nil {
 			return err
@@ -304,10 +453,37 @@ func (h *Handler) assignUserRoles(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
+	userIDStr := strconv.FormatUint(userID, 10)
+	logRBACAudit(r, models.ActionUserRoleUpdate, "users", &userIDStr, map[string]interface{}{
+		"role_ids": validRoleIDs,
+	})
+
 	writeJSON(w, map[string]interface{}{
 		"message":  "roles updated",
 		"role_ids": validRoleIDs,
 	})
+}
+
+// userHasAdminRole 判断用户是否拥有 admin / super_admin 角色
+func userHasAdminRole(db *gorm.DB, userID uint) bool {
+	var count int64
+	db.Model(&models.Role{}).
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND roles.name IN ?", userID, []string{models.RoleAdmin, "super_admin"}).
+		Count(&count)
+	return count > 0
+}
+
+// roleIDsContainAdmin 判断角色 ID 列表中是否包含 admin / super_admin 角色
+func roleIDsContainAdmin(db *gorm.DB, roleIDs []uint) bool {
+	if len(roleIDs) == 0 {
+		return false
+	}
+	var count int64
+	db.Model(&models.Role{}).
+		Where("id IN ? AND name IN ?", roleIDs, []string{models.RoleAdmin, "super_admin"}).
+		Count(&count)
+	return count > 0
 }
 
 func (h *Handler) getUserRoles(w http.ResponseWriter, r *http.Request) {
@@ -349,12 +525,13 @@ type departmentMemberPayload struct {
 }
 
 func (h *Handler) registerDepartmentRoutes(r chi.Router) {
-	r.Get("/", h.listDepartments)
-	r.Post("/", h.createDepartment)
-	r.Put("/{id}", h.updateDepartment)
-	r.Delete("/{id}", h.deleteDepartment)
-	r.Post("/{id}/members", h.assignUserToDepartment)
-	r.Get("/{id}/members", h.listDepartmentMembers)
+	// 查看部门需 users.view；写操作属 RBAC 敏感操作需 rbac.manage
+	r.With(middleware.RequirePermission(h.db, "users", "view")).Get("/", h.listDepartments)
+	r.With(middleware.RequirePermission(h.db, "rbac", "manage")).Post("/", h.createDepartment)
+	r.With(middleware.RequirePermission(h.db, "rbac", "manage")).Put("/{id}", h.updateDepartment)
+	r.With(middleware.RequirePermission(h.db, "rbac", "manage")).Delete("/{id}", h.deleteDepartment)
+	r.With(middleware.RequirePermission(h.db, "rbac", "manage")).Post("/{id}/members", h.assignUserToDepartment)
+	r.With(middleware.RequirePermission(h.db, "users", "view")).Get("/{id}/members", h.listDepartmentMembers)
 }
 
 // listDepartments 获取部门列表（支持按 UserID 多租户过滤）

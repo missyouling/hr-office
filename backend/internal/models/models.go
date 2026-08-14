@@ -38,12 +38,13 @@ type User struct {
 	ID              uint       `json:"id" gorm:"primaryKey"`
 	Username        string     `json:"username" gorm:"uniqueIndex;not null"`
 	Email           string     `json:"email" gorm:"uniqueIndex;not null"`
-	Password        string     `json:"-" gorm:"not null"` // Password hash, never returned in JSON
+	SupabaseUID     string     `json:"supabase_uid,omitempty" gorm:"size:64;uniqueIndex,where:supabase_uid <> ''"` // Supabase 外部身份标识（UUID），空表示纯本地用户；部分唯一索引：空值允许多个，非空唯一
+	Password        string     `json:"-" gorm:"not null"`                                                          // Password hash, never returned in JSON
 	FullName        string     `json:"full_name"`
 	CompanyID       string     `json:"company_id" gorm:"index"`
 	Department      string     `json:"department" gorm:"size:150"` // 所属部门（用于数据隔离）
 	DepartmentID    *uint      `json:"department_id" gorm:"index"` // 部门ID（关联Department表，用于部门级数据隔离）
-	Role            string     `json:"-" gorm:"-"` // 【已废弃】改用 user_roles 关联表。字段保留仅为迁移脚本兼容，GORM 不读写，JSON 不输出
+	Role            string     `json:"-" gorm:"-"`                 // 【已废弃】改用 user_roles 关联表。字段保留仅为迁移脚本兼容，GORM 不读写，JSON 不输出
 	Active          bool       `json:"active" gorm:"default:true"`
 	EmailVerified   bool       `json:"email_verified" gorm:"default:false;index"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
@@ -151,6 +152,12 @@ type PasswordResetConfirmRequest struct {
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"required,min=6"`
+}
+
+// UpdateProfileRequest 是资料更新请求的严格白名单：本期仅允许修改 full_name。
+// 处理端使用 DisallowUnknownFields 解码，请求体出现任何其他字段（username/email/id 等）一律拒绝。
+type UpdateProfileRequest struct {
+	FullName string `json:"full_name"`
 }
 
 // EmailVerificationToken represents an email verification token

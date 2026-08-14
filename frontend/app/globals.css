@@ -119,6 +119,12 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  .app-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
   .rolling-text {
     position: relative;
     display: inline-block;

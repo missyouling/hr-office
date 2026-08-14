@@ -89,8 +89,12 @@ function getTimeLabel(dateStr: string): string {
 
 // ─── 主组件 ──────────────────────────────────────────────
 
-export function ChatPanel() {
-  const [isOpen, setIsOpen] = useState(false);
+type ChatPanelProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
+export function ChatPanel({ open, onOpenChange }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -132,12 +136,12 @@ export function ChatPanel() {
 
   // 打开面板时加载会话列表
   useEffect(() => {
-    if (isOpen) {
+    if (open) {
       loadSessions();
       // 自动聚焦输入框
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [isOpen, loadSessions]);
+  }, [open, loadSessions]);
 
   // 拉取当前用户可见的知识库列表
   useEffect(() => {
@@ -352,28 +356,14 @@ export function ChatPanel() {
     });
   }, [sessions]);
 
-  // ─── 浮动触发按钮 ──────────────────────────────────────
-
-  if (!isOpen) {
-    return (
-      <div className="fixed bottom-6 right-6 z-40">
-        <Button
-          onClick={() => setIsOpen(true)}
-          size="lg"
-          className="rounded-full w-14 h-14 shadow-lg bg-primary hover:bg-primary/90 transition-all hover:scale-105 active:scale-95"
-        >
-          <MessageSquare className="w-6 h-6" />
-        </Button>
-      </div>
-    );
-  }
+  if (!open) return null;
 
   return (
     <>
       {/* 背景遮罩 */}
       <div
         className="fixed inset-0 bg-black/20 z-40 transition-opacity"
-        onClick={() => setIsOpen(false)}
+        onClick={() => onOpenChange(false)}
       />
 
       {/* 侧滑面板 */}
@@ -406,8 +396,9 @@ export function ChatPanel() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setIsOpen(false)}
+              onClick={() => onOpenChange(false)}
               className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+              aria-label="关闭 AI 助手"
             >
               <X className="w-4 h-4" />
             </Button>

@@ -72,6 +72,14 @@ func seedRBAC(db *gorm.DB) error {
 		{Module: "users", Action: "create", Label: "创建", SortOrder: 71},
 		{Module: "users", Action: "edit", Label: "编辑", SortOrder: 72},
 		{Module: "users", Action: "delete", Label: "删除", SortOrder: 73},
+		// 日志管理（P5 新增：日志查看 / 备份清理告警管理）
+		{Module: "logs", Action: "view", Label: "查看日志", SortOrder: 74},
+		{Module: "logs", Action: "manage", Label: "备份/清理/告警管理", SortOrder: 75},
+		// 通知配置（P5 新增：查看 / 管理+发送测试）
+		{Module: "notifications", Action: "view", Label: "查看通知配置", SortOrder: 76},
+		{Module: "notifications", Action: "manage", Label: "管理通知配置与发送", SortOrder: 77},
+		// RBAC 管理（P5 新增：角色/权限/用户角色/部门管理）
+		{Module: "rbac", Action: "manage", Label: "角色权限管理", SortOrder: 78},
 		// 发票管理
 		{Module: "invoice", Action: "view", Label: "查看", SortOrder: 80},
 		{Module: "invoice", Action: "create", Label: "创建", SortOrder: 81},
@@ -119,6 +127,7 @@ func seedRBAC(db *gorm.DB) error {
 			"settings-view",
 			"backups-view",
 			"users-view",
+			"logs-view",
 			"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
 			"invoice-submit", "invoice-approve", "invoice-reject",
 		}
@@ -136,6 +145,7 @@ func seedRBAC(db *gorm.DB) error {
 			"announcements-view", "announcements-edit",
 			"settings-view",
 			"backups-view",
+			"logs-view",
 			"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
 			"invoice-submit",
 		}

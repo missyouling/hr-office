@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"siapp/internal/auth"
+	"siapp/internal/middleware"
 	"siapp/internal/models"
 	"siapp/internal/service"
 	"siapp/internal/supabase"
@@ -261,9 +262,9 @@ func (h *AuditHandler) CleanupOldLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := map[string]interface{}{
-		"message":      "Old audit logs cleaned up successfully",
-		"days_kept":    daysToKeep,
-		"cleaned_at":   time.Now(),
+		"message":    "Old audit logs cleaned up successfully",
+		"days_kept":  daysToKeep,
+		"cleaned_at": time.Now(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -271,12 +272,13 @@ func (h *AuditHandler) CleanupOldLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // RegisterAuditRoutes registers audit-related routes
+// 审计日志查看需 logs.view；清理需 logs.manage；用户个人活动统计（stats/user）不挂系统设置权限
 func (h *AuditHandler) RegisterAuditRoutes(r chi.Router) {
 	r.Route("/audit", func(r chi.Router) {
-		r.Get("/logs", h.GetAuditLogs)
-		r.Get("/logs/{id}", h.GetAuditLogDetails)
+		r.With(middleware.RequirePermission(h.db, "logs", "view")).Get("/logs", h.GetAuditLogs)
+		r.With(middleware.RequirePermission(h.db, "logs", "view")).Get("/logs/{id}", h.GetAuditLogDetails)
 		r.Get("/stats/user", h.GetUserActivityStats)
-		r.Get("/stats/system", h.GetSystemActivityStats)
-		r.Post("/cleanup", h.CleanupOldLogs)
+		r.With(middleware.RequirePermission(h.db, "logs", "view")).Get("/stats/system", h.GetSystemActivityStats)
+		r.With(middleware.RequirePermission(h.db, "logs", "manage")).Post("/cleanup", h.CleanupOldLogs)
 	})
 }

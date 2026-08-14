@@ -3,6 +3,41 @@ export type ColumnMapPreference<T extends string> = {
   visibility?: Record<T, boolean>;
 };
 
+export type DockPosition = {
+  left: number;
+  top: number;
+};
+
+export const DOCK_SAFE_PADDING = 8;
+
+export function clampDockPosition(
+  position: DockPosition,
+  viewport: { width: number; height: number },
+  dockSize: { width: number; height: number },
+  padding = DOCK_SAFE_PADDING,
+): DockPosition {
+  const maxLeft = Math.max(padding, viewport.width - dockSize.width - padding);
+  const maxTop = Math.max(padding, viewport.height - dockSize.height - padding);
+  return {
+    left: Math.min(Math.max(position.left, padding), maxLeft),
+    top: Math.min(Math.max(position.top, padding), maxTop),
+  };
+}
+
+export function parseDockPosition(raw: unknown): DockPosition | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const candidate = raw as { left?: unknown; top?: unknown };
+  if (typeof candidate.left !== "number" || !Number.isFinite(candidate.left)) {
+    return null;
+  }
+  if (typeof candidate.top !== "number" || !Number.isFinite(candidate.top)) {
+    return null;
+  }
+  return { left: candidate.left, top: candidate.top };
+}
+
 export type ColumnListPreference<T extends string> = {
   order?: T[];
   visible?: T[];

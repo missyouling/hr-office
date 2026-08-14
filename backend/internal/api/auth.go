@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -367,6 +368,58 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(newAuthUserPayload(user, permissions))
 }
 
+// UpdateProfile 更新当前用户资料（PATCH /auth/profile）。
+// 严格白名单：请求体仅允许 full_name 字段，其他字段（username/email/id 等）一律 400 拒绝；
+// 用户身份只从认证上下文获取，不接受请求体传入用户 ID。
+func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 严格解码：未知字段（越权字段注入）直接拒绝，非法 JSON 同样拒绝
+	var req models.UpdateProfileRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, `{"error":"无效的请求内容"}`, http.StatusBadRequest)
+		return
+	}
+
+	fullName := strings.TrimSpace(req.FullName)
+	if fullName == "" || len(fullName) > 100 {
+		http.Error(w, `{"error":"姓名长度必须在1-100个字符之间"}`, http.StatusBadRequest)
+		return
+	}
+
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		http.Error(w, `{"error":"User not found"}`, http.StatusNotFound)
+		return
+	}
+
+	// 白名单更新：仅更新 full_name 列，避免 GORM 全字段保存覆盖其他字段
+	if err := h.db.Model(&user).Update("full_name", fullName).Error; err != nil {
+		http.Error(w, `{"error":"更新资料失败"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 重新加载最新数据后返回现有安全用户响应结构
+	if err := h.db.First(&user, userID).Error; err != nil {
+		http.Error(w, `{"error":"User not found"}`, http.StatusNotFound)
+		return
+	}
+
+	permissions, err := loadUserPermissions(h.db, user.ID)
+	if err != nil {
+		permissions = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(newAuthUserPayload(user, permissions))
+}
+
 // Logout handles user logout — 吊销所有 refresh token，access token 等自然过期
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r.Context())
@@ -409,12 +462,16 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use password reset service to change password
+	// 修改密码（服务内同库事务：更新密码 + 吊销该用户所有未过期 refresh token）
 	if err := h.passwordResetService.ChangePassword(userID, req.CurrentPassword, req.NewPassword); err != nil {
-		if err == service.ErrInvalidCurrentPassword {
-			http.Error(w, `{"error":"Current password is incorrect"}`, http.StatusBadRequest)
-		} else {
-			http.Error(w, `{"error":"Failed to change password"}`, http.StatusInternalServerError)
+		switch {
+		case errors.Is(err, service.ErrInvalidCurrentPassword):
+			http.Error(w, `{"error":"当前密码不正确"}`, http.StatusBadRequest)
+		case errors.Is(err, service.ErrPasswordManagedExternally):
+			http.Error(w, `{"error":"该账号由外部身份认证管理，密码需在外部系统修改"}`, http.StatusBadRequest)
+		default:
+			// 不泄露内部错误细节
+			http.Error(w, `{"error":"修改密码失败"}`, http.StatusInternalServerError)
 		}
 		return
 	}
@@ -429,7 +486,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Password changed successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": "密码修改成功"})
 }
 
 // validateRegistration validates the registration request

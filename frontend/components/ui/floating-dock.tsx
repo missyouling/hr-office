@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState, memo } from "react";
-import { PanelLeft } from "lucide-react";
+import { GripVertical, PanelLeft } from "lucide-react";
 import { AnimatePresence, MotionValue, motion, useMotionValue, useSpring, useTransform } from "motion/react";
 
 import { cn } from "@/lib/utils";
+import type { DockPosition } from "@/lib/preferences";
 
 type DockItem = {
   title: string;
@@ -20,15 +21,24 @@ export function FloatingDock({
   desktopClassName,
   mobileClassName,
   mobileButtonClassName,
+  desktopPosition,
+  onDesktopPositionChange,
 }: {
   items: DockItem[];
   desktopClassName?: string;
   mobileClassName?: string;
   mobileButtonClassName?: string;
+  desktopPosition?: DockPosition;
+  onDesktopPositionChange?: (position: DockPosition) => void;
 }) {
   return (
     <>
-      <FloatingDockDesktop items={items} className={desktopClassName} />
+      <FloatingDockDesktop
+        items={items}
+        className={desktopClassName}
+        position={desktopPosition}
+        onPositionChange={onDesktopPositionChange}
+      />
       <FloatingDockMobile items={items} className={mobileClassName} buttonClassName={mobileButtonClassName} />
     </>
   );
@@ -67,6 +77,7 @@ const FloatingDockMobile = memo(
                     <button
                       type="button"
                       onClick={item.onClick}
+                      aria-label={item.title}
                       className={cn(
                         "flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground shadow relative",
                         buttonClassName,
@@ -90,6 +101,7 @@ const FloatingDockMobile = memo(
           onClick={toggleOpen}
           className={cn("flex h-8 w-8 items-center justify-center rounded-full bg-muted shadow", buttonClassName)}
           aria-expanded={open}
+          aria-label="展开管理 Dock"
         >
           <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.3, ease: "easeInOut" }}>
             <PanelLeft className="h-4 w-4" />
@@ -101,19 +113,69 @@ const FloatingDockMobile = memo(
 );
 FloatingDockMobile.displayName = "FloatingDockMobile";
 
-const FloatingDockDesktop = memo(({ items, className }: { items: DockItem[]; className?: string }) => {
+const FloatingDockDesktop = memo(({
+  items,
+  className,
+  position,
+  onPositionChange,
+}: {
+  items: DockItem[];
+  className?: string;
+  position?: DockPosition;
+  onPositionChange?: (position: DockPosition) => void;
+}) => {
   const mouseX = useMotionValue(Infinity);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
     mouseX.set(event.pageX);
   }, [mouseX]);
   const handleMouseLeave = useCallback(() => mouseX.set(Infinity), [mouseX]);
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!position || !onPositionChange) return;
+    const element = dockRef.current;
+    if (!element) return;
+    dragRef.current = { x: event.clientX, y: event.clientY, left: position.left, top: position.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [onPositionChange, position]);
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const element = dockRef.current;
+    if (!drag || !element || !onPositionChange) return;
+    const maxLeft = Math.max(8, window.innerWidth - element.offsetWidth - 8);
+    const maxTop = Math.max(8, window.innerHeight - element.offsetHeight - 8);
+    onPositionChange({
+      left: Math.min(Math.max(drag.left + event.clientX - drag.x, 8), maxLeft),
+      top: Math.min(Math.max(drag.top + event.clientY - drag.y, 8), maxTop),
+    });
+  }, [onPositionChange]);
+  const handlePointerUp = useCallback(() => { dragRef.current = null; }, []);
+  // 拖动手柄：仅手柄启动拖动，按钮点击保持原行为；移动端隐藏（md:flex）
+  const dragHandle = position && onPositionChange ? (
+    <div
+      data-dock-drag-handle
+      aria-label="拖动 Dock"
+      role="separator"
+      title="拖动 Dock"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      className="mr-1 hidden touch-none cursor-grab select-none items-center justify-center self-stretch rounded-md px-1 text-muted-foreground/70 transition-colors hover:text-foreground active:cursor-grabbing md:flex"
+    >
+      <GripVertical className="h-4 w-4" />
+    </div>
+  ) : null;
 
   return (
     <motion.div
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className={cn("mx-auto hidden h-12 items-end gap-2 rounded-xl bg-background/70 backdrop-blur-md border border-border/60 px-2 pb-2 md:flex shadow-lg shadow-black/10 dark:shadow-white/5", className)}
+      ref={dockRef}
+      data-floating-dock
+      style={position ? { left: position.left, top: position.top } : undefined}
+      className={cn("hidden h-12 items-end gap-2 rounded-xl bg-background/70 backdrop-blur-md border border-border/60 px-2 pb-2 md:flex shadow-lg shadow-black/10 dark:shadow-white/5", position && "fixed", className)}
     >
+      {dragHandle}
       {items.map((item) => (
         <IconContainer mouseX={mouseX} key={item.title} {...item} />
       ))}
@@ -180,7 +242,7 @@ const IconContainer = memo(({ mouseX, title, icon, href, onClick, badge }: DockI
   }
 
   return (
-    <button type="button" onClick={onClick} className="relative">
+    <button type="button" onClick={onClick} className="relative" aria-label={title}>
       {content}
     </button>
   );

@@ -228,8 +228,10 @@ function processQueue(error: unknown, token: string | null = null) {
 /**
  * 带 401 自动刷新的 fetch 包装器
  * 仅用于非认证端点的 API 调用，避免 /auth/login、/auth/register、/auth/refresh 死循环
+ * 导出供需要读取二进制（Blob）响应的模块复用（如头像加载），
+ * 这些请求无法走 request<T>（其固定解析 JSON）。
  */
-async function fetchWithAuth(input: RequestInfo, init?: RequestInit): Promise<Response> {
+export async function fetchWithAuth(input: RequestInfo, init?: RequestInit): Promise<Response> {
   const token = localStorage.getItem("token")
   // 合并现有 headers，添加 Authorization
   const baseHeaders: Record<string, string> = {}
@@ -287,7 +289,11 @@ async function fetchWithAuth(input: RequestInfo, init?: RequestInit): Promise<Re
 /** 需要排除 401 自动刷新的认证端点（避免死循环） */
 const AUTH_ENDPOINT_PREFIXES = ["/auth/login", "/auth/register", "/auth/refresh"]
 
-async function request<T>(
+/**
+ * 通用 JSON 请求封装：自动携带 Bearer token，401 时自动刷新后重试。
+ * 导出供需要复用该逻辑的模块使用（如头像上传/恢复默认）。
+ */
+export async function request<T>(
   path: string,
   init?: RequestInit,
   expectJson = true,
@@ -1609,6 +1615,15 @@ export async function changePassword(currentPassword: string, newPassword: strin
       current_password: currentPassword,
       new_password: newPassword
     }),
+  });
+}
+
+/** 更新当前用户可编辑的个人资料。接口契约仅允许提交姓名。 */
+export async function updateUserProfile(fullName: string): Promise<AuthUserPayload> {
+  return request<AuthUserPayload>("/auth/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ full_name: fullName }),
   });
 }
 

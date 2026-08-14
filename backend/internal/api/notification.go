@@ -11,13 +11,16 @@ import (
 	"siapp/internal/service"
 )
 
-
-
 func (h *Handler) ListNotificationConfigs(w http.ResponseWriter, r *http.Request) {
 	var configs []models.NotificationConfig
 	if err := h.db.Order("channel, created_at DESC").Find(&configs).Error; err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load configs", err)
 		return
+	}
+
+	// 脱敏：Config JSON 中的 token/secret 不返回原文
+	for i := range configs {
+		maskNotificationConfig(&configs[i])
 	}
 
 	respondJSON(w, http.StatusOK, configs)
@@ -73,6 +76,7 @@ func (h *Handler) CreateNotificationConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	maskNotificationConfig(&config)
 	respondJSON(w, http.StatusOK, config)
 }
 
@@ -84,6 +88,7 @@ func (h *Handler) GetNotificationConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	maskNotificationConfig(&config)
 	respondJSON(w, http.StatusOK, config)
 }
 
@@ -138,6 +143,7 @@ func (h *Handler) UpdateNotificationConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	maskNotificationConfig(&config)
 	respondJSON(w, http.StatusOK, config)
 }
 

@@ -1,9 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import React from "react";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import type { User } from "@/lib/types";
 import InvoiceManagement from "./InvoiceManagement";
+
+// ========== next/navigation Mock（导出 router 供卸载保护测试断言） ==========
+// 覆盖 vitest.setup.ts 的同名 mock；useRouter 保持返回稳定单例（避免无限重渲染）
+const { router } = vi.hoisted(() => {
+  const router = {
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  };
+  return { router };
+});
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => router,
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 // ========== 子组件 Mock（聚焦页签门控逻辑，避免真实渲染副作用） ==========
 
@@ -19,6 +37,7 @@ vi.mock("./upload/InvoiceUploadWorkbench", () => ({
 
 beforeEach(() => {
   localStorage.clear();
+  router.push.mockClear();
 });
 
 // ========== 辅助函数 ==========
@@ -127,5 +146,79 @@ describe("InvoiceManagement 页签门控（后端无 user.role，仅扁平 permi
     expect(tabByRole("归档管理")).toBeInTheDocument();
     expect(tabByRole("统计分析")).toBeInTheDocument();
     expect(tabByRole("待审批")).not.toBeInTheDocument();
+  });
+});
+
+// ========== AuthProvider 卸载后异步初始化保护 ==========
+
+describe("AuthProvider 卸载后异步初始化保护", () => {
+  /** 预置 token+user，使 initAuth 走 validateToken 异步分支 */
+  function seedStoredAuth() {
+    localStorage.setItem("token", "fake-token");
+    localStorage.setItem("user", JSON.stringify(createUser(["invoice.view"])));
+  }
+
+  it("卸载后异步初始化成功完成时不更新状态、不触发跳转", async () => {
+    seedStoredAuth();
+
+    // 可控 fetch：挂起直到测试主动 resolve，模拟慢网络下异步 initAuth 未完成
+    let resolveFetch!: (value: Response) => void;
+    const fetchMock = vi.fn(
+      () => new Promise<Response>((resolve) => { resolveFetch = resolve; }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(
+      <AuthProvider>
+        <div>auth-child</div>
+      </AuthProvider>,
+    );
+
+    // 立即卸载，模拟测试结束后 RTL auto-cleanup
+    unmount();
+
+    // 异步 initAuth 完成：fetch 成功返回用户数据
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        user: { id: 1, username: "u", email: "e", full_name: "f", active: true },
+        permissions: [],
+      }),
+    } as unknown as Response);
+
+    // 等待异步链完成；若卸载后仍更新状态/跳转，将产生未处理错误或 router.push 调用
+    await act(async () => {});
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it("卸载后异步初始化认证失败时不触发登出跳转", async () => {
+    seedStoredAuth();
+
+    // 可控 fetch：挂起直到测试主动 reject
+    let rejectFetch!: (reason: Error) => void;
+    const fetchMock = vi.fn(
+      () => new Promise<Response>((_, reject) => { rejectFetch = reject; }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(
+      <AuthProvider>
+        <div>auth-child</div>
+      </AuthProvider>,
+    );
+
+    unmount();
+
+    // 异步 initAuth 完成：fetch 以认证错误失败（非网络错误 → 修复前会触发 logout 跳转）
+    rejectFetch(new Error("[401] unauthorized"));
+
+    await act(async () => {});
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 卸载后不应触发登出跳转
+    expect(router.push).not.toHaveBeenCalled();
   });
 });

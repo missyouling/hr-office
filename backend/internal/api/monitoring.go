@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"siapp/internal/auth"
+	"siapp/internal/middleware"
 	"siapp/internal/service"
 )
 
@@ -126,8 +127,8 @@ func (h *MonitoringHandler) RunMaintenance(w http.ResponseWriter, r *http.Reques
 	}
 
 	result := map[string]interface{}{
-		"message":    "Maintenance tasks completed successfully",
-		"timestamp":  time.Now(),
+		"message":   "Maintenance tasks completed successfully",
+		"timestamp": time.Now(),
 		"tasks_run": []string{
 			"cleanup_expired_password_reset_tokens",
 			"cleanup_expired_email_verification_tokens",
@@ -191,9 +192,9 @@ func (h *MonitoringHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 		"name":        "人事行政管理系统 (hr-office)",
 		"version":     "1.0.0",
 		"build_time":  time.Now().Format(time.RFC3339), // Should be set at build time
-		"git_commit":  "latest",                         // Should be set at build time
-		"go_version":  "go1.21",                         // Should be runtime.Version()
-		"environment": "development",                     // Should be from config
+		"git_commit":  "latest",                        // Should be set at build time
+		"go_version":  "go1.21",                        // Should be runtime.Version()
+		"environment": "development",                   // Should be from config
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -210,11 +211,12 @@ func (h *MonitoringHandler) RegisterMonitoringRoutes(r chi.Router) {
 }
 
 // RegisterProtectedMonitoringRoutes registers protected monitoring routes
+// 读操作（metrics/database/info）需 settings.view；维护操作（maintenance）需 settings.edit
 func (h *MonitoringHandler) RegisterProtectedMonitoringRoutes(r chi.Router) {
 	r.Route("/monitoring", func(r chi.Router) {
-		r.Get("/metrics", h.GetSystemMetrics)
-		r.Get("/database", h.GetDatabaseStatus)
-		r.Get("/info", h.GetSystemInfo)
-		r.Post("/maintenance", h.RunMaintenance)
+		r.With(middleware.RequirePermission(h.db, "settings", "view")).Get("/metrics", h.GetSystemMetrics)
+		r.With(middleware.RequirePermission(h.db, "settings", "view")).Get("/database", h.GetDatabaseStatus)
+		r.With(middleware.RequirePermission(h.db, "settings", "view")).Get("/info", h.GetSystemInfo)
+		r.With(middleware.RequirePermission(h.db, "settings", "edit")).Post("/maintenance", h.RunMaintenance)
 	})
 }

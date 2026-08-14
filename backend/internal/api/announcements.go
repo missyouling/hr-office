@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"siapp/internal/auth"
+	"siapp/internal/middleware"
 	"siapp/internal/models"
 )
 
@@ -21,10 +22,12 @@ type announcementPayload struct {
 
 func (h *Handler) registerAnnouncementRoutes(r chi.Router) {
 	// 注意：外层已经是 /announcements，所以这里直接注册子路由
-	r.Get("/", h.listAnnouncements)
-	r.Post("/", h.createAnnouncement)
-	r.Put("/{id}", h.updateAnnouncement)
-	r.Delete("/{id}", h.deleteAnnouncement)
+	// 读操作：announcements.view（viewer 及以上可读公告）
+	r.With(middleware.RequirePermission(h.db, "announcements", "view")).Get("/", h.listAnnouncements)
+	// 写操作：create / edit / delete 分别校验
+	r.With(middleware.RequirePermission(h.db, "announcements", "create")).Post("/", h.createAnnouncement)
+	r.With(middleware.RequirePermission(h.db, "announcements", "edit")).Put("/{id}", h.updateAnnouncement)
+	r.With(middleware.RequirePermission(h.db, "announcements", "delete")).Delete("/{id}", h.deleteAnnouncement)
 }
 
 func (h *Handler) listAnnouncements(w http.ResponseWriter, r *http.Request) {

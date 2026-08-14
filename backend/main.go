@@ -670,7 +670,7 @@ func main() {
 
 	// Improved CORS settings - more secure
 	corsOptions := cors.Options{
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		AllowCredentials: true,
 	}
@@ -719,12 +719,13 @@ func main() {
 
 		// Protected routes with Supabase JWT auth first, then audit logging
 		apiRouter.Group(func(protectedRouter chi.Router) {
-			protectedRouter.Use(supabase.SupabaseJWTMiddleware())
+			protectedRouter.Use(supabase.SupabaseJWTMiddleware(db))
 			protectedRouter.Use(auditmw.DepartmentContext(db))
 			protectedRouter.Use(auditmw.AuditMiddleware(auditService))
 
 			// Auth profile routes
 			protectedRouter.Get("/auth/profile", authHandler.GetProfile)
+			protectedRouter.Patch("/auth/profile", authHandler.UpdateProfile)
 			protectedRouter.Post("/auth/logout", authHandler.Logout)
 			protectedRouter.Post("/auth/change-password", authHandler.ChangePassword)
 			protectedRouter.Get("/auth/check-email-verification", authHandler.CheckEmailVerificationStatus)
@@ -738,25 +739,27 @@ func main() {
 
 			// Notification routes - 推送历史、已读标记、配置管理
 			protectedRouter.Route("/notifications", func(notifRouter chi.Router) {
-				// 推送历史与已读标记
+				// 推送历史与已读标记（用户自有数据，不挂系统设置权限）
 				notificationHandler := api.NewNotificationHandler(db)
 				notifRouter.Get("/", notificationHandler.ListNotifications)
 				notifRouter.Get("/unread-count", notificationHandler.GetUnreadCount)
 				notifRouter.Put("/{id}/read", notificationHandler.MarkAsRead)
 				notifRouter.Put("/read-all", notificationHandler.MarkAllAsRead)
 
-				// 通知配置 CRUD 与测试
-				notifRouter.Get("/configs", handler.ListNotificationConfigs)
-				notifRouter.Post("/configs", handler.CreateNotificationConfig)
-				notifRouter.Get("/configs/{id}", handler.GetNotificationConfig)
-				notifRouter.Put("/configs/{id}", handler.UpdateNotificationConfig)
-				notifRouter.Delete("/configs/{id}", handler.DeleteNotificationConfig)
+				// 通知配置 CRUD 与测试（notifications.view 读 / notifications.manage 写）
+				notifRouter.Route("/configs", func(cr chi.Router) {
+					cr.With(auditmw.RequirePermission(db, "notifications", "view")).Get("/", handler.ListNotificationConfigs)
+					cr.With(auditmw.RequirePermission(db, "notifications", "manage")).Post("/", handler.CreateNotificationConfig)
+					cr.With(auditmw.RequirePermission(db, "notifications", "view")).Get("/{id}", handler.GetNotificationConfig)
+					cr.With(auditmw.RequirePermission(db, "notifications", "manage")).Put("/{id}", handler.UpdateNotificationConfig)
+					cr.With(auditmw.RequirePermission(db, "notifications", "manage")).Delete("/{id}", handler.DeleteNotificationConfig)
+				})
 
-				notifRouter.Post("/smtp/send", handler.SendSMTPNotification)
-				notifRouter.Post("/sms/send", handler.SendSMSNotification)
-				notifRouter.Post("/telegram/send", handler.SendTelegramNotification)
-				notifRouter.Post("/webhook/send", handler.SendWebhookNotification)
-				notifRouter.Post("/test", handler.TestNotification)
+				notifRouter.With(auditmw.RequirePermission(db, "notifications", "manage")).Post("/smtp/send", handler.SendSMTPNotification)
+				notifRouter.With(auditmw.RequirePermission(db, "notifications", "manage")).Post("/sms/send", handler.SendSMSNotification)
+				notifRouter.With(auditmw.RequirePermission(db, "notifications", "manage")).Post("/telegram/send", handler.SendTelegramNotification)
+				notifRouter.With(auditmw.RequirePermission(db, "notifications", "manage")).Post("/webhook/send", handler.SendWebhookNotification)
+				notifRouter.With(auditmw.RequirePermission(db, "notifications", "manage")).Post("/test", handler.TestNotification)
 			})
 
 			// Protected monitoring routes

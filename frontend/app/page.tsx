@@ -18,16 +18,19 @@ import { SystemSettings } from "@/components/system-settings";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import type { SettingsMode } from "@/components/layout/nav-user";
 import { ManagementBar } from "@/components/layout/management-bar";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { fetchAnnouncements, type Announcement } from "@/lib/api";
 import { ChatPanel } from "@/components/chat-panel";
+import { NotificationCenter } from "@/components/notification-center";
 import { GlobalSearch } from "@/components/global-search";
 import { KnowledgeStats } from "@/components/knowledge-stats";
 import { FeedbackPanel } from "@/components/feedback-panel";
 import { DepartmentManagement } from "@/components/admin/department-management";
 import KnowledgeBaseManagement from "@/components/knowledge/KnowledgeBaseManagement";
+import { PersonalSettings } from "@/components/personal-settings";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -42,6 +45,29 @@ export default function HomePage() {
     }
   }, [loading, user, router]);
   const [currentView, setCurrentView] = useState("landing");
+  // 记录进入设置前的来源视图，供“返回”按钮恢复
+  const [settingsReturnView, setSettingsReturnView] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [pendingMemoSiteId, setPendingMemoSiteId] = useState<number | null>(null);
+
+  const handleOpenSettings = (mode: SettingsMode) => {
+    // 仅在当前不是设置视图时记录来源，避免设置内互相跳转覆盖来源
+    if (currentView !== "system" && currentView !== "personal-settings") {
+      setSettingsReturnView(currentView);
+    }
+    setCurrentView(mode === "personal" ? "personal-settings" : "system");
+  };
+
+  const handleBackFromSettings = () => {
+    // 来源无效（未记录或本身是设置视图）时回退 landing
+    const isValidReturn =
+      settingsReturnView !== null &&
+      settingsReturnView !== "system" &&
+      settingsReturnView !== "personal-settings";
+    setCurrentView(isValidReturn ? settingsReturnView : "landing");
+    setSettingsReturnView(null);
+  };
 
   useEffect(() => {
     const handler = () => {
@@ -53,41 +79,55 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const reDispatch = (eventName: string) => {
-      window.dispatchEvent(new CustomEvent(eventName));
-    };
     const handleNotification = () => {
-      if (currentView !== "dormitory") {
-        setCurrentView("dormitory");
-        setTimeout(() => reDispatch("dock:open-notification"), 150);
-      } else {
-        reDispatch("dock:open-notification");
-      }
+      setNotificationOpen(true);
     };
+    const handleSiteMemo = (event: Event) => {
+      const siteId = (event as CustomEvent<{ siteId?: number }>).detail?.siteId;
+      if (typeof siteId !== "number") return;
+      if (currentView === "dormitory") return;
+      setPendingMemoSiteId(siteId);
+      setCurrentView("dormitory");
+    };
+    const handleChat = () => setChatOpen(true);
     const handleGoHome = () => setCurrentView("landing");
     const handleSupport = () => {
       if (currentView !== "dormitory") {
         setCurrentView("dormitory");
-        setTimeout(() => reDispatch("dock:open-support"), 150);
+        window.dispatchEvent(new CustomEvent("dock:open-support"));
       } else {
-        reDispatch("dock:open-support");
+        window.dispatchEvent(new CustomEvent("dock:open-support"));
       }
     };
     window.addEventListener("dock:request-notification", handleNotification as EventListener);
+    window.addEventListener("dock:open-notification", handleNotification as EventListener);
+    window.addEventListener("dock:open-chat", handleChat as EventListener);
+    window.addEventListener("dock:open-site-memo", handleSiteMemo);
     window.addEventListener("dock:request-support", handleSupport as EventListener);
     window.addEventListener("dock:go-home", handleGoHome as EventListener);
     return () => {
       window.removeEventListener("dock:request-notification", handleNotification as EventListener);
+      window.removeEventListener("dock:open-notification", handleNotification as EventListener);
+      window.removeEventListener("dock:open-chat", handleChat as EventListener);
+      window.removeEventListener("dock:open-site-memo", handleSiteMemo);
       window.removeEventListener("dock:request-support", handleSupport as EventListener);
       window.removeEventListener("dock:go-home", handleGoHome as EventListener);
     };
   }, [currentView]);
 
+  useEffect(() => {
+    if (currentView !== "dormitory" || pendingMemoSiteId === null) return;
+    const siteId = pendingMemoSiteId;
+    setPendingMemoSiteId(null);
+    queueMicrotask(() => window.dispatchEvent(new CustomEvent("dock:open-site-memo", { detail: { siteId } })));
+  }, [currentView, pendingMemoSiteId]);
+
   // Show loading spinner while authentication is being checked
   if (isLoading) {
     return (
-      <div className="flex min-h-screen bg-background">
-        <div className="w-64 border-r bg-muted/40 p-4">
+      <div className="app-shell flex h-[100dvh] min-h-0 overflow-hidden bg-muted">
+        {/* 侧栏骨架：桌面 190px 白底边框；移动端隐藏（正式侧栏移动端为抽屉，不占文档流，避免页面滚动） */}
+        <div className="hidden w-[11.875rem] shrink-0 border-r bg-background p-4 md:block">
           <Skeleton className="h-8 w-full mb-4" />
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -95,8 +135,9 @@ export default function HomePage() {
             <Skeleton className="h-10 w-full" />
           </div>
         </div>
-        <main className="flex-1 overflow-auto">
-          <div className="p-6">
+        {/* 主区：外层不滚动，内部内容容器滚动，与正式 app-main-content 一致 */}
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto p-4 md:p-6">
             <div className="space-y-4">
               <Skeleton className="h-8 w-64" />
               <Skeleton className="h-32 w-full" />
@@ -133,7 +174,9 @@ export default function HomePage() {
       case "daily-affairs":
         return <DailyAffairsHub />;
       case "system":
-        return <SystemSettings />;
+        return <SystemSettings onBack={handleBackFromSettings} />;
+      case "personal-settings":
+        return <PersonalSettings onBack={handleBackFromSettings} />;
       case "feedback":
         return <FeedbackPanel />;
       case "departments":
@@ -146,15 +189,16 @@ export default function HomePage() {
   };
 
   return (
-    <SidebarProvider className="bg-background">
-      <AppSidebar currentView={currentView} onViewChange={setCurrentView} />
-      <SidebarInset className="relative flex min-h-screen flex-col bg-background md:m-3 md:rounded-3xl md:shadow-sm">
+    <SidebarProvider className="app-shell bg-muted">
+      <AppSidebar currentView={currentView} onViewChange={setCurrentView} onOpenSettings={handleOpenSettings} />
+      <SidebarInset className="relative h-full min-h-0 bg-muted">
         <ManagementBar />
         <GlobalSearch onNavigate={(module) => { setCurrentView(module); }} />
-        <div className="flex-1 overflow-auto p-6 bg-card md:min-h-[800px] md:rounded-3xl md:shadow-sm border">
+        <div data-slot="app-main-content" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted p-4 md:p-6">
           {renderMainContent()}
         </div>
-        <ChatPanel />
+        <NotificationCenter open={notificationOpen} onOpenChange={setNotificationOpen} />
+        <ChatPanel open={chatOpen} onOpenChange={setChatOpen} />
       </SidebarInset>
     </SidebarProvider>
   );

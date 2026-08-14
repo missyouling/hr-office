@@ -33,6 +33,7 @@ func (h *Handler) getStorageConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("获取存储配置失败: %v", err), http.StatusInternalServerError)
 		return
 	}
+	maskStorageConfig(&config)
 	writeJSON(w, config)
 }
 
@@ -108,6 +109,7 @@ func (h *Handler) saveStorageConfig(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[saveStorageConfig] updated config id=%d", config.ID)
 	}
 
+	maskStorageConfig(&config)
 	writeJSON(w, config)
 }
 

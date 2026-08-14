@@ -90,7 +90,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RefreshCw, Eye, Plus, Trash2, Edit, HardDrive, Cloud, Server, ShieldCheck, Search, Settings2, Info, Sliders, Circle, Database } from "lucide-react";
+import { RefreshCw, Eye, Plus, Trash2, Edit, HardDrive, Cloud, Server, ShieldCheck, Search, Settings2, Info, Sliders, Circle, Database, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
@@ -3430,18 +3430,18 @@ function CodeRulesTab() {
 
 // 存储配置 Tab
 
-export function SystemSettings() {
-  const { user } = useAuth();
+export function SystemSettings({ onBack }: { onBack?: () => void }) {
+  const { user, hasPermission } = useAuth();
   const router = useRouter();
   const [activeSubTab, setActiveSubTab] = useState("announcements");
 
   // 权限校验
   useEffect(() => {
-    if (user && !["admin", "super_admin"].includes(user.role ?? "user")) {
+    if (user && !hasPermission("settings", "view")) {
       toast.error("无权限访问系统设置");
       router.push("/");
     }
-  }, [user, router]);
+  }, [user, hasPermission, router]);
 
   // 渲染对应的 Tab 内容
   const renderTabContent = () => {
@@ -3489,6 +3489,12 @@ export function SystemSettings() {
             <h1 className="text-3xl font-bold tracking-tight">系统设置</h1>
             <p className="text-muted-foreground">配置系统参数、管理用户角色和权限</p>
           </div>
+          {onBack && (
+            <Button variant="outline" size="sm" onClick={onBack}>
+              <ArrowLeft className="h-4 w-4" />
+              返回
+            </Button>
+          )}
         </div>
       </header>
 

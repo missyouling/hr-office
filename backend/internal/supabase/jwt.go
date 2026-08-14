@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -15,7 +16,10 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
+
 	"siapp/internal/auth"
+	"siapp/internal/models"
 )
 
 // SupabaseJWTClaims represents Supabase JWT claims
@@ -190,8 +194,16 @@ func ExtractTokenFromHeader(authHeader string) (string, error) {
 	return parts[1], nil
 }
 
+// SupabaseTokenValidator 验证 Supabase JWT 并返回 claims（可注入，便于测试不依赖远程 Supabase）
+type SupabaseTokenValidator func(tokenString string) (*SupabaseJWTClaims, error)
+
 // SupabaseJWTMiddleware creates a middleware for Supabase JWT authentication
-func SupabaseJWTMiddleware() func(http.Handler) http.Handler {
+func SupabaseJWTMiddleware(db *gorm.DB) func(http.Handler) http.Handler {
+	return SupabaseJWTMiddlewareWithValidator(db, ValidateSupabaseToken)
+}
+
+// SupabaseJWTMiddlewareWithValidator 允许注入自定义验证器（测试用，避免依赖远程 Supabase）
+func SupabaseJWTMiddlewareWithValidator(db *gorm.DB, validate SupabaseTokenValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -203,16 +215,32 @@ func SupabaseJWTMiddleware() func(http.Handler) http.Handler {
 			}
 
 			// Try Supabase validation first
-			if claims, err := ValidateSupabaseToken(token); err == nil {
+			if claims, err := validate(token); err == nil {
 				ctx := context.WithValue(r.Context(), UserIDKey, claims.Sub)
 				ctx = context.WithValue(ctx, UserEmailKey, claims.Email)
 				ctx = context.WithValue(ctx, UserRoleKey, claims.Role)
 
-				// If the Supabase user ID can be parsed as integer, propagate to legacy auth context
-				if parsed, parseErr := strconv.ParseUint(claims.Sub, 10, 64); parseErr == nil {
-					ctx = context.WithValue(ctx, auth.UserIDKey, uint(parsed))
+				// 空 sub 直接拒绝，避免误匹配 SupabaseUID 为空的本地用户
+				if claims.Sub == "" {
+					http.Error(w, `{"error":"Unauthorized: missing sub claim"}`, http.StatusUnauthorized)
+					return
 				}
 
+				// 数字 sub：保持现有兼容，直接作为本地用户 ID（不查库）
+				if parsed, parseErr := strconv.ParseUint(claims.Sub, 10, 64); parseErr == nil {
+					ctx = context.WithValue(ctx, auth.UserIDKey, uint(parsed))
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+
+				// UUID sub：按 SupabaseUID 映射本地用户，查不到或冲突一律拒绝（禁止自动创建）
+				user, mapErr := ResolveLocalUserBySupabaseUID(db, claims.Sub)
+				if mapErr != nil {
+					log.Printf("supabase jwt: reject sub=%s: %v", claims.Sub, mapErr)
+					http.Error(w, `{"error":"Unauthorized: supabase user not mapped to local account"}`, http.StatusUnauthorized)
+					return
+				}
+				ctx = context.WithValue(ctx, auth.UserIDKey, user.ID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -230,6 +258,26 @@ func SupabaseJWTMiddleware() func(http.Handler) http.Handler {
 
 			http.Error(w, `{"error":"Unauthorized: Invalid token"}`, http.StatusUnauthorized)
 		})
+	}
+}
+
+// ResolveLocalUserBySupabaseUID 根据 Supabase UID 查询本地用户
+// 返回错误：数据库不可用、未找到映射、映射冲突（多个本地用户绑定同一 UID）
+func ResolveLocalUserBySupabaseUID(db *gorm.DB, supabaseUID string) (*models.User, error) {
+	if db == nil {
+		return nil, errors.New("database not available")
+	}
+	var users []models.User
+	if err := db.Where("supabase_uid = ?", supabaseUID).Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("query local user by supabase uid: %w", err)
+	}
+	switch len(users) {
+	case 0:
+		return nil, errors.New("no local user mapped to this supabase uid")
+	case 1:
+		return &users[0], nil
+	default:
+		return nil, errors.New("multiple local users mapped to the same supabase uid")
 	}
 }
 

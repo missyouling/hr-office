@@ -33,6 +33,11 @@ func (h *Handler) listStorageConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 脱敏：Config JSON 中的密钥不返回原文
+	for i := range configs {
+		maskStorageConfig(&configs[i])
+	}
+
 	respondJSON(w, http.StatusOK, configs)
 }
 
@@ -115,6 +120,7 @@ func (h *Handler) createStorageConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maskStorageConfig(&config)
 	respondJSON(w, http.StatusCreated, config)
 }
 
@@ -205,6 +211,7 @@ func (h *Handler) updateStorageConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maskStorageConfig(&config)
 	respondJSON(w, http.StatusOK, config)
 }
 

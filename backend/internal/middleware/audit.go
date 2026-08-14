@@ -34,9 +34,13 @@ func AuditMiddleware(auditService *service.AuditService) func(http.Handler) http
 			if supabaseUserID, err := supabase.GetUserIDFromContext(r.Context()); err == nil {
 				// Supabase uses UUID strings, we'll log it in details
 				username = supabaseUserID
-				// For audit compatibility, we'll use 0 as placeholder for Supabase users
-				zeroID := uint(0)
-				userID = &zeroID
+				// Supabase 用户已映射到本地用户时，记录真实本地 ID（否则 0 占位）
+				if id, err := auth.GetUserIDFromContext(r.Context()); err == nil {
+					userID = &id
+				} else {
+					zeroID := uint(0)
+					userID = &zeroID
+				}
 			} else if id, err := auth.GetUserIDFromContext(r.Context()); err == nil {
 				// Legacy JWT
 				userID = &id
@@ -157,6 +161,8 @@ func determineActionFromPath(method, path string) (models.ActionType, string, *s
 			case "profile":
 				if method == "GET" {
 					action = models.ActionTokenRefresh
+				} else if method == "PATCH" {
+					action = models.ActionUpdateProfile
 				}
 			default:
 				action = models.ActionTokenRefresh

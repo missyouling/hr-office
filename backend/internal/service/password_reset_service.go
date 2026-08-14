@@ -25,13 +25,14 @@ func NewPasswordResetService(db *gorm.DB) *PasswordResetService {
 }
 
 var (
-	ErrUserNotFound            = errors.New("用户不存在")
-	ErrTokenNotFound           = errors.New("密码重置链接无效")
-	ErrTokenExpired            = errors.New("密码重置链接已过期")
-	ErrTokenAlreadyUsed        = errors.New("密码重置链接已使用")
-	ErrInvalidCurrentPassword  = errors.New("当前密码错误")
-	ErrResetRequestRateLimited = errors.New("密码重置请求过于频繁")
-	ErrResetRequestDailyLimit  = errors.New("密码重置次数超出每日限制")
+	ErrUserNotFound              = errors.New("用户不存在")
+	ErrTokenNotFound             = errors.New("密码重置链接无效")
+	ErrTokenExpired              = errors.New("密码重置链接已过期")
+	ErrTokenAlreadyUsed          = errors.New("密码重置链接已使用")
+	ErrInvalidCurrentPassword    = errors.New("当前密码错误")
+	ErrPasswordManagedExternally = errors.New("账号密码由外部身份提供方管理")
+	ErrResetRequestRateLimited   = errors.New("密码重置请求过于频繁")
+	ErrResetRequestDailyLimit    = errors.New("密码重置次数超出每日限制")
 )
 
 // CreateResetToken creates a new password reset token for the user
@@ -159,24 +160,46 @@ func (s *PasswordResetService) ResetPassword(token, newPassword string) error {
 	return tx.Commit().Error
 }
 
-// ChangePassword changes the user's password with current password verification
+// ChangePassword 校验当前密码后更新密码，并在同一事务内吊销该用户所有未过期 refresh token。
+// SupabaseUID 非空的用户密码由外部身份提供方（Supabase Auth）管理，本地改密无法同步，明确拒绝。
 func (s *PasswordResetService) ChangePassword(userID uint, currentPassword, newPassword string) error {
 	var user models.User
 	if err := s.db.First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 不泄露用户是否存在，与"当前密码错误"等价处理
+			return ErrInvalidCurrentPassword
+		}
 		return err
 	}
 
-	// Verify current password
+	// 外部身份管理：明确拒绝，禁止只改本地密码造成双源不一致
+	if user.SupabaseUID != "" {
+		return ErrPasswordManagedExternally
+	}
+
+	// 校验当前密码
 	if !user.CheckPassword(currentPassword) {
 		return ErrInvalidCurrentPassword
 	}
 
-	// Set new password
 	if err := user.SetPassword(newPassword); err != nil {
 		return err
 	}
 
-	return s.db.Save(&user).Error
+	// 同库事务：更新密码 + 吊销该用户所有未过期 refresh token，任一步失败整体回滚
+	tx := s.db.Begin()
+	if err := tx.Model(&models.User{}).Where("id = ?", userID).Update("password", user.Password).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	now := time.Now()
+	if err := tx.Model(&models.AuthToken{}).
+		Where("user_id = ? AND type = ? AND is_revoked = ? AND expires_at > ?", userID, "refresh", false, now).
+		Update("is_revoked", true).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
 }
 
 // CleanupExpiredTokens removes expired and used tokens older than specified days

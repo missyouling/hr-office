@@ -34,6 +34,7 @@ export function NavMain({ items, activeId, onSelect }: NavMainProps) {
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )}
                   isActive={active}
+                  tooltip={item.label}
                   onClick={() => onSelect(item.id)}
                 >
                   <Icon className="h-4 w-4" />
