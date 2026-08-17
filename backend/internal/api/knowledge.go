@@ -14,6 +14,7 @@ import (
 
 	"siapp/internal/auth"
 	"siapp/internal/models"
+	"siapp/internal/service"
 )
 
 // ingestDocumentRequest 文档入知识库请求
@@ -421,11 +422,14 @@ func (h *Handler) globalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limitStr := strings.TrimSpace(r.URL.Query().Get("limit"))
-	limit := 20
+	limit := service.DefaultGlobalSearchLimit
 	if limitStr != "" {
 		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
 			limit = parsed
 		}
+	}
+	if limit > service.MaxGlobalSearchLimit {
+		limit = service.MaxGlobalSearchLimit
 	}
 
 	// 执行全局搜索

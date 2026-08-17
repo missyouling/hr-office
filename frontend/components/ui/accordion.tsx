@@ -48,7 +48,7 @@ AccordionItem.displayName = "AccordionItem";
 const AccordionTrigger = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
->(({ className, children, ...props }, ref) => {
+>(({ className, children, onClick, ...props }, ref) => {
   const ctx = React.useContext(AccordionItemContext);
   if (!ctx) throw new Error("AccordionTrigger must be used within AccordionItem");
   return (
@@ -62,7 +62,7 @@ const AccordionTrigger = React.forwardRef<
       data-state={ctx.open ? "open" : "closed"}
       onClick={(event) => {
         ctx.toggle();
-        props.onClick?.(event);
+        onClick?.(event);
       }}
       {...props}
     >

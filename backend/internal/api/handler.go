@@ -502,6 +502,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/user", func(ur chi.Router) {
 		h.registerPreferenceRoutes(ur)
 		h.registerAvatarRoutes(ur)
+		h.registerWorkbenchRoutes(ur)
+		h.registerCalendarRoutes(ur)
+		h.registerMemoRoutes(ur)
+		h.registerDockPreferenceRoutes(ur)
 	})
 
 	r.Route("/provident-fund", func(pr chi.Router) {

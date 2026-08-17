@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"siapp/internal/auth"
@@ -96,6 +98,7 @@ func migrateFeedbackTables(t *testing.T, tx *gorm.DB) {
 	t.Helper()
 	err := tx.AutoMigrate(
 		&models.User{},
+		&models.ChatMessage{},
 		&models.ChatFeedback{},
 		&models.Role{},
 		&models.UserRole{},
@@ -557,6 +560,107 @@ func TestFeedbackPermissions(t *testing.T) {
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("viewer 应能提交反馈(201), 得到 %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// buildFeedbackItem 提问回填测试
+// ---------------------------------------------------------------------------
+
+func TestBuildFeedbackItemQuestion(t *testing.T) {
+	db := setupTestDB(t)
+	tx := newTestTransaction(t, db)
+	migrateFeedbackTables(t, tx)
+
+	userA := createTestUser(t, tx, "quserA", "提问用户A")
+	userB := createTestUser(t, tx, "quserB", "提问用户B")
+	handler := NewHandler(tx)
+	router := newFeedbackTestRouterNoAuth(t, handler)
+
+	// 场景1：反馈 session_id 为空，message_id 指向携带真实会话 ID 的助手消息
+	userMsgA := models.ChatMessage{UserID: userA.ID, SessionID: "sess-1", Role: "user", Content: "原始提问内容"}
+	if err := tx.Create(&userMsgA).Error; err != nil {
+		t.Fatalf("创建用户消息失败: %v", err)
+	}
+	assistantMsgA := models.ChatMessage{UserID: userA.ID, SessionID: "sess-1", Role: "assistant", Content: "助手回答", Sources: datatypes.JSON(`[1,2]`)}
+	if err := tx.Create(&assistantMsgA).Error; err != nil {
+		t.Fatalf("创建助手消息失败: %v", err)
+	}
+	fbA := models.ChatFeedback{
+		UserID:    userA.ID,
+		MessageID: strconv.FormatUint(uint64(assistantMsgA.ID), 10),
+		SessionID: "",
+		Rating:    "positive",
+		Comment:   "好",
+	}
+	if err := tx.Create(&fbA).Error; err != nil {
+		t.Fatalf("创建反馈失败: %v", err)
+	}
+
+	// 场景2：助手消息不存在（历史非数值 ID），回退反馈记录的 session_id
+	userMsgB := models.ChatMessage{UserID: userB.ID, SessionID: "sess-2", Role: "user", Content: "历史提问内容"}
+	if err := tx.Create(&userMsgB).Error; err != nil {
+		t.Fatalf("创建用户消息失败: %v", err)
+	}
+	fbB := models.ChatFeedback{
+		UserID:    userB.ID,
+		MessageID: "legacy-msg-1",
+		SessionID: "sess-2",
+		Rating:    "negative",
+		Comment:   "差",
+	}
+	if err := tx.Create(&fbB).Error; err != nil {
+		t.Fatalf("创建反馈失败: %v", err)
+	}
+
+	t.Run("session_id为空时按助手消息会话回填提问", func(t *testing.T) {
+		url := fmt.Sprintf("/api/feedback?user_id=%d", userA.ID)
+		req := httptest.NewRequest("GET", url, nil)
+		req = setAuthContext(req, userA.ID)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("列表请求失败: %d %s", w.Code, w.Body.String())
+		}
+		var resp feedbackListResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("解析响应失败: %v", err)
+		}
+		if len(resp.Items) != 1 {
+			t.Fatalf("应返回 1 条反馈, 得到 %d", len(resp.Items))
+		}
+		item := resp.Items[0]
+		if item.Question != "原始提问内容" {
+			t.Fatalf("提问未按助手消息会话回填: 期望 %q, 得到 %q", "原始提问内容", item.Question)
+		}
+		// 验证 Answer/Sources/AnswerUnavailable 行为保持不变
+		if item.Answer != "助手回答" || item.AnswerUnavailable {
+			t.Fatalf("Answer 行为被破坏: answer=%q unavailable=%v", item.Answer, item.AnswerUnavailable)
+		}
+		if string(item.Sources) != "[1,2]" {
+			t.Fatalf("Sources 行为被破坏: %s", string(item.Sources))
+		}
+	})
+
+	t.Run("助手消息不存在时回退反馈记录的session_id", func(t *testing.T) {
+		url := fmt.Sprintf("/api/feedback?user_id=%d", userB.ID)
+		req := httptest.NewRequest("GET", url, nil)
+		req = setAuthContext(req, userB.ID)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("列表请求失败: %d %s", w.Code, w.Body.String())
+		}
+		var resp feedbackListResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("解析响应失败: %v", err)
+		}
+		if len(resp.Items) != 1 {
+			t.Fatalf("应返回 1 条反馈, 得到 %d", len(resp.Items))
+		}
+		if resp.Items[0].Question != "历史提问内容" {
+			t.Fatalf("回退查询失败: 期望 %q, 得到 %q", "历史提问内容", resp.Items[0].Question)
 		}
 	})
 }

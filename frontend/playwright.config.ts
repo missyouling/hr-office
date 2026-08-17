@@ -6,10 +6,17 @@ import { defineConfig, devices } from "@playwright/test";
  * 运行前提：后端需先启动并监听 :8080；Playwright 会自动拉起前端开发服务。
  *   1. 初始化测试账号（幂等，可重复执行）：
  *      cd backend && SIAPP_DATABASE_PATH=<数据库路径> go run ./cmd/seed-e2e
+ *      seed-e2e 同时会创建一条全局启用的 LLM 配置（user_id IS NULL），
+ *      解除 viewer 等无自有配置账号走 /api/knowledge/chat/stream 时的
+ *      "未找到可用的 LLM 配置" 阻塞。
  *   2. 启动后端（监听 :8080）：
  *      cd backend && CGO_ENABLED=1 go run .
  *   3. 运行 E2E：
  *      cd frontend && npm run test:e2e
+ *
+ * 可选环境变量（覆盖 seed-e2e 创建的默认 Siliconflow 测试 LLM）：
+ *   E2E_LLM_MODEL / E2E_LLM_ENDPOINT / E2E_LLM_API_KEY
+ *   默认模型 Qwen/Qwen3-8B，端点 https://api.siliconflow.cn/v1。
  */
 export default defineConfig({
   // 测试文件目录

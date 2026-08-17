@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { clampDockPosition, parseDockPosition } from "./preferences";
+import { clampDockPosition, parseDockPosition, parseMobileExpanded } from "./preferences";
 
 describe("Dock 偏好", () => {
   test("将拖动位置限制在视口安全范围内", () => {
@@ -15,5 +15,13 @@ describe("Dock 偏好", () => {
     expect(parseDockPosition({ left: "10", top: 20 })).toBeNull();
     expect(parseDockPosition({ left: 10, top: Number.NaN })).toBeNull();
     expect(parseDockPosition({ left: 10, top: 20 })).toEqual({ left: 10, top: 20 });
+  });
+
+  test("仅接受布尔类型的移动端展开偏好", () => {
+    expect(parseMobileExpanded(true)).toBe(true);
+    expect(parseMobileExpanded(false)).toBe(false);
+    expect(parseMobileExpanded("true")).toBeNull();
+    expect(parseMobileExpanded(1)).toBeNull();
+    expect(parseMobileExpanded(null)).toBeNull();
   });
 });

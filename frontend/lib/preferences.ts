@@ -38,6 +38,10 @@ export function parseDockPosition(raw: unknown): DockPosition | null {
   return { left: candidate.left, top: candidate.top };
 }
 
+export function parseMobileExpanded(raw: unknown): boolean | null {
+  return typeof raw === "boolean" ? raw : null;
+}
+
 export type ColumnListPreference<T extends string> = {
   order?: T[];
   visible?: T[];

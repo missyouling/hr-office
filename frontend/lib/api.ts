@@ -31,6 +31,7 @@ import type {
   DormMeterRecord,
   DormChargeDetail,
   UserPreferences,
+  DockPreferences,
   StorageConfig,
   StorageRule,
   StorageTestResult,
@@ -331,6 +332,151 @@ export async function request<T>(
   return (await res.json()) as T;
 }
 
+export interface WorkbenchWeatherConfig {
+  enabled: boolean;
+  city: string;
+}
+
+export interface WorkbenchNewsConfig {
+  enabled: boolean;
+  categories: string[];
+}
+
+export interface WorkbenchConfig {
+  weather: WorkbenchWeatherConfig | null;
+  news: WorkbenchNewsConfig | null;
+}
+
+export type WorkbenchReminderType =
+  | "document_expiration"
+  | "dorm_bill_due"
+  | "invoice_pending"
+  | "payment_request_pending";
+
+export interface WorkbenchReminder {
+  id: number;
+  reminder_type: WorkbenchReminderType;
+  title: string;
+  status: string;
+  due_at: string | null;
+}
+
+export interface WorkbenchRemindersResponse {
+  days: number;
+  items: WorkbenchReminder[];
+}
+
+/** 获取当前用户的工作台展示配置，不包含任何第三方服务密钥。 */
+export async function getWorkbenchConfig(): Promise<WorkbenchConfig> {
+  return request<WorkbenchConfig>("/user/workbench-config");
+}
+
+/** 获取当前用户未来指定天数内的工作台提醒。 */
+export async function getWorkbenchReminders(days = 30): Promise<WorkbenchRemindersResponse> {
+  return request<WorkbenchRemindersResponse>(`/user/workbench-reminders?days=${days}`);
+}
+
+/** 保存当前用户的工作台展示配置。 */
+export async function updateWorkbenchConfig(config: WorkbenchConfig): Promise<WorkbenchConfig> {
+  return request<WorkbenchConfig>("/user/workbench-config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
+export interface Memo {
+  id: number;
+  title: string;
+  content: string;
+  pinned: boolean;
+  completed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoPayload {
+  title: string;
+  content: string;
+  pinned: boolean;
+  completed: boolean;
+}
+
+export interface MemosResponse {
+  memos: Memo[];
+}
+
+/** 获取当前用户私有备忘录。 */
+export async function getUserMemos(): Promise<MemosResponse> {
+  return request<MemosResponse>("/user/memos");
+}
+
+/** 新建当前用户私有备忘录。 */
+export async function createUserMemo(payload: MemoPayload): Promise<Memo> {
+  return request<Memo>("/user/memos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 更新当前用户私有备忘录，调用方需传递完整可编辑字段。 */
+export async function updateUserMemo(id: number, payload: MemoPayload): Promise<Memo> {
+  return request<Memo>(`/user/memos/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 删除当前用户私有备忘录。 */
+export async function deleteUserMemo(id: number): Promise<void> {
+  return request<void>(`/user/memos/${id}`, { method: "DELETE" });
+}
+
+export interface PersonalCalendarEvent {
+  id: number;
+  title: string;
+  start_at: string;
+  end_at: string;
+  location: string;
+  notes: string;
+  all_day: boolean;
+}
+
+export type PersonalCalendarEventPayload = Omit<PersonalCalendarEvent, "id">;
+
+/** 查询当前用户指定时间范围内的私人日历事件。 */
+export async function getPersonalCalendar(from: string, to: string): Promise<PersonalCalendarEvent[]> {
+  const query = new URLSearchParams({ from, to });
+  // 后端契约：/user/calendar 返回 { events: PersonalCalendarEvent[] }，需解包后对外保持数组契约
+  const data = await request<{ events: PersonalCalendarEvent[] }>(`/user/calendar?${query.toString()}`);
+  return data.events;
+}
+
+/** 为当前用户创建私人日历事件。 */
+export async function createPersonalCalendarEvent(payload: PersonalCalendarEventPayload): Promise<PersonalCalendarEvent> {
+  return request<PersonalCalendarEvent>("/user/calendar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 更新当前用户的一条私人日历事件。 */
+export async function updatePersonalCalendarEvent(id: number, payload: PersonalCalendarEventPayload): Promise<PersonalCalendarEvent> {
+  return request<PersonalCalendarEvent>(`/user/calendar/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 删除当前用户的一条私人日历事件。 */
+export async function deletePersonalCalendarEvent(id: number): Promise<void> {
+  await request<void>(`/user/calendar/${id}`, { method: "DELETE" });
+}
+
 export async function listPeriods(): Promise<Period[]> {
   return request<Period[]>("/periods");
 }
@@ -582,6 +728,20 @@ export async function fetchUserPreferences(): Promise<UserPreferences> {
 
 export async function updateUserPreferences(payload: UserPreferences): Promise<UserPreferences> {
   return request("/user/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 获取当前用户的悬浮 Dock 偏好。 */
+export async function getDockPreferences(): Promise<DockPreferences> {
+  return request<DockPreferences>("/user/dock-preferences");
+}
+
+/** 保存当前用户的悬浮 Dock 偏好。 */
+export async function updateDockPreferences(payload: DockPreferences): Promise<DockPreferences> {
+  return request<DockPreferences>("/user/dock-preferences", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

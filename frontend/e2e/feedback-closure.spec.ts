@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { ACCOUNTS, login } from "./helpers/auth";
 
 const API_PORT = "8080";
@@ -62,6 +62,17 @@ async function openMyFeedback(page: Page) {
   await expect(page.getByRole("dialog").getByText("我的反馈", { exact: true })).toBeVisible();
 }
 
+/**
+ * 定位“我的反馈”对话框中本次 question 对应的反馈条目（AccordionItem 容器）。
+ * 状态徽章位于条目内触发器按钮中，折叠时即可见；回复内容需展开后才渲染。
+ * 取最近的带 data-state 的 div 祖先，避免命中 radix DialogContent 自身的 data-state。
+ */
+function feedbackItem(dialog: Locator, question: string): Locator {
+  return dialog
+    .getByRole("button", { name: `查看反馈：${question}` })
+    .locator("xpath=ancestor::div[@data-state][1]");
+}
+
 test.describe("P7.2 用户反馈闭环 E2E", () => {
   test("普通用户的真实聊天差评可被管理员回复和关闭，并同步展示状态", async ({ browser }) => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -79,7 +90,9 @@ test.describe("P7.2 用户反馈闭环 E2E", () => {
     await openMyFeedback(userPage);
     const userDialog = userPage.getByRole("dialog");
     await expect(userDialog.getByText(question, { exact: true })).toBeVisible();
-    await expect(userDialog.getByText("待处理", { exact: true })).toBeVisible();
+    // 状态断言限定到本次 question 对应的反馈条目，避免命中历史遗留反馈
+    const userItem = feedbackItem(userDialog, question);
+    await expect(userItem.getByText("待处理", { exact: true })).toBeVisible();
 
     await login(adminPage, ACCOUNTS.admin.username, ACCOUNTS.admin.password);
     await adminPage.getByRole("button", { name: "反馈管理", exact: true }).click();
@@ -93,24 +106,33 @@ test.describe("P7.2 用户反馈闭环 E2E", () => {
     await pendingRow.getByRole("button", { name: "回复", exact: true }).click();
     await adminPage.getByLabel("管理员回复").fill(reply);
     await adminPage.getByRole("button", { name: "保存回复", exact: true }).click();
+    await adminPage.getByLabel("按状态筛选").click();
+    await adminPage.getByRole("option", { name: "已回复", exact: true }).click();
     const repliedRow = adminPage.locator("tr").filter({ hasText: comment });
     await expect(repliedRow.getByText("已回复", { exact: true })).toBeVisible();
 
     await userPage.reload();
     await expect(userPage.getByRole("button", { name: "员工管理", exact: true })).toBeVisible();
     await openMyFeedback(userPage);
-    await expect(userPage.getByRole("dialog").getByText("已回复", { exact: true })).toBeVisible();
-    await userPage.getByRole("button", { name: `查看反馈：${question}` }).click();
-    await expect(userPage.getByRole("dialog").getByText(reply, { exact: true })).toBeVisible();
+    const userDialogAfterReply = userPage.getByRole("dialog");
+    const userItemAfterReply = feedbackItem(userDialogAfterReply, question);
+    await expect(userItemAfterReply.getByText("已回复", { exact: true })).toBeVisible();
+    // 回复内容在 accordion 展开后才渲染，先展开本次条目再断言
+    await userItemAfterReply.getByRole("button", { name: `查看反馈：${question}` }).click();
+    await expect(userDialogAfterReply.getByText(reply, { exact: true })).toBeVisible();
 
     await repliedRow.getByRole("button", { name: "关闭", exact: true }).click();
     await expect(adminPage.getByRole("alertdialog")).toBeVisible();
     await adminPage.getByRole("button", { name: "确认关闭", exact: true }).click();
+    await adminPage.getByLabel("按状态筛选").click();
+    await adminPage.getByRole("option", { name: "已关闭", exact: true }).click();
     await expect(adminPage.locator("tr").filter({ hasText: comment }).getByText("已关闭", { exact: true })).toBeVisible();
 
     await userPage.reload();
     await expect(userPage.getByRole("button", { name: "员工管理", exact: true })).toBeVisible();
     await openMyFeedback(userPage);
-    await expect(userPage.getByRole("dialog").getByText("已关闭", { exact: true })).toBeVisible();
+    const userDialogAfterClose = userPage.getByRole("dialog");
+    const userItemAfterClose = feedbackItem(userDialogAfterClose, question);
+    await expect(userItemAfterClose.getByText("已关闭", { exact: true })).toBeVisible();
   });
 });

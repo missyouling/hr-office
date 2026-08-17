@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"siapp/internal/models"
@@ -614,6 +615,19 @@ func (s *ChatService) GetLLMConfig(userID uint) (*models.ModelConfig, error) {
 	return &config, nil
 }
 
+// parseExtraParams 安全解析 ModelConfig.ExtraParams（datatypes.JSON）为 map。
+// 空值返回空 map；无效 JSON 返回带上下文的错误，不静默忽略。
+func parseExtraParams(raw datatypes.JSON) (map[string]interface{}, error) {
+	if len(raw) == 0 {
+		return map[string]interface{}{}, nil
+	}
+	var params map[string]interface{}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return nil, fmt.Errorf("解析模型配置 ExtraParams 失败: %w", err)
+	}
+	return params, nil
+}
+
 // callLLM 调用 LLM API
 func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (string, error) {
 	startTime := time.Now()
@@ -642,6 +656,20 @@ func (s *ChatService) callLLM(userID uint, systemPrompt, userPrompt string) (str
 				"content": userPrompt,
 			},
 		},
+	}
+
+	// 合并 ExtraParams 到请求体顶层（先合并，再显式写回核心键保证权威）
+	extraParams, err := parseExtraParams(config.ExtraParams)
+	if err != nil {
+		return "", err
+	}
+	for k, v := range extraParams {
+		reqBody[k] = v
+	}
+	reqBody["model"] = config.ModelName
+	reqBody["messages"] = []map[string]string{
+		{"role": "system", "content": systemPrompt},
+		{"role": "user", "content": userPrompt},
 	}
 
 	reqBodyJSON, err := json.Marshal(reqBody)
@@ -746,6 +774,19 @@ func (s *ChatService) callLLMStream(userID uint, messages []map[string]string, o
 		"messages": messages,
 		"stream":   true,
 	}
+
+	// 合并 ExtraParams 到请求体顶层（先合并，再显式写回核心键保证权威）
+	extraParams, err := parseExtraParams(config.ExtraParams)
+	if err != nil {
+		return err
+	}
+	for k, v := range extraParams {
+		reqBody[k] = v
+	}
+	reqBody["model"] = config.ModelName
+	reqBody["messages"] = messages
+	reqBody["stream"] = true
+
 	reqBodyJSON, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("序列化请求失败: %v", err)

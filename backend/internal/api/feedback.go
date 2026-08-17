@@ -183,9 +183,6 @@ func (h *Handler) buildFeedbackItems(rows []models.ChatFeedback) []feedbackItem 
 
 func (h *Handler) buildFeedbackItem(fb models.ChatFeedback) feedbackItem {
 	item := feedbackItem{ChatFeedback: fb, Username: getUserName(fb.User), FullName: getUserFullName(fb.User), Sources: json.RawMessage("[]"), AnswerUnavailable: true}
-	var question models.ChatMessage
-	h.db.Where("user_id = ? AND session_id = ? AND role = ?", fb.UserID, fb.SessionID, "user").Order("created_at DESC").First(&question)
-	item.Question = question.Content
 	var answer models.ChatMessage
 	if id, err := strconv.ParseUint(fb.MessageID, 10, 64); err == nil {
 		h.db.Where("id = ? AND role = ?", id, "assistant").First(&answer)
@@ -193,6 +190,15 @@ func (h *Handler) buildFeedbackItem(fb models.ChatFeedback) feedbackItem {
 	if answer.ID != 0 {
 		item.Answer, item.Sources, item.AnswerUnavailable = answer.Content, json.RawMessage(answer.Sources), false
 	}
+	// 优先按助手消息携带的会话 ID 查询用户提问（兼容 session_id 为空的历史反馈）；
+	// 助手消息查不到时回退反馈记录的会话 ID（兼容历史非数值 ID 记录）
+	sessionID := fb.SessionID
+	if answer.ID != 0 && answer.SessionID != "" {
+		sessionID = answer.SessionID
+	}
+	var question models.ChatMessage
+	h.db.Where("user_id = ? AND session_id = ? AND role = ?", fb.UserID, sessionID, "user").Order("created_at DESC").First(&question)
+	item.Question = question.Content
 	if item.Status == "" {
 		item.Status = models.FeedbackStatusPending
 	}

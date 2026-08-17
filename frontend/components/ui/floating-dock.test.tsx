@@ -90,4 +90,12 @@ describe("FloatingDock 拖动手柄", () => {
 
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  test("移动端可由外部受控展开并通知状态切换", () => {
+    const onOpenChange = vi.fn();
+    render(<FloatingDock items={items} open onOpenChange={onOpenChange} />);
+    expect(screen.getAllByRole("button", { name: "测试项" })).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "展开管理 Dock" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });

@@ -433,6 +433,8 @@ func main() {
 		&models.DormBill{},
 		&models.DormBillItem{},
 		&models.UserPreference{},
+		&models.CalendarEvent{}, // 个人日历（P5.6）
+		&models.Memo{},          // 个人备忘录（P5.7）
 		&models.ProvidentFundRecord{},
 		&models.ProvidentFundSettings{},
 		&models.ProvidentFundBill{},

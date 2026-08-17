@@ -6,6 +6,8 @@
 //
 // 无参数、幂等：账号已存在则跳过（不覆盖密码），重复运行安全。
 // 每个账号创建后建立 user_roles 关联（User.Role 字段已废弃，必须走关联表）。
+// 同时确保存在一条全局启用（user_id IS NULL）的 LLM 配置（幂等），
+// 解除 feedback-closure E2E 的"未找到可用的 LLM 配置"阻塞。
 // 全程不打印密码明文，仅输出用户名与角色。
 package main
 
@@ -16,6 +18,7 @@ import (
 	"os"
 	"strings"
 
+	"gorm.io/datatypes"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -55,6 +58,7 @@ func main() {
 		&models.Permission{},
 		&models.RolePermission{},
 		&models.UserRole{},
+		&models.ModelConfig{},
 	); err != nil {
 		log.Fatalf("AutoMigrate 表失败: %v", err)
 	}
@@ -71,6 +75,11 @@ func main() {
 	created, skipped, err := seedAccounts(db)
 	if err != nil {
 		log.Fatalf("Seed 账号失败: %v", err)
+	}
+
+	// 确保存在可用的全局 LLM 配置（幂等），解除 feedback-closure E2E 的 LLM 配置阻塞
+	if err := ensureGlobalLLMConfig(db); err != nil {
+		log.Fatalf("初始化全局 LLM 配置失败: %v", err)
 	}
 
 	fmt.Println()
@@ -202,4 +211,60 @@ func createAccountWithRole(db *gorm.DB, acc e2eAccount, roleID uint) error {
 		return fmt.Errorf("创建用户角色关联 %s 失败: %w", acc.Username, err)
 	}
 	return nil
+}
+
+// ───────────────────── 全局 LLM 配置 Seed ─────────────────────
+
+// 默认 Siliconflow 测试 LLM 的固定值（E2E_LLM_* 环境变量未设置时回退到这些值）
+const (
+	globalLLMModelDefault    = "Qwen/Qwen3-8B"
+	globalLLMEndpointDefault = "https://api.siliconflow.cn/v1"
+	globalLLMKeyDefault      = "sk-lqmkmhmzqhynebyaseuaduwvedicorvqnvoqmqldpkpkjfhi"
+)
+
+// ensureGlobalLLMConfig 确保存在一条全局启用（user_id IS NULL）的 LLM 配置（幂等）。
+// ChatService.GetLLMConfig 查询策略：先查当前用户自有配置，查不到再回退到全局配置；
+// viewer 等无自有配置的账号依赖全局配置才能走通 /api/knowledge/chat/stream，
+// 否则会报"未找到可用的 LLM 配置"。
+// 字段值优先取环境变量 E2E_LLM_MODEL / E2E_LLM_ENDPOINT / E2E_LLM_API_KEY，
+// 未设置时使用内置默认值；全程不打印 APIKey 明文。
+func ensureGlobalLLMConfig(db *gorm.DB) error {
+	// 幂等：已存在全局启用 LLM 配置则跳过
+	var existing models.ModelConfig
+	err := db.Where("user_id IS NULL AND config_type = ? AND enabled = ?", "llm", true).First(&existing).Error
+	if err == nil {
+		fmt.Printf("  [跳过] 全局 LLM 配置已存在（模型: %s，provider: %s）\n", existing.ModelName, existing.Provider)
+		return nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("查询全局 LLM 配置失败: %w", err)
+	}
+
+	cfg := models.ModelConfig{
+		UserID:      nil, // nil 表示全局配置，所有用户可用
+		ConfigType:  "llm",
+		Provider:    "siliconflow",
+		ModelName:   envOrDefault("E2E_LLM_MODEL", globalLLMModelDefault),
+		APIEndpoint: envOrDefault("E2E_LLM_ENDPOINT", globalLLMEndpointDefault),
+		APIKey:      envOrDefault("E2E_LLM_API_KEY", globalLLMKeyDefault),
+		// 关闭 Qwen3 推理流（enable_thinking=false），避免反馈闭环 E2E 被推理 token 拖至 60 秒 HTTP 超时
+		ExtraParams: datatypes.JSON(`{"enable_thinking": false}`),
+		Enabled:     true,
+		IsDefault:   true,
+		Role:        "primary",
+		IsBuiltIn:   false,
+	}
+	if err := db.Create(&cfg).Error; err != nil {
+		return fmt.Errorf("创建全局 LLM 配置失败: %w", err)
+	}
+	fmt.Printf("  [创建] 全局 LLM 配置（模型: %s，provider: %s，端点: %s）\n", cfg.ModelName, cfg.Provider, cfg.APIEndpoint)
+	return nil
+}
+
+// envOrDefault 读取环境变量，未设置时返回默认值
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

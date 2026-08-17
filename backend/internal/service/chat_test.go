@@ -3,11 +3,13 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"gorm.io/datatypes"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -290,5 +292,153 @@ func TestStreamChat_KBScope(t *testing.T) {
 		if src.KBID != kb1.ID {
 			t.Errorf("SSE 检索越出 kb1 范围: KBID=%d", src.KBID)
 		}
+	}
+}
+
+// ============================================================
+// ExtraParams 透传测试
+// ============================================================
+
+// captureStreamLLMServer 捕获流式请求体并返回标准 SSE 响应
+func captureStreamLLMServer(t *testing.T, captured *[]byte) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("读取流式请求体失败: %v", err)
+		}
+		*captured = body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"测试回答\"}}]}\n\ndata: [DONE]\n"))
+	}))
+}
+
+// captureLLMServer 捕获非流式请求体并返回标准 JSON 响应
+func captureLLMServer(t *testing.T, captured *[]byte) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("读取请求体失败: %v", err)
+		}
+		*captured = body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"测试回答"}}]}`))
+	}))
+}
+
+// updateGlobalExtraParams 更新全局 LLM 配置的 ExtraParams（测试辅助）
+func updateGlobalExtraParams(t *testing.T, db *gorm.DB, raw string) {
+	t.Helper()
+	if err := db.Model(&models.ModelConfig{}).
+		Where("user_id IS NULL AND config_type = ?", "llm").
+		Update("extra_params", datatypes.JSON(raw)).Error; err != nil {
+		t.Fatalf("更新 ExtraParams 失败: %v", err)
+	}
+}
+
+// TestCallLLMStream_ExtraParamsEnableThinking 流式请求应透传 enable_thinking=false
+func TestCallLLMStream_ExtraParamsEnableThinking(t *testing.T) {
+	var captured []byte
+	server := captureStreamLLMServer(t, &captured)
+	defer server.Close()
+	svc, db := setupChatTestService(t, server.URL)
+
+	updateGlobalExtraParams(t, db, `{"enable_thinking": false}`)
+
+	messages := []map[string]string{{"role": "user", "content": "你好"}}
+	if err := svc.callLLMStream(1, messages, func(string) error { return nil }); err != nil {
+		t.Fatalf("callLLMStream 失败: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal(captured, &reqBody); err != nil {
+		t.Fatalf("解析捕获请求体失败: %v", err)
+	}
+	enableThinking, ok := reqBody["enable_thinking"].(bool)
+	if !ok || enableThinking {
+		t.Errorf("请求体应包含 enable_thinking=false，实际: %v", reqBody["enable_thinking"])
+	}
+}
+
+// TestCallLLMStream_InvalidExtraParamsReturnsError 非法 ExtraParams 应返回带上下文的错误
+func TestCallLLMStream_InvalidExtraParamsReturnsError(t *testing.T) {
+	server := newStreamLLMServer()
+	defer server.Close()
+	svc, db := setupChatTestService(t, server.URL)
+
+	updateGlobalExtraParams(t, db, `{invalid json`)
+
+	messages := []map[string]string{{"role": "user", "content": "你好"}}
+	err := svc.callLLMStream(1, messages, func(string) error { return nil })
+	if err == nil {
+		t.Fatal("非法 ExtraParams 应返回错误")
+	}
+	if !strings.Contains(err.Error(), "ExtraParams") {
+		t.Errorf("错误信息应包含 ExtraParams 上下文，实际: %v", err)
+	}
+}
+
+// TestCallLLMStream_ExtraParamsCannotOverrideCoreFields ExtraParams 不得覆盖 model/messages/stream
+func TestCallLLMStream_ExtraParamsCannotOverrideCoreFields(t *testing.T) {
+	var captured []byte
+	server := captureStreamLLMServer(t, &captured)
+	defer server.Close()
+	svc, db := setupChatTestService(t, server.URL)
+
+	// ExtraParams 恶意尝试覆盖核心字段
+	updateGlobalExtraParams(t, db, `{"model":"evil-model","messages":[{"role":"user","content":"evil"}],"stream":false,"enable_thinking":false}`)
+
+	messages := []map[string]string{{"role": "user", "content": "你好"}}
+	if err := svc.callLLMStream(1, messages, func(string) error { return nil }); err != nil {
+		t.Fatalf("callLLMStream 失败: %v", err)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal(captured, &reqBody); err != nil {
+		t.Fatalf("解析捕获请求体失败: %v", err)
+	}
+	if reqBody["model"] != "test-model" {
+		t.Errorf("model 应保持服务代码权威 test-model，实际: %v", reqBody["model"])
+	}
+	if reqBody["stream"] != true {
+		t.Errorf("stream 应保持 true，实际: %v", reqBody["stream"])
+	}
+	msgs, ok := reqBody["messages"].([]interface{})
+	if !ok || len(msgs) != 1 {
+		t.Fatalf("messages 应保持服务代码权威，实际: %v", reqBody["messages"])
+	}
+	first, ok := msgs[0].(map[string]interface{})
+	if !ok || first["content"] != "你好" {
+		t.Errorf("messages 内容应保持服务代码权威，实际: %v", reqBody["messages"])
+	}
+}
+
+// TestCallLLM_ExtraParamsMerged 非流式 callLLM 同样透传 ExtraParams
+func TestCallLLM_ExtraParamsMerged(t *testing.T) {
+	var captured []byte
+	server := captureLLMServer(t, &captured)
+	defer server.Close()
+	svc, db := setupChatTestService(t, server.URL)
+
+	updateGlobalExtraParams(t, db, `{"temperature": 0.2, "enable_thinking": false}`)
+
+	answer, err := svc.callLLM(1, "系统提示", "用户问题")
+	if err != nil {
+		t.Fatalf("callLLM 失败: %v", err)
+	}
+	if answer != "测试回答" {
+		t.Errorf("callLLM 应返回 mock 回答，实际: %q", answer)
+	}
+
+	var reqBody map[string]interface{}
+	if err := json.Unmarshal(captured, &reqBody); err != nil {
+		t.Fatalf("解析捕获请求体失败: %v", err)
+	}
+	if reqBody["temperature"] != 0.2 {
+		t.Errorf("请求体应透传 temperature=0.2，实际: %v", reqBody["temperature"])
+	}
+	if reqBody["enable_thinking"] != false {
+		t.Errorf("请求体应透传 enable_thinking=false，实际: %v", reqBody["enable_thinking"])
 	}
 }

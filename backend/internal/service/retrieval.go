@@ -291,13 +291,24 @@ func (s *RetrievalService) fallbackFullTextSearch(userID uint, query string, lim
 // 全局搜索（保持现有逻辑，ILKE）
 // ============================================================
 
+// 全局搜索 limit 边界：默认值 + 单次查询上限（防止单模块返回过多）
+const (
+	DefaultGlobalSearchLimit = 20
+	MaxGlobalSearchLimit     = 50
+)
+
 // GlobalSearch 跨模块全局搜索
+// 覆盖 documents、employees、dorm_rooms 三个模块，均按 user_id 过滤（用户隔离）；
+// 任一模块查询失败即返回错误（不静默吞掉），由调用方转换为 500。
 func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([]GlobalSearchResult, error) {
 	if strings.TrimSpace(query) == "" {
 		return []GlobalSearchResult{}, fmt.Errorf("query cannot be empty")
 	}
 	if limit <= 0 {
-		limit = 20
+		limit = DefaultGlobalSearchLimit
+	}
+	if limit > MaxGlobalSearchLimit {
+		limit = MaxGlobalSearchLimit
 	}
 
 	searchPattern := "%" + strings.TrimSpace(query) + "%"
@@ -309,20 +320,21 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 	var docs []models.Document
 	if err := s.db.Where("user_id = ? AND ("+likeName+" OR "+likeContent+")", userID, searchPattern, searchPattern).
 		Limit(limit).
-		Find(&docs).Error; err == nil {
-		for _, doc := range docs {
-			snippet := doc.ContentText
-			if len(snippet) > 150 {
-				snippet = snippet[:150] + "..."
-			}
-			results = append(results, GlobalSearchResult{
-				Module:  "archives",
-				ID:      doc.ID,
-				Title:   doc.FileName,
-				Snippet: snippet,
-				Score:   1.0,
-			})
+		Find(&docs).Error; err != nil {
+		return nil, fmt.Errorf("global search archives: %v", err)
+	}
+	for _, doc := range docs {
+		snippet := doc.ContentText
+		if len(snippet) > 150 {
+			snippet = snippet[:150] + "..."
 		}
+		results = append(results, GlobalSearchResult{
+			Module:  "archives",
+			ID:      doc.ID,
+			Title:   doc.FileName,
+			Snippet: snippet,
+			Score:   1.0,
+		})
 	}
 
 	// 搜索员工
@@ -332,17 +344,18 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 	var employees []models.Employee
 	if err := s.db.Where("user_id = ? AND ("+likeName2+" OR "+likeID+" OR "+likeDept+")", userID, searchPattern, searchPattern, searchPattern).
 		Limit(limit).
-		Find(&employees).Error; err == nil {
-		for _, emp := range employees {
-			snippet := fmt.Sprintf("部门: %s, 身份证: %s", emp.Department, emp.IDNumber)
-			results = append(results, GlobalSearchResult{
-				Module:  "employee",
-				ID:      emp.ID,
-				Title:   emp.Name,
-				Snippet: snippet,
-				Score:   0.9,
-			})
-		}
+		Find(&employees).Error; err != nil {
+		return nil, fmt.Errorf("global search employees: %v", err)
+	}
+	for _, emp := range employees {
+		snippet := fmt.Sprintf("部门: %s, 身份证: %s", emp.Department, emp.IDNumber)
+		results = append(results, GlobalSearchResult{
+			Module:  "employee",
+			ID:      emp.ID,
+			Title:   emp.Name,
+			Snippet: snippet,
+			Score:   0.9,
+		})
 	}
 
 	// 搜索宿舍房间
@@ -350,17 +363,18 @@ func (s *RetrievalService) GlobalSearch(userID uint, query string, limit int) ([
 	var rooms []models.DormRoom
 	if err := s.db.Where("user_id = ? AND "+likeRoom, userID, searchPattern).
 		Limit(limit).
-		Find(&rooms).Error; err == nil {
-		for _, room := range rooms {
-			snippet := fmt.Sprintf("房间号: %s, 房间类型: %s", room.RoomNumber, room.RoomType)
-			results = append(results, GlobalSearchResult{
-				Module:  "dormitory",
-				ID:      room.ID,
-				Title:   room.RoomNumber,
-				Snippet: snippet,
-				Score:   0.8,
-			})
-		}
+		Find(&rooms).Error; err != nil {
+		return nil, fmt.Errorf("global search dormitories: %v", err)
+	}
+	for _, room := range rooms {
+		snippet := fmt.Sprintf("房间号: %s, 房间类型: %s", room.RoomNumber, room.RoomType)
+		results = append(results, GlobalSearchResult{
+			Module:  "dormitory",
+			ID:      room.ID,
+			Title:   room.RoomNumber,
+			Snippet: snippet,
+			Score:   0.8,
+		})
 	}
 
 	if len(results) > limit {

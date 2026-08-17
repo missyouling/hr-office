@@ -34,6 +34,7 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [groupedResults, setGroupedResults] = useState<
     Record<string, GlobalSearchResult[]>
   >({});
@@ -55,10 +56,12 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
       if (!query.trim()) {
         setResults([]);
         setGroupedResults({});
+        setError(null);
         return;
       }
 
       setIsLoading(true);
+      setError(null);
       try {
         const response = await globalSearch(query, 20);
         setResults(response.results);
@@ -75,10 +78,15 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
         );
 
         setGroupedResults(grouped);
-      } catch (error) {
-        console.error("Search error:", error);
+      } catch (err) {
+        console.error("Search error:", err);
         setResults([]);
         setGroupedResults({});
+        setError(
+          err instanceof Error && err.message
+            ? err.message
+            : "搜索失败，请稍后重试"
+        );
       } finally {
         setIsLoading(false);
       }
@@ -105,6 +113,7 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
     setSearchQuery("");
     setResults([]);
     setGroupedResults({});
+    setError(null);
   };
 
   return (
@@ -137,13 +146,25 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
                 </div>
               )}
 
-              {!isLoading && results.length === 0 && searchQuery && (
+              {!isLoading && error && (
+                <div className="flex items-center justify-center py-8">
+                  <div
+                    className="text-sm text-red-500"
+                    role="alert"
+                    data-testid="global-search-error"
+                  >
+                    搜索失败：{error}
+                  </div>
+                </div>
+              )}
+
+              {!isLoading && !error && results.length === 0 && searchQuery && (
                 <div className="flex items-center justify-center py-8">
                   <div className="text-sm text-gray-500">未找到相关结果</div>
                 </div>
               )}
 
-              {!isLoading && results.length === 0 && !searchQuery && (
+              {!isLoading && !error && results.length === 0 && !searchQuery && (
                 <div className="flex items-center justify-center py-8">
                   <div className="text-sm text-gray-500">
                     输入关键词开始搜索
@@ -193,7 +214,7 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
               ))}
             </div>
 
-            {searchQuery && (
+            {searchQuery && !error && (
               <div className="text-xs text-gray-500 text-center py-2">
                 找到 {results.length} 个结果
               </div>

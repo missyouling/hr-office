@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { Calculator, Home, Users, SquareArrowUpRight, BedDouble, FolderOpen, Settings, MessageSquareText, Building2, BookOpen } from "lucide-react";
 
 import { useAuth } from "@/lib/supabase/auth-context";
@@ -19,6 +20,8 @@ import {
 import { NavMain, type NavMainItem } from "@/components/layout/nav-main";
 import { NavDocuments } from "@/components/layout/nav-documents";
 import { NavUser, type SettingsMode } from "@/components/layout/nav-user";
+import { MyFeedbackDialog } from "@/components/feedback/my-feedback-dialog";
+import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS: NavMainItem[] = [
   { id: "landing", label: "工作台", icon: Home },
@@ -44,6 +47,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 export function AppSidebar({ currentView, onViewChange, onOpenSettings, ...props }: AppSidebarProps) {
   const { user, hasPermission } = useAuth();
   const { isMobile, setOpenMobile } = useSidebar();
+  const [isMyFeedbackOpen, setIsMyFeedbackOpen] = useState(false);
 
   const availableNavItems = NAV_ITEMS.filter((item) => {
     if (item.id === "organization" || item.id === "audit" || item.id === "monitoring") {
@@ -108,6 +112,18 @@ export function AppSidebar({ currentView, onViewChange, onOpenSettings, ...props
         <SidebarFooter className="mt-auto space-y-3 pb-6">
           <SidebarSeparator />
           <NavDocuments items={HELP_LINKS} />
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full justify-start"
+            onClick={() => {
+              setIsMyFeedbackOpen(true);
+              if (isMobile) setOpenMobile(false);
+            }}
+          >
+            <MessageSquareText className="h-4 w-4" />
+            我的反馈
+          </Button>
           <NavUser
             displayName={user?.full_name || user?.email || "未登录"}
             subLine={user?.email}
@@ -116,6 +132,7 @@ export function AppSidebar({ currentView, onViewChange, onOpenSettings, ...props
               if (isMobile) setOpenMobile(false);
             }}
           />
+          <MyFeedbackDialog open={isMyFeedbackOpen} onOpenChange={setIsMyFeedbackOpen} />
         </SidebarFooter>
       </div>
     </Sidebar>

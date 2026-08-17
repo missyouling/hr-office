@@ -484,6 +484,16 @@ export interface UserPreferences {
   [key: string]: unknown;
 }
 
+export interface DockPositionPreference {
+  left: number;
+  top: number;
+}
+
+export interface DockPreferences {
+  desktop_position: DockPositionPreference | null;
+  mobile_expanded: boolean;
+}
+
 // 存储模块配置
 export interface StorageModuleConfig {
   id: number;

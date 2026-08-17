@@ -98,14 +98,16 @@ describe("computeCropRect 裁剪矩形计算", () => {
 });
 
 describe("cropImageToWebP Canvas 导出", () => {
+  // toBlob 签名：回调 + 可选 MIME 类型与质量参数
+  type ToBlobImpl = (callback: BlobCallback, type?: string, quality?: number) => void;
   let drawImageMock: ReturnType<typeof vi.fn>;
-  let toBlobMock: ReturnType<typeof vi.fn>;
+  let toBlobMock: ReturnType<typeof vi.fn<ToBlobImpl>>;
   let capturedCanvas: HTMLCanvasElement | null;
 
   beforeEach(() => {
     capturedCanvas = null;
     drawImageMock = vi.fn();
-    toBlobMock = vi.fn((callback: BlobCallback) => {
+    toBlobMock = vi.fn<ToBlobImpl>((callback) => {
       callback(new Blob(["fake-webp"], { type: "image/webp" }));
     });
     // jsdom 未实现 Canvas 绘制，这里 mock 原型方法并捕获创建的 canvas 实例

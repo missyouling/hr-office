@@ -23,6 +23,8 @@ export function FloatingDock({
   mobileButtonClassName,
   desktopPosition,
   onDesktopPositionChange,
+  open,
+  onOpenChange,
 }: {
   items: DockItem[];
   desktopClassName?: string;
@@ -30,6 +32,8 @@ export function FloatingDock({
   mobileButtonClassName?: string;
   desktopPosition?: DockPosition;
   onDesktopPositionChange?: (position: DockPosition) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
     <>
@@ -39,15 +43,20 @@ export function FloatingDock({
         position={desktopPosition}
         onPositionChange={onDesktopPositionChange}
       />
-      <FloatingDockMobile items={items} className={mobileClassName} buttonClassName={mobileButtonClassName} />
+      <FloatingDockMobile items={items} className={mobileClassName} buttonClassName={mobileButtonClassName} open={open} onOpenChange={onOpenChange} />
     </>
   );
 }
 
 const FloatingDockMobile = memo(
-  ({ items, className, buttonClassName }: { items: DockItem[]; className?: string; buttonClassName?: string }) => {
-    const [open, setOpen] = useState(false);
-    const toggleOpen = useCallback(() => setOpen((prev) => !prev), []);
+  ({ items, className, buttonClassName, open: controlledOpen, onOpenChange }: { items: DockItem[]; className?: string; buttonClassName?: string; open?: boolean; onOpenChange?: (open: boolean) => void }) => {
+    const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+    const open = controlledOpen ?? uncontrolledOpen;
+    const toggleOpen = useCallback(() => {
+      const nextOpen = !open;
+      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    }, [controlledOpen, onOpenChange, open]);
 
     return (
       <div className={cn("relative block md:hidden", className)}>

@@ -31,6 +31,7 @@ import { FeedbackPanel } from "@/components/feedback-panel";
 import { DepartmentManagement } from "@/components/admin/department-management";
 import KnowledgeBaseManagement from "@/components/knowledge/KnowledgeBaseManagement";
 import { PersonalSettings } from "@/components/personal-settings";
+import { WorkbenchOverview } from "@/components/workbench-overview";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -158,7 +159,7 @@ export default function HomePage() {
   const renderMainContent = () => {
     switch (currentView) {
       case "landing":
-        return <LandingContent />;
+        return <LandingContent userName={user.full_name || user.username} />;
       case "employee":
         return <EmployeeManagement />;
       case "insurance":
@@ -204,7 +205,7 @@ export default function HomePage() {
   );
 }
 
-function LandingContent() {
+function LandingContent({ userName }: { userName?: string | null }) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -238,6 +239,9 @@ function LandingContent() {
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-8 pb-6">
       {/* 知识库统计卡片 */}
       <KnowledgeStats />
+
+      {/* 当前用户的问候、日期与个性化工作台配置 */}
+      <WorkbenchOverview name={userName} />
 
       {/* 欢迎卡 + 公告轮播 */}
       <div className="relative overflow-hidden rounded-[32px] bg-gradient-to-r from-blue-600 via-blue-700 to-purple-800 p-6 shadow-[0_12px_40px_-16px_rgba(59,130,246,0.5)]">
