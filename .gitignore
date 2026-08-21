@@ -101,6 +101,11 @@ SUPABASE_SQL_EXECUTION_GUIDE.md
 .worktrees/
 .slim/deepwork/
 
+# BEGIN oh-my-opencode-slim worktrees
+.slim/worktrees/
+.slim/worktrees.json
+# END oh-my-opencode-slim worktrees
+
 # AI 编码工具配置目录
 .adal/
 .agents/

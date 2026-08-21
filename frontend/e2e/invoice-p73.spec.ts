@@ -41,13 +41,19 @@ async function mockEmptyInvoiceData(page: Page) {
 
 /** 从侧边栏进入「日常事务」并打开「发票管理」页面。 */
 async function openInvoiceManagement(page: Page) {
-  await page.getByRole("button", { name: "日常事务", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "日常事务", exact: true })).toBeVisible();
+  const newShell = await page.locator('[data-shell="new"]').count() > 0;
+  if (newShell) {
+    await page.getByRole("button", { name: "日常事务", exact: true }).click();
+    await page.getByRole("button", { name: "发票管理", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "日常事务", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "日常事务", exact: true })).toBeVisible();
 
-  // 「发票管理」入口是可点击卡片，内部标题仅用于展示，不承担点击语义。
-  const invoiceModule = page.locator("div.cursor-pointer").filter({ hasText: "发票管理" }).first();
-  await expect(invoiceModule).toBeVisible();
-  await invoiceModule.click();
+    // 「发票管理」入口是可点击卡片，内部标题仅用于展示，不承担点击语义。
+    const invoiceModule = page.locator("div.cursor-pointer").filter({ hasText: "发票管理" }).first();
+    await expect(invoiceModule).toBeVisible();
+    await invoiceModule.click();
+  }
   await expect(page.getByRole("heading", { name: "发票管理", exact: true })).toBeVisible();
 }
 

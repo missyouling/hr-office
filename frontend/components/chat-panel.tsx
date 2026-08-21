@@ -92,9 +92,10 @@ function getTimeLabel(dateStr: string): string {
 type ChatPanelProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  variant?: "floating" | "embedded";
 };
 
-export function ChatPanel({ open, onOpenChange }: ChatPanelProps) {
+export function ChatPanel({ open, onOpenChange, variant = "floating" }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -142,6 +143,15 @@ export function ChatPanel({ open, onOpenChange }: ChatPanelProps) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [open, loadSessions]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onOpenChange]);
 
   // 拉取当前用户可见的知识库列表
   useEffect(() => {
@@ -358,16 +368,23 @@ export function ChatPanel({ open, onOpenChange }: ChatPanelProps) {
 
   if (!open) return null;
 
+  const isEmbedded = variant === "embedded";
+
   return (
     <>
       {/* 背景遮罩 */}
-      <div
-        className="fixed inset-0 bg-black/20 z-40 transition-opacity"
+      {!isEmbedded && <div
+        className="fixed inset-0 z-40 bg-black/20 transition-opacity"
         onClick={() => onOpenChange(false)}
-      />
+      />}
 
       {/* 侧滑面板 */}
-      <Card className="fixed inset-y-0 right-0 z-50 w-[880px] max-w-[95vw] flex flex-col shadow-2xl bg-card rounded-l-2xl border-l border-border animate-in slide-in-from-right duration-300">
+      <Card
+        data-variant={variant}
+        className={isEmbedded
+          ? "absolute inset-y-0 right-0 z-30 flex w-full max-w-[880px] flex-col rounded-none border-y-0 border-r-0 border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-300 md:w-[min(880px,calc(100%-1rem))]"
+          : "fixed inset-y-0 right-0 z-50 flex w-[880px] max-w-[95vw] flex-col rounded-l-2xl border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-300"}
+      >
         {/* ─── 顶栏 ──────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-muted to-background">
           <div className="flex items-center gap-3">

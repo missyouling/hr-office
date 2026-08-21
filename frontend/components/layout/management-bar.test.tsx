@@ -41,14 +41,17 @@ vi.mock("@/components/ui/floating-dock", () => ({
     desktopPosition,
     open,
     onOpenChange,
+    variant,
   }: {
     items: Array<{ title: string; onClick?: () => void }>;
     onDesktopPositionChange?: (position: { left: number; top: number }) => void;
     desktopPosition?: { left: number; top: number } | null;
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
+    variant?: string;
   }) => (
     <div>
+      <div data-testid="dock-variant">{variant}</div>
       <div data-testid="dock-position">{desktopPosition ? JSON.stringify(desktopPosition) : "null"}</div>
       <div data-testid="dock-mobile-open">{String(open)}</div>
       <button
@@ -82,13 +85,27 @@ describe("ManagementBar", () => {
     expect(screen.getByRole("button", { name: "AI 助手" })).toBeInTheDocument();
   });
 
-  test("点击 AI 助手派发 dock:open-chat 事件", () => {
-    const handler = vi.fn();
-    window.addEventListener("dock:open-chat", handler);
+  test("点击 AI 助手派发 dock:open-ai 事件", () => {
+    const aiHandler = vi.fn();
+    const legacyHandler = vi.fn();
+    window.addEventListener("dock:open-ai", aiHandler);
+    window.addEventListener("dock:open-chat", legacyHandler);
     render(<ManagementBar />);
     fireEvent.click(screen.getByRole("button", { name: "AI 助手" }));
-    expect(handler).toHaveBeenCalledTimes(1);
-    window.removeEventListener("dock:open-chat", handler);
+    expect(aiHandler).toHaveBeenCalledOnce();
+    expect(legacyHandler).toHaveBeenCalledOnce();
+    window.removeEventListener("dock:open-ai", aiHandler);
+    window.removeEventListener("dock:open-chat", legacyHandler);
+  });
+
+  test("新壳仅传递可选视觉变体，保留通知事件契约", () => {
+    const handler = vi.fn();
+    window.addEventListener("dock:request-notification", handler);
+    render(<ManagementBar variant="new" />);
+    expect(screen.getByTestId("dock-variant")).toHaveTextContent("new");
+    fireEvent.click(screen.getByRole("button", { name: "通知中心" }));
+    expect(handler).toHaveBeenCalledOnce();
+    window.removeEventListener("dock:request-notification", handler);
   });
 
   test("拖动 Dock 变更位置后视觉状态实时更新", async () => {

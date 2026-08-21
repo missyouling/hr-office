@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronUp, LogOut, Settings, UserRound } from "lucide-react";
+import { ChevronUp, LogOut, MessageSquareText, Settings, UserRound } from "lucide-react";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import {
   DropdownMenu,
@@ -18,14 +18,17 @@ interface NavUserProps {
   displayName: string;
   subLine?: string;
   onOpenSettings: (mode: SettingsMode) => void;
+  onOpenFeedback?: () => void;
+  variant?: "default" | "new";
 }
 
-export function NavUser({ displayName, subLine, onOpenSettings }: NavUserProps) {
+export function NavUser({ displayName, subLine, onOpenSettings, onOpenFeedback, variant = "default" }: NavUserProps) {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { user, hasPermission, logout } = useAuth();
   const isCollapsed = state === "collapsed" && !isMobile;
   const avatarName = user?.full_name || displayName || "用户";
   const canViewSystemSettings = hasPermission("settings", "view");
+  const isNewShell = variant === "new";
 
   const handleOpenSettings = (mode: SettingsMode) => {
     onOpenSettings(mode);
@@ -41,7 +44,9 @@ export function NavUser({ displayName, subLine, onOpenSettings }: NavUserProps) 
     <button
       type="button"
       aria-label={isCollapsed ? "打开账户菜单" : "打开账户菜单：个人信息"}
-      className="group flex h-12 min-w-0 items-center rounded-lg px-2 text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted data-[state=open]:bg-muted"
+      className={isNewShell
+        ? "group flex h-12 min-w-0 items-center rounded-xl px-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent data-[state=open]:bg-sidebar-accent"
+        : "group flex h-12 min-w-0 items-center rounded-lg px-2 text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted data-[state=open]:bg-muted"}
     >
       <UserAvatar name={avatarName} alt={`${avatarName}的头像`} className="h-8 w-8 shrink-0 rounded-full" />
       {!isCollapsed && (
@@ -71,11 +76,17 @@ export function NavUser({ displayName, subLine, onOpenSettings }: NavUserProps) 
             ) : (
               <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
             )}
-            <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-48 rounded-xl border-border/80 p-1.5 shadow-lg">
+            <DropdownMenuContent side="top" align="start" sideOffset={8} className={isNewShell ? "w-52 rounded-2xl border-border/80 p-1.5 shadow-xl" : "w-48 rounded-xl border-border/80 p-1.5 shadow-lg"}>
               <DropdownMenuItem className="gap-2 rounded-lg px-2.5 py-2" onSelect={() => handleOpenSettings("personal")}>
                 <UserRound className="h-4 w-4" aria-hidden />
-                个人信息
+                {isNewShell ? "个人资料" : "个人信息"}
               </DropdownMenuItem>
+              {isNewShell && onOpenFeedback && (
+                <DropdownMenuItem className="gap-2 rounded-lg px-2.5 py-2" onSelect={onOpenFeedback}>
+                  <MessageSquareText className="h-4 w-4" aria-hidden />
+                  我的反馈
+                </DropdownMenuItem>
+              )}
               {canViewSystemSettings && (
                 <DropdownMenuItem className="gap-2 rounded-lg px-2.5 py-2" onSelect={() => handleOpenSettings("system")}>
                   <Settings className="h-4 w-4" aria-hidden />

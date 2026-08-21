@@ -415,7 +415,30 @@ func main() {
 		&models.UnitCharge{},
 		&models.RosterEntry{},
 		&models.Employee{},
-		&models.AuditLog{}, // Add audit log table
+		// 入职管理（P12.3.2）
+		&models.OnboardingRecord{},
+		// 转正管理（P12.3.3-2）
+		&models.RegularizationRecord{},
+		&models.RegularizationEffectRun{},
+		// 劳动合同批次（P12.3.2 劳动合同）
+		&models.LaborContract{},
+		// 行政合同批次（P12.3.5）
+		&models.AdminContract{},
+		// 奖惩记录批次（P12.3.6）
+		&models.RewardRecord{},
+		// 人事异动批次（P12.3.7）
+		&models.PersonnelChange{},
+		// 培训管理批次（P12.3.8）
+		&models.TrainingRecord{},
+		// 职业卫生检查台账（P12 最小真实功能）
+		&models.OccupationalHealthCheck{},
+		// 安全管理批次（P12.3.9）
+		&models.SafetyInspection{},
+		// 车队管理（P12 车队管理最小真实功能）
+		&models.FleetVehicle{},
+		&models.WorkTodo{},
+		&models.OnboardingImportRun{}, // 入职定时任务运行记录（P12.3.2.3）
+		&models.AuditLog{},            // Add audit log table
 		&models.SocialInsuranceBatch{},
 		&models.SocialInsuranceRecord{},
 		&models.CallbackUpload{},
@@ -520,6 +543,10 @@ func main() {
 	if err := models.MigrateInvoiceSchema(db); err != nil {
 		log.Fatalf("发票模型迁移失败: %v", err)
 	}
+	// 员工就业状态回填（P12.3.3-1）：历史 active 员工 employment_status 为空时置为 formal，幂等
+	if err := models.MigrateEmployeeEmploymentStatus(db); err != nil {
+		log.Printf("员工就业状态回填失败: %v", err)
+	}
 	ensureUserPreferenceIndex(db)
 	ensureModelUsageLogsTable(db)
 	relaxSocialInsuranceConstraints(db)
@@ -589,6 +616,10 @@ func main() {
 	defer stopInvoiceCleanup()
 	handler.StartInvoiceFileCleanup(cleanupContext, 100, time.Hour)
 	handler.StartInvoiceParsingWorker(cleanupContext)
+	handler.StartOnboardingWorker(cleanupContext)          // 入职定时任务（P12.3.2.3）
+	handler.StartRegularizationWorker(cleanupContext)      // 转正定时任务（P12.3.3-4）
+	handler.StartContractExpiryWorker(cleanupContext)      // 合同到期扫描（每日 Asia/Shanghai 02:00）
+	handler.StartAdminContractExpiryWorker(cleanupContext) // 行政合同到期扫描（每日 Asia/Shanghai 02:00）
 	authHandler := api.NewAuthHandler(db, jwtManager, passwordResetService, emailVerificationService, emailService, auditmw.NewLoginRateLimiter())
 	auditHandler := api.NewAuditHandler(db, auditService)
 	monitoringHandler := api.NewMonitoringHandler(db, monitoringService)

@@ -19,6 +19,11 @@ const DOCK_BOTTOM = 32;
 const DOCK_PERSIST_DEBOUNCE_MS = 300;
 const DOCK_PREFERENCES_STORAGE_KEY = "dock_preferences_v1";
 
+function openAiAssistant(): void {
+  window.dispatchEvent(new CustomEvent("dock:open-ai"));
+  window.dispatchEvent(new CustomEvent("dock:open-chat"));
+}
+
 type StoredDockPreferences = {
   desktop_position: DockPosition | null;
   mobile_expanded: boolean;
@@ -51,7 +56,7 @@ function writeStoredDockPreferences(preferences: StoredDockPreferences): void {
   }
 }
 
-export function ManagementBar() {
+export function ManagementBar({ variant = "default" }: { variant?: "default" | "new" }) {
   const themeUtils = useThemeUtils();
   const { toggleSidebar, state, isMobile } = useSidebar();
   const [mounted, setMounted] = useState(false);
@@ -180,7 +185,7 @@ export function ManagementBar() {
     {
       title: "AI 助手",
       icon: <Sparkles className={iconClass} />,
-      onClick: () => window.dispatchEvent(new CustomEvent("dock:open-chat")),
+      onClick: openAiAssistant,
     },
     {
       title: mounted ? themeUtils.getAction() : "主题切换",
@@ -213,9 +218,10 @@ export function ManagementBar() {
     >
       <FloatingDock
         items={dockItems}
-        desktopClassName={`pointer-events-auto bg-background/70 backdrop-blur-md border border-border/60 shadow-lg shadow-black/10 dark:shadow-white/5 ${preferencesLoaded ? "" : "opacity-0"}`}
+        variant={variant}
+        desktopClassName={`pointer-events-auto bg-background/70 backdrop-blur-md border border-border/60 shadow-lg shadow-black/10 dark:shadow-white/5 ${variant === "new" ? "rounded-2xl" : ""} ${preferencesLoaded ? "" : "opacity-0"}`}
         mobileClassName={`pointer-events-auto ${preferencesLoaded ? "" : "opacity-0"}`}
-        mobileButtonClassName="bg-background/80 backdrop-blur"
+        mobileButtonClassName={`bg-background/80 backdrop-blur ${variant === "new" ? "ring-1 ring-border/70" : ""}`}
         desktopPosition={!isMobile ? dockPosition ?? undefined : undefined}
         onDesktopPositionChange={handleDockPositionChange}
         open={mobileExpanded}

@@ -90,10 +90,12 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RefreshCw, Eye, Plus, Trash2, Edit, HardDrive, Cloud, Server, ShieldCheck, Search, Settings2, Info, Sliders, Circle, Database, ArrowLeft } from "lucide-react";
+import { RefreshCw, Eye, Plus, Trash2, Edit, HardDrive, Cloud, Server, ShieldCheck, Settings2, Info, Sliders, Circle, Database, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { ModelSettings } from "./model-settings";
 import { SystemLogs } from "./system-logs";
+import { AuditLogs } from "./audit-logs";
+import { SystemMonitoring } from "./system-monitoring";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Area } from "recharts";
 
 // ============ 方案 A：一级 Tab + 二级侧边栏分组结构 ============
@@ -145,6 +147,11 @@ const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
       { id: "roles", label: "角色权限" },
     ],
   },
+];
+
+const SYSTEM_OBSERVABILITY_ITEMS: SettingsTabItem[] = [
+  { id: "audit", label: "审计日志" },
+  { id: "monitoring", label: "系统监控" },
 ];
 
 
@@ -1722,40 +1729,6 @@ function SubCategoryModal({
         )}
       </DialogContent>
     </Dialog>
-  );
-}
-
-// TODO: 预留代码，待后续功能使用
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function AdvancedOptions() {
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-blue-500" />
-            字段分组配置 (待开发)
-          </CardTitle>
-          <CardDescription>配置业务字段的逻辑分组与表单展示顺序</CardDescription>
-        </CardHeader>
-        <CardContent className="h-32 flex items-center justify-center border-2 border-dashed rounded-lg bg-accent/20">
-          <p className="text-muted-foreground text-sm">该功能正在内测中，敬请期待</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Search className="w-4 h-4 text-orange-500" />
-            条件显示规则 (待开发)
-          </CardTitle>
-          <CardDescription>配置基于字段值的联动显示或必填逻辑</CardDescription>
-        </CardHeader>
-        <CardContent className="h-32 flex items-center justify-center border-2 border-dashed rounded-lg bg-accent/20">
-          <p className="text-muted-foreground text-sm">需要配合高级字段引擎使用</p>
-        </CardContent>
-      </Card>
-    </div>
   );
 }
 
@@ -3430,10 +3403,14 @@ function CodeRulesTab() {
 
 // 存储配置 Tab
 
-export function SystemSettings({ onBack }: { onBack?: () => void }) {
+type SystemSettingsPanel = "audit" | "monitoring";
+
+export function SystemSettings({ onBack, initialPanel }: { onBack?: () => void; initialPanel?: SystemSettingsPanel }) {
   const { user, hasPermission } = useAuth();
   const router = useRouter();
   const [activeSubTab, setActiveSubTab] = useState("announcements");
+  const [internalPanel, setInternalPanel] = useState<SystemSettingsPanel | null>(initialPanel ?? null);
+  const canViewSystemObservability = hasPermission("users", "view");
 
   // 权限校验
   useEffect(() => {
@@ -3481,6 +3458,23 @@ export function SystemSettings({ onBack }: { onBack?: () => void }) {
     return null;
   }
 
+  if (internalPanel) {
+    const panel = internalPanel === "audit" ? <AuditLogs /> : <SystemMonitoring />;
+    const title = internalPanel === "audit" ? "审计日志" : "系统监控";
+    return (
+      <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground min-h-[calc(100vh-4rem)]">
+        <header className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+            <p className="text-muted-foreground">系统设置内的安全与运行信息</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setInternalPanel(null)}>返回系统设置</Button>
+        </header>
+        {panel}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground min-h-[calc(100vh-4rem)]">
       <header className="flex flex-col gap-2">
@@ -3521,6 +3515,22 @@ export function SystemSettings({ onBack }: { onBack?: () => void }) {
               </div>
             </div>
           ))}
+          {canViewSystemObservability && (
+            <div className="mb-4">
+              <div className="px-3 py-1.5 text-base font-semibold text-foreground">系统观察</div>
+              <div className="space-y-0.5 mt-1">
+                {SYSTEM_OBSERVABILITY_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setInternalPanel(item.id as SystemSettingsPanel)}
+                    className="w-full text-left px-3 py-1.5 text-sm rounded-md text-muted-foreground transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300">{renderTabContent()}</div>

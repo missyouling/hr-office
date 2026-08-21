@@ -12,14 +12,15 @@ import (
 	"siapp/internal/models"
 )
 
-// ============ 工作台提醒（P5.1-5：档案/宿舍/发票/请款 四类统一提醒） ============
+// ============ 工作台提醒（P5.1-5：档案/宿舍/发票/请款 四类统一提醒；P12.3.5 新增行政合同到期） ============
 
 // 提醒类型枚举（reminder_type 取值）
 const (
-	reminderTypeDocumentExpiration = "document_expiration"     // 档案到期（documents.expiration_date）
-	reminderTypeDormBillDue        = "dorm_bill_due"           // 宿舍账单到期（dorm_bills.due_date）
-	reminderTypeInvoicePending     = "invoice_pending"         // 发票待处理（按 Invoice 状态聚合，不伪造日期）
-	reminderTypePaymentPending     = "payment_request_pending" // 请款待处理（按 OfficePaymentRequest 状态聚合，不伪造日期）
+	reminderTypeDocumentExpiration    = "document_expiration"     // 档案到期（documents.expiration_date）
+	reminderTypeDormBillDue           = "dorm_bill_due"           // 宿舍账单到期（dorm_bills.due_date）
+	reminderTypeInvoicePending        = "invoice_pending"         // 发票待处理（按 Invoice 状态聚合，不伪造日期）
+	reminderTypePaymentPending        = "payment_request_pending" // 请款待处理（按 OfficePaymentRequest 状态聚合，不伪造日期）
+	reminderTypeAdminContractExpiring = "admin_contract_expiring" // 行政合同到期（admin_contracts.end_date，P12.3.5）
 )
 
 // 校验与状态常量
@@ -158,6 +159,20 @@ func (h *Handler) loadWorkbenchReminders(userID uint, days int) ([]workbenchRemi
 		})
 	}
 
+	adminContracts, err := h.loadAdminContractsExpiring(userID, now, end)
+	if err != nil {
+		return nil, err
+	}
+	for i := range adminContracts {
+		appendUnique(workbenchReminder{
+			ID:           adminContracts[i].ID,
+			ReminderType: reminderTypeAdminContractExpiring,
+			Title:        reminderTitle(adminContracts[i].ContractNo, adminContracts[i].Name),
+			Status:       adminContracts[i].Status,
+			DueAt:        parseAdminContractEndDate(adminContracts[i].EndDate),
+		})
+	}
+
 	sort.SliceStable(items, func(i, j int) bool {
 		return workbenchReminderLess(items[i], items[j])
 	})
@@ -215,6 +230,27 @@ func (h *Handler) loadPendingPaymentRequests(userID uint) ([]models.OfficePaymen
 		Order("id ASC").
 		Find(&requests).Error
 	return requests, err
+}
+
+// loadAdminContractsExpiring 行政合同到期（P12.3.5）：生效中（active）且未来 days 天内到期。
+// end_date 为 YYYY-MM-DD 字符串，与边界日期做字典序（等价时间序）比较，含今日。
+func (h *Handler) loadAdminContractsExpiring(userID uint, from, to time.Time) ([]models.AdminContract, error) {
+	var contracts []models.AdminContract
+	err := h.db.
+		Where("user_id = ? AND status = ? AND end_date >= ? AND end_date <= ?",
+			userID, models.AdminContractStatusActive, from.Format("2006-01-02"), to.Format("2006-01-02")).
+		Order("end_date ASC").
+		Find(&contracts).Error
+	return contracts, err
+}
+
+// parseAdminContractEndDate 将行政合同到期日字符串解析为时间指针（格式非法返回 nil，不中断提醒聚合）。
+func parseAdminContractEndDate(raw string) *time.Time {
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 // workbenchReminderLess 稳定排序规则：

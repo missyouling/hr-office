@@ -40,6 +40,7 @@ func migrateWorkbenchReminderTables(t *testing.T, tx *gorm.DB) {
 		&models.Invoice{},
 		&models.InvoiceItem{},
 		&models.OfficePaymentRequest{},
+		&models.AdminContract{}, // 行政合同到期提醒（P12.3.5）
 	); err != nil {
 		t.Fatalf("自动迁移表结构失败: %v", err)
 	}
@@ -308,5 +309,109 @@ func TestWorkbenchReminders_UserIsolation(t *testing.T) {
 	out = decodeRemindersResponse(t, resp)
 	if len(out.Items) != 5 {
 		t.Fatalf("A 应看到 5 条提醒，实际 %d 条", len(out.Items))
+	}
+}
+
+// seedAdminContractReminderData 构造行政合同到期提醒测试数据（P12.3.5）：
+// 应返回：active 且 5 天后到期 1 条；不应返回：草稿/已作废/已过期。
+func seedAdminContractReminderData(t *testing.T, tx *gorm.DB, userID uint) {
+	t.Helper()
+
+	// active 且 5 天后到期 → 应出现
+	soon := time.Now().AddDate(0, 0, 5).Format("2006-01-02")
+	active := models.AdminContract{
+		UserID: userID, ContractNo: "XZ-WB-001", Name: "保洁服务合同", Counterparty: "某某公司",
+		ContractType: "服务合同", StartDate: "2026-01-01", EndDate: soon,
+		Status: models.AdminContractStatusActive,
+	}
+	if err := tx.Create(&active).Error; err != nil {
+		t.Fatalf("创建生效行政合同失败: %v", err)
+	}
+
+	// draft → 不应出现
+	draft := models.AdminContract{
+		UserID: userID, ContractNo: "XZ-WB-002", Name: "草稿合同", Counterparty: "某某公司",
+		ContractType: "服务合同", StartDate: "2026-01-01", EndDate: soon,
+		Status: models.AdminContractStatusDraft,
+	}
+	if err := tx.Create(&draft).Error; err != nil {
+		t.Fatalf("创建草稿行政合同失败: %v", err)
+	}
+
+	// cancelled → 不应出现
+	cancelled := models.AdminContract{
+		UserID: userID, ContractNo: "XZ-WB-003", Name: "已作废合同", Counterparty: "某某公司",
+		ContractType: "服务合同", StartDate: "2026-01-01", EndDate: soon,
+		Status: models.AdminContractStatusCancelled,
+	}
+	if err := tx.Create(&cancelled).Error; err != nil {
+		t.Fatalf("创建已作废行政合同失败: %v", err)
+	}
+
+	// expired（end_date 过去）→ 不应出现
+	past := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
+	expired := models.AdminContract{
+		UserID: userID, ContractNo: "XZ-WB-004", Name: "已到期合同", Counterparty: "某某公司",
+		ContractType: "服务合同", StartDate: "2025-01-01", EndDate: past,
+		Status: models.AdminContractStatusExpired,
+	}
+	if err := tx.Create(&expired).Error; err != nil {
+		t.Fatalf("创建已到期行政合同失败: %v", err)
+	}
+}
+
+// TestWorkbenchReminders_AdminContractExpiring 工作台统一提醒（P12.3.5）：
+// active 且未来 30 天内到期的行政合同以 admin_contract_expiring 类型出现；
+// 草稿/已作废/已到期不出现；due_at 为到期日；用户隔离生效。
+func TestWorkbenchReminders_AdminContractExpiring(t *testing.T) {
+	db := setupTestDB(t)
+	tx := newTestTransaction(t, db)
+	migrateWorkbenchReminderTables(t, tx)
+
+	userA := createTestUser(t, tx, "wbreminder_ac_a", "行政合同用户A")
+	userB := createTestUser(t, tx, "wbreminder_ac_b", "行政合同用户B")
+	handler := NewHandler(tx)
+	router := newWorkbenchRemindersTestRouter(t, handler)
+	seedAdminContractReminderData(t, tx, userA.ID)
+
+	// A 查询：仅 1 条 active 提醒，due_at 为到期日
+	req := buildRemindersRequest(t, "/api/user/workbench-reminders?days=30", true, userA.ID)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际 %d，body=%s", resp.Code, resp.Body.String())
+	}
+	out := decodeRemindersResponse(t, resp)
+	if len(out.Items) != 1 {
+		t.Fatalf("期望 1 条行政合同提醒，实际 %d 条: %+v", len(out.Items), out.Items)
+	}
+	item := out.Items[0]
+	if item.ReminderType != reminderTypeAdminContractExpiring {
+		t.Fatalf("提醒类型应为 %s，实际 %s", reminderTypeAdminContractExpiring, item.ReminderType)
+	}
+	if item.Title != "XZ-WB-001" {
+		t.Fatalf("提醒标题应为合同编号 XZ-WB-001，实际 %s", item.Title)
+	}
+	if item.Status != models.AdminContractStatusActive {
+		t.Fatalf("提醒状态应为 active，实际 %s", item.Status)
+	}
+	if item.DueAt == nil {
+		t.Fatalf("行政合同提醒的 due_at 不应为 null")
+	}
+	want := time.Now().AddDate(0, 0, 5).Format("2006-01-02")
+	if item.DueAt.Format("2006-01-02") != want {
+		t.Fatalf("due_at 应为 %s，实际 %s", want, item.DueAt.Format("2006-01-02"))
+	}
+
+	// B 查询：看不到 A 的提醒
+	req = buildRemindersRequest(t, "/api/user/workbench-reminders", true, userB.ID)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际 %d", resp.Code)
+	}
+	out = decodeRemindersResponse(t, resp)
+	if len(out.Items) != 0 {
+		t.Fatalf("B 不应看到 A 的行政合同提醒，实际 %d 条: %+v", len(out.Items), out.Items)
 	}
 }

@@ -110,4 +110,19 @@ describe("GlobalSearch 组件", () => {
       screen.getByPlaceholderText(/搜索档案、员工、宿舍/)
     ).toBeInTheDocument();
   });
+
+  test("受控模式隐藏默认悬浮入口，但仍由 Ctrl/Cmd+K 请求打开", () => {
+    const onOpenChange = vi.fn();
+    render(<GlobalSearch onNavigate={vi.fn()} open={false} onOpenChange={onOpenChange} hideTrigger />);
+
+    expect(screen.queryByRole("button", { name: /搜索/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  test("默认模式保留固定悬浮搜索入口", () => {
+    const { container } = render(<GlobalSearch onNavigate={vi.fn()} />);
+    expect(container.querySelector(".fixed.top-4.right-4")).toBeInTheDocument();
+  });
 });

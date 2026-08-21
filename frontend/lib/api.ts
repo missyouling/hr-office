@@ -351,7 +351,8 @@ export type WorkbenchReminderType =
   | "document_expiration"
   | "dorm_bill_due"
   | "invoice_pending"
-  | "payment_request_pending";
+  | "payment_request_pending"
+  | "admin_contract_expiring";
 
 export interface WorkbenchReminder {
   id: number;

@@ -1636,6 +1636,7 @@ const parseInsuranceVisiblePreference = (raw: unknown): Record<InsuranceViewKey,
 
 interface EmployeeManagementProps {
   className?: string;
+  initialTab?: RosterTab;
 }
 
 const formatDateForTemplate = (value: string) => {
@@ -1786,7 +1787,7 @@ const RESPONSIVE_FIELD_GRID_CLASS =
   "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [&>div]:min-w-0 [&>div]:w-full sm:[&>div]:min-w-[260px]";
 const CALLBACK_PERSONAL_MAP_STORAGE_KEY = "insurance-callback-map";
 
-export function EmployeeManagement({}: EmployeeManagementProps) {
+export function EmployeeManagement({ initialTab = "active" }: EmployeeManagementProps) {
   // 状态管理
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [resignedEmployees, setResignedEmployees] = useState<Employee[]>([]);
@@ -1803,7 +1804,7 @@ export function EmployeeManagement({}: EmployeeManagementProps) {
   const [insuranceExporting, setInsuranceExporting] = useState(false);
   const [insuranceSearch, setInsuranceSearch] = useState("");
   const [insuranceView, setInsuranceView] = useState<InsuranceView>("increase");
-  const [activeRosterTab, setActiveRosterTab] = useState<RosterTab>("active");
+  const [activeRosterTab, setActiveRosterTab] = useState<RosterTab>(initialTab);
   const [insuranceFormMode, setInsuranceFormMode] = useState<"create" | "edit">("create");
   const [socialOptions, setSocialOptions] = useState<SocialInsuranceTemplateOptions | null>(null);
   const [socialOptionsLoading, setSocialOptionsLoading] = useState(false);
@@ -1872,6 +1873,11 @@ export function EmployeeManagement({}: EmployeeManagementProps) {
   const [unsealDate, setUnsealDate] = useState(formatDateToInput(new Date()));
   const [unsealSubmitting, setUnsealSubmitting] = useState(false);
   const { token, isAuthenticated, isLoading: authLoading } = useAuth();
+
+  useEffect(() => {
+    setActiveRosterTab(initialTab);
+  }, [initialTab]);
+
   useEffect(() => {
     if (!showBillDetailDialog) {
       setBillDetailSearch("");

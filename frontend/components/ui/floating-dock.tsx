@@ -7,6 +7,8 @@ import { AnimatePresence, MotionValue, motion, useMotionValue, useSpring, useTra
 import { cn } from "@/lib/utils";
 import type { DockPosition } from "@/lib/preferences";
 
+const NEW_SHELL_DESKTOP_DOCK_MIN_LEFT = 208;
+
 type DockItem = {
   title: string;
   icon: React.ReactNode;
@@ -25,6 +27,7 @@ export function FloatingDock({
   onDesktopPositionChange,
   open,
   onOpenChange,
+  variant = "default",
 }: {
   items: DockItem[];
   desktopClassName?: string;
@@ -34,6 +37,7 @@ export function FloatingDock({
   onDesktopPositionChange?: (position: DockPosition) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  variant?: "default" | "new";
 }) {
   return (
     <>
@@ -42,6 +46,7 @@ export function FloatingDock({
         className={desktopClassName}
         position={desktopPosition}
         onPositionChange={onDesktopPositionChange}
+        variant={variant}
       />
       <FloatingDockMobile items={items} className={mobileClassName} buttonClassName={mobileButtonClassName} open={open} onOpenChange={onOpenChange} />
     </>
@@ -127,11 +132,13 @@ const FloatingDockDesktop = memo(({
   className,
   position,
   onPositionChange,
+  variant,
 }: {
   items: DockItem[];
   className?: string;
   position?: DockPosition;
   onPositionChange?: (position: DockPosition) => void;
+  variant: "default" | "new";
 }) => {
   const mouseX = useMotionValue(Infinity);
   const dockRef = useRef<HTMLDivElement>(null);
@@ -151,13 +158,14 @@ const FloatingDockDesktop = memo(({
     const drag = dragRef.current;
     const element = dockRef.current;
     if (!drag || !element || !onPositionChange) return;
-    const maxLeft = Math.max(8, window.innerWidth - element.offsetWidth - 8);
+    const minLeft = variant === "new" ? NEW_SHELL_DESKTOP_DOCK_MIN_LEFT : 8;
+    const maxLeft = Math.max(minLeft, window.innerWidth - element.offsetWidth - 8);
     const maxTop = Math.max(8, window.innerHeight - element.offsetHeight - 8);
     onPositionChange({
-      left: Math.min(Math.max(drag.left + event.clientX - drag.x, 8), maxLeft),
+      left: Math.min(Math.max(drag.left + event.clientX - drag.x, minLeft), maxLeft),
       top: Math.min(Math.max(drag.top + event.clientY - drag.y, 8), maxTop),
     });
-  }, [onPositionChange]);
+  }, [onPositionChange, variant]);
   const handlePointerUp = useCallback(() => { dragRef.current = null; }, []);
   // 拖动手柄：仅手柄启动拖动，按钮点击保持原行为；移动端隐藏（md:flex）
   const dragHandle = position && onPositionChange ? (
@@ -181,8 +189,8 @@ const FloatingDockDesktop = memo(({
       onMouseLeave={handleMouseLeave}
       ref={dockRef}
       data-floating-dock
-      style={position ? { left: position.left, top: position.top } : undefined}
-      className={cn("hidden h-12 items-end gap-2 rounded-xl bg-background/70 backdrop-blur-md border border-border/60 px-2 pb-2 md:flex shadow-lg shadow-black/10 dark:shadow-white/5", position && "fixed", className)}
+      style={position ? { left: variant === "new" ? Math.max(position.left, NEW_SHELL_DESKTOP_DOCK_MIN_LEFT) : position.left, top: position.top } : undefined}
+      className={cn("hidden h-12 items-end gap-2 rounded-xl bg-background/70 backdrop-blur-md border border-border/60 px-2 pb-2 md:flex shadow-lg shadow-black/10 dark:shadow-white/5", variant === "new" && "rounded-2xl", position && "fixed", className)}
     >
       {dragHandle}
       {items.map((item) => (

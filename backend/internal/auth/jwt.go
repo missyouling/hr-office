@@ -14,13 +14,15 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"siapp/internal/models"
 )
 
 // JWTClaims represents the JWT token claims
 type JWTClaims struct {
-	UserID   uint   `json:"user_id"`
-	Username string `json:"username"`
+	UserID    uint   `json:"user_id"`
+	Username  string `json:"username"`
+	TokenType string `json:"token_type"` // token 类型："access" | "refresh"
 	jwt.RegisteredClaims
 }
 
@@ -74,16 +76,18 @@ func (j *JWTManager) GenerateRefreshToken(userID uint) (string, error) {
 
 // generateTokenWithExpiry 签发带自定义过期时间的 JWT
 func (j *JWTManager) generateTokenWithExpiry(userID uint, username, tokenType string, ttl time.Duration) (string, error) {
+	now := time.Now()
 	claims := JWTClaims{
-		UserID:   userID,
-		Username: username,
+		UserID:    userID,
+		Username:  username,
+		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    "siapp",
 			Subject:   strconv.Itoa(int(userID)),
-			ID:        tokenType, // jwt.ID 字段存放 token 类型（"access"|"refresh"）
+			ID:        uuid.NewString(), // jti：每次签发唯一 UUID，作为 token 唯一标识（JTI）
 		},
 	}
 

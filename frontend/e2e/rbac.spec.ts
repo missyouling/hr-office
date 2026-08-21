@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { ACCOUNTS, login } from "./helpers/auth";
 
 /**
@@ -12,6 +12,13 @@ import { ACCOUNTS, login } from "./helpers/auth";
  *
  * 每个用例独立登录（beforeEach），不共享浏览器状态。
  *
+ * ── 壳层兼容（P12.1.1 新壳）──
+ * 固定新壳下：
+ * - 「员工管理」是侧边栏可折叠分组，需展开分组后点击「员工花名册」进入员工页；
+ * - 「系统设置」不在主侧栏，仅在底部头像菜单中按 settings.view 权限显隐。
+ * 辅助函数通过新壳渲染的 [data-shell="new"] 标记识别壳层并切换定位路径，
+ * 旧壳保留主侧栏定位；两套壳断言语义一致。
+ *
  * ── 已知偏差说明（与任务验收标准的差异，测试按实际代码行为断言）──
  * 1. 「备份」「用户管理」菜单当前未在侧边栏注册（app-sidebar.tsx 注释明确说明），
  *    前端也无用户管理组件，因此这两个菜单无法断言"按权限显隐"，本测试不涉及。
@@ -24,12 +31,82 @@ import { ACCOUNTS, login } from "./helpers/auth";
 // 新增员工用的合法身份证号（满足前端格式校验）
 const TEST_ID_NUMBER = "11010519900307753X";
 
-// ===== 辅助函数 =====
+// ===== 壳层识别 =====
 
-/** 点击侧边栏「员工管理」进入员工管理页，等待内容区渲染完成 */
+/** 固定新壳页面渲染 [data-shell="new"] 标记（app/page.tsx NewShell 包装器） */
+async function isNewShell(page: Page): Promise<boolean> {
+  return (await page.locator('[data-shell="new"]').count()) > 0;
+}
+
+// ===== 头像菜单辅助（新壳下系统设置入口） =====
+
+/** 底部头像菜单触发器按钮（两种壳共用 NavUser 组件） */
+function accountMenuTrigger(page: Page) {
+  return page.getByRole("button", { name: /打开账户菜单/ });
+}
+
+/** 打开头像菜单并返回菜单定位器（Radix DropdownMenu 挂载于 body 下） */
+async function openAccountMenu(page: Page): Promise<Locator> {
+  await accountMenuTrigger(page).click();
+  return page.getByRole("menu");
+}
+
+/** 关闭头像菜单（Escape），避免遮挡后续侧边栏操作 */
+async function closeAccountMenu(page: Page) {
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+
+// ===== 系统设置入口断言 =====
+
+/**
+ * 断言「系统设置」可达（角色有 settings.view）：
+ * - 新壳：头像菜单中出现「系统设置」菜单项
+ * - 旧壳：主侧栏出现「系统设置」按钮
+ */
+async function expectSystemSettingsVisible(page: Page) {
+  if (await isNewShell(page)) {
+    const menu = await openAccountMenu(page);
+    await expect(menu.getByRole("menuitem", { name: "系统设置", exact: true })).toBeVisible();
+    await closeAccountMenu(page);
+  } else {
+    await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeVisible();
+  }
+}
+
+/**
+ * 断言「系统设置」不可见（角色无 settings.view）：
+ * - 新壳：头像菜单中不存在「系统设置」菜单项
+ * - 旧壳：主侧栏不存在「系统设置」按钮
+ */
+async function expectSystemSettingsHidden(page: Page) {
+  if (await isNewShell(page)) {
+    const menu = await openAccountMenu(page);
+    await expect(menu.getByRole("menuitem", { name: "系统设置", exact: true })).toHaveCount(0);
+    await closeAccountMenu(page);
+  } else {
+    await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeHidden();
+  }
+}
+
+// ===== 员工管理入口 =====
+
+/**
+ * 进入员工管理页：
+ * - 新壳：「员工管理」是可折叠分组，先展开分组再点击「员工花名册」
+ * - 旧壳：「员工管理」是主侧栏直接入口
+ * 统一等待在职员工卡片标题出现（初始 tab 为「在职员工」）。
+ */
 async function openEmployeePage(page: Page) {
-  await page.getByRole("button", { name: "员工管理", exact: true }).click();
-  // 等待在职员工卡片标题出现（初始 tab 为「在职员工」）
+  if (await isNewShell(page)) {
+    const groupToggle = page.getByRole("button", { name: "员工管理", exact: true });
+    if ((await groupToggle.getAttribute("aria-expanded")) !== "true") {
+      await groupToggle.click();
+    }
+    await page.getByRole("button", { name: "员工花名册", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "员工管理", exact: true }).click();
+  }
   await expect(page.getByText("在职员工管理", { exact: true })).toBeVisible({ timeout: 15_000 });
 }
 
@@ -62,8 +139,8 @@ test.describe("RBAC 权限矩阵 E2E", () => {
   test("admin：全部权限，系统设置菜单与新增/删除按钮均可见", async ({ page }) => {
     await login(page, ACCOUNTS.admin.username, ACCOUNTS.admin.password);
 
-    // 菜单断言：admin 有 settings.view，系统设置菜单可见
-    await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeVisible();
+    // 菜单断言：admin 有 settings.view，系统设置入口可达（新壳在头像菜单，旧壳在主侧栏）
+    await expectSystemSettingsVisible(page);
 
     // 员工管理页按钮断言：admin 有 employee.create / employee.delete
     await openEmployeePage(page);
@@ -77,8 +154,8 @@ test.describe("RBAC 权限矩阵 E2E", () => {
   test("manager：系统设置可见，新增可见但删除不可见（无 delete 权限）", async ({ page }) => {
     await login(page, ACCOUNTS.manager.username, ACCOUNTS.manager.password);
 
-    // 菜单断言：manager 有 settings.view，系统设置菜单可见
-    await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeVisible();
+    // 菜单断言：manager 有 settings.view，系统设置入口可达
+    await expectSystemSettingsVisible(page);
 
     // 员工管理页按钮断言：manager 有 employee.create（新增可见）
     await openEmployeePage(page);
@@ -92,8 +169,8 @@ test.describe("RBAC 权限矩阵 E2E", () => {
   test("editor：系统设置可见，新增与删除均不可见（无 create/delete 权限）", async ({ page }) => {
     await login(page, ACCOUNTS.editor.username, ACCOUNTS.editor.password);
 
-    // 菜单断言：editor 有 settings.view，系统设置菜单可见
-    await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeVisible();
+    // 菜单断言：editor 有 settings.view，系统设置入口可达
+    await expectSystemSettingsVisible(page);
 
     // 员工管理页按钮断言：editor 无 employee.create / employee.delete，均隐藏
     await openEmployeePage(page);
@@ -104,12 +181,27 @@ test.describe("RBAC 权限矩阵 E2E", () => {
   test("viewer：仅基础模块 view，系统设置/新增/删除均不可见", async ({ page }) => {
     await login(page, ACCOUNTS.viewer.username, ACCOUNTS.viewer.password);
 
-    // 菜单断言：viewer 无 settings.view，系统设置菜单不可见（验收标准：viewer 看不到系统设置）
-    await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeHidden();
+    // 菜单断言：viewer 无 settings.view，系统设置入口不可见（验收标准：viewer 看不到系统设置）
+    await expectSystemSettingsHidden(page);
 
     // 员工管理页按钮断言：viewer 无 employee.create / employee.delete，均隐藏
     await openEmployeePage(page);
     await expect(page.getByRole("button", { name: "新增", exact: true })).toBeHidden();
     await expect(page.getByRole("button", { name: "删除", exact: true })).toBeHidden();
+  });
+
+  test("新壳：admin 可进入组织管理", async ({ page }) => {
+    await login(page, ACCOUNTS.admin.username, ACCOUNTS.admin.password);
+    await expect(page.locator('[data-shell="new"]')).toHaveCount(1);
+    const adminGroup = page.getByRole("button", { name: "行政管理", exact: true });
+    await adminGroup.click();
+    await page.getByRole("button", { name: "组织管理", exact: true }).click();
+    await expect(page.getByText("组织机构管理", { exact: true })).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("新壳：viewer 隐藏组织管理入口", async ({ page }) => {
+    await login(page, ACCOUNTS.viewer.username, ACCOUNTS.viewer.password);
+    await expect(page.locator('[data-shell="new"]')).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "组织管理", exact: true })).toHaveCount(0);
   });
 });

@@ -100,6 +100,20 @@ describe("WorkbenchOverview", () => {
     expect(screen.queryByText("重复档案")).not.toBeInTheDocument();
   });
 
+  it("展示行政合同到期提醒且不影响既有提醒", async () => {
+    getWorkbenchConfigMock.mockResolvedValue({ weather: null, news: null });
+    getWorkbenchRemindersMock.mockResolvedValue({ days: 30, items: [
+      { id: 5, reminder_type: "admin_contract_expiring", title: "AC-2026-001", status: "active", due_at: "2026-09-15T00:00:00Z" },
+      { id: 1, reminder_type: "document_expiration", title: "档案 D-1", status: "active", due_at: "2026-09-10T00:00:00Z" },
+    ] });
+    render(<WorkbenchOverview />);
+    const list = await screen.findByRole("list", { name: "工作台提醒列表" });
+    expect(screen.getByText("行政合同到期")).toBeInTheDocument();
+    expect(screen.getByText("AC-2026-001")).toBeInTheDocument();
+    expect(screen.getByText("档案 D-1")).toBeInTheDocument();
+    expect(list.textContent).toMatch(/档案 D-1[\s\S]*AC-2026-001/);
+  });
+
   it("提醒请求失败时不影响配置展示", async () => {
     getWorkbenchConfigMock.mockResolvedValue({ weather: { enabled: true, city: "杭州" }, news: null });
     getWorkbenchRemindersMock.mockRejectedValue(new Error("网络异常"));

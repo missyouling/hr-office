@@ -123,19 +123,24 @@ export function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  mobileWidth,
+  mobileMaxWidth,
   className,
   children,
+  style,
   ...props
 }: React.ComponentProps<"div"> & {
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
+  mobileWidth?: string;
+  mobileMaxWidth?: string;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
 
   if (collapsible === "none") {
     return (
-      <div data-slot="sidebar" className={cn("bg-sidebar text-sidebar-foreground flex h-full w-[var(--sidebar-width)] flex-col", className)} {...props}>
+      <div data-slot="sidebar" className={cn("bg-sidebar text-sidebar-foreground flex h-full w-[var(--sidebar-width)] flex-col", className)} style={style} {...props}>
         {children}
       </div>
     );
@@ -148,8 +153,12 @@ export function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="bg-sidebar text-sidebar-foreground w-[var(--sidebar-width)] p-0 [&>button]:hidden"
-          style={{ "--sidebar-width": SIDEBAR_WIDTH_MOBILE } as React.CSSProperties}
+          className="bg-sidebar text-sidebar-foreground w-[var(--sidebar-mobile-width)] max-w-[var(--sidebar-mobile-max-width)] p-0 [&>button]:hidden"
+          style={{
+            "--sidebar-mobile-width": mobileWidth ?? SIDEBAR_WIDTH_MOBILE,
+            "--sidebar-mobile-max-width": mobileMaxWidth ?? "none",
+            ...style,
+          } as React.CSSProperties}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
@@ -194,6 +203,7 @@ export function Sidebar({
           className,
         )}
         {...props}
+        style={style}
       >
         <div
           data-sidebar="sidebar"

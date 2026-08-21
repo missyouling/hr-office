@@ -1,15 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { useRouter } from "next/navigation";
+import { DEFAULT_VIEW, renderView, type ViewComponentMap } from "@/lib/view-mapping";
 
 // Disable static generation for this page
 export const dynamic = 'force-dynamic';
 
 import { EmployeeManagement } from "@/components/employee-management";
+import { OnboardingManagement } from "@/components/onboarding-management";
+import { ResignationManagement } from "@/components/resignation-management";
+import { RegularizationManagement } from "@/components/regularization-management";
+import { LaborContractManagement } from "@/components/labor-contract-management";
+import { RewardManagement } from "@/components/reward-management";
+import { PersonnelChangeManagement } from "@/components/personnel-change-management";
+import { TrainingManagement } from "@/components/training-management";
+import { SafetyManagement } from "@/components/safety-management";
+import { OccupationalHealthCheckManagement } from "@/components/occupational-health-check-management";
+import { AdminContractManagement } from "@/components/admin-contract-management";
 import { InsuranceManagement } from "@/components/insurance-management";
 import { DormitoryManagement } from "@/components/dormitory-management";
+import { EnergyManagement } from "@/components/energy-management";
 import { AuditLogs } from "@/components/audit-logs";
 import { SystemMonitoring } from "@/components/system-monitoring";
 import { OrganizationManagement } from "@/components/organization-management";
@@ -17,11 +29,11 @@ import { DailyAffairsHub } from "@/components/daily-affairs-hub";
 import { SystemSettings } from "@/components/system-settings";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/layout/app-sidebar";
+import { NewAppSidebar } from "@/components/layout/new-app-sidebar";
 import type { SettingsMode } from "@/components/layout/nav-user";
 import { ManagementBar } from "@/components/layout/management-bar";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bell, MessageSquare, Search } from "lucide-react";
 import { fetchAnnouncements, type Announcement } from "@/lib/api";
 import { ChatPanel } from "@/components/chat-panel";
 import { NotificationCenter } from "@/components/notification-center";
@@ -32,6 +44,7 @@ import { DepartmentManagement } from "@/components/admin/department-management";
 import KnowledgeBaseManagement from "@/components/knowledge/KnowledgeBaseManagement";
 import { PersonalSettings } from "@/components/personal-settings";
 import { WorkbenchOverview } from "@/components/workbench-overview";
+import { FleetVehicleManagement } from "@/components/fleet-vehicle-management";
 
 export default function HomePage() {
   const { user, isLoading: loading } = useAuth();
@@ -45,10 +58,12 @@ export default function HomePage() {
       router.push('/auth');
     }
   }, [loading, user, router]);
-  const [currentView, setCurrentView] = useState("landing");
+  // 初始视图沿用默认视图常量（工作台 landing），后续切换由侧栏 / dock 事件驱动
+  const [currentView, setCurrentView] = useState<string>(DEFAULT_VIEW);
   // 记录进入设置前的来源视图，供“返回”按钮恢复
   const [settingsReturnView, setSettingsReturnView] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [pendingMemoSiteId, setPendingMemoSiteId] = useState<number | null>(null);
 
@@ -103,6 +118,7 @@ export default function HomePage() {
     window.addEventListener("dock:request-notification", handleNotification as EventListener);
     window.addEventListener("dock:open-notification", handleNotification as EventListener);
     window.addEventListener("dock:open-chat", handleChat as EventListener);
+    window.addEventListener("dock:open-ai", handleChat as EventListener);
     window.addEventListener("dock:open-site-memo", handleSiteMemo);
     window.addEventListener("dock:request-support", handleSupport as EventListener);
     window.addEventListener("dock:go-home", handleGoHome as EventListener);
@@ -110,6 +126,7 @@ export default function HomePage() {
       window.removeEventListener("dock:request-notification", handleNotification as EventListener);
       window.removeEventListener("dock:open-notification", handleNotification as EventListener);
       window.removeEventListener("dock:open-chat", handleChat as EventListener);
+      window.removeEventListener("dock:open-ai", handleChat as EventListener);
       window.removeEventListener("dock:open-site-memo", handleSiteMemo);
       window.removeEventListener("dock:request-support", handleSupport as EventListener);
       window.removeEventListener("dock:go-home", handleGoHome as EventListener);
@@ -156,53 +173,38 @@ export default function HomePage() {
     return null;
   }
 
-  const renderMainContent = () => {
-    switch (currentView) {
-      case "landing":
-        return <LandingContent userName={user.full_name || user.username} />;
-      case "employee":
-        return <EmployeeManagement />;
-      case "insurance":
-        return <InsuranceManagement />;
-      case "dormitory":
-        return <DormitoryManagement />;
-      case "organization":
-        return <OrganizationManagement />;
-      case "audit":
-        return <AuditLogs />;
-      case "monitoring":
-        return <SystemMonitoring />;
-      case "daily-affairs":
-        return <DailyAffairsHub />;
-      case "system":
-        return <SystemSettings onBack={handleBackFromSettings} />;
-      case "personal-settings":
-        return <PersonalSettings onBack={handleBackFromSettings} />;
-      case "feedback":
-        return <FeedbackPanel />;
-      case "departments":
-        return <DepartmentManagement />;
-      case "knowledge":
-        return <KnowledgeBaseManagement />;
-      default:
-        return <InsuranceManagement />;
-    }
-  };
+  // 视图装配已收敛至 lib/view-mapping.ts：currentView → 既有组件映射见文件底部 VIEW_COMPONENTS，
+  // 非法视图回退 insurance 组件（与既有 default 分支一致），此处仅注入页面级上下文 props
+  const renderMainContent = () =>
+    renderView(currentView, VIEW_COMPONENTS, {
+      userName: user.full_name || user.username,
+      onBackFromSettings: handleBackFromSettings,
+    });
 
-  return (
-    <SidebarProvider className="app-shell bg-muted">
-      <AppSidebar currentView={currentView} onViewChange={setCurrentView} onOpenSettings={handleOpenSettings} />
+  const appShell = (
+    <SidebarProvider className="app-shell h-[100dvh] overflow-hidden bg-muted">
+      <NewAppSidebar currentView={currentView} onViewChange={setCurrentView} onOpenSettings={handleOpenSettings} />
       <SidebarInset className="relative h-full min-h-0 bg-muted">
-        <ManagementBar />
-        <GlobalSearch onNavigate={(module) => { setCurrentView(module); }} />
-        <div data-slot="app-main-content" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted p-4 md:p-6">
-          {renderMainContent()}
+        <ManagementBar variant="new" />
+        <GlobalSearch
+          onNavigate={(module) => { setCurrentView(module); }}
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          hideTrigger
+        />
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <NewShellContentTools onOpenSearch={() => setSearchOpen(true)} onOpenChat={() => setChatOpen(true)} />
+          <div data-slot="app-main-content" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted p-4 md:p-6">
+            {renderMainContent()}
+          </div>
+          <ChatPanel open={chatOpen} onOpenChange={setChatOpen} variant="embedded" />
         </div>
         <NotificationCenter open={notificationOpen} onOpenChange={setNotificationOpen} />
-        <ChatPanel open={chatOpen} onOpenChange={setChatOpen} />
       </SidebarInset>
     </SidebarProvider>
   );
+
+  return <NewShell>{appShell}</NewShell>;
 }
 
 function LandingContent({ userName }: { userName?: string | null }) {
@@ -298,6 +300,81 @@ function LandingContent({ userName }: { userName?: string | null }) {
             <ArrowRight className="h-5 w-5" />
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 视图装配映射表：合法视图 → React 组件（装配规则见 lib/view-mapping.ts）。
+ * 声明在 LandingContent 之后以规避 TDZ（模块初始化时引用尚未定义）与循环依赖。
+ */
+const VIEW_COMPONENTS: ViewComponentMap = {
+  landing: LandingContent,
+  employee: EmployeeManagement,
+  "employee-provident": EmployeeManagement,
+  onboarding: OnboardingManagement,
+  resignation: ResignationManagement,
+  regularization: RegularizationManagement,
+  "labor-contracts": LaborContractManagement,
+  rewards: RewardManagement,
+  "personnel-changes": PersonnelChangeManagement,
+  training: TrainingManagement,
+  "admin-contracts": AdminContractManagement,
+  safety: SafetyManagement,
+  "occupational-health": OccupationalHealthCheckManagement,
+  insurance: InsuranceManagement,
+  dormitory: DormitoryManagement,
+  energy: EnergyManagement,
+  organization: OrganizationManagement,
+  audit: AuditLogs,
+  monitoring: SystemMonitoring,
+  "daily-affairs": DailyAffairsHub,
+  "daily-affairs-archives": DailyAffairsHub,
+  "daily-affairs-office-supplies": DailyAffairsHub,
+  "daily-affairs-canteen": DailyAffairsHub,
+  "daily-affairs-invoice": DailyAffairsHub,
+  "fleet-vehicles": FleetVehicleManagement,
+  system: SystemSettings,
+  "personal-settings": PersonalSettings,
+  feedback: FeedbackPanel,
+  departments: DepartmentManagement,
+  knowledge: KnowledgeBaseManagement,
+};
+
+/**
+ * P12.0.3 新壳占位包装器：仅以 data-shell 属性标记开关路径，
+ * display:contents 保证无任何可见 UI 变化；后续 P12.1 以真实新壳实现替换本占位。
+ */
+export function NewShell({ children }: { children: ReactNode }) {
+  const requestNotification = () => window.dispatchEvent(new CustomEvent("dock:open-notification"));
+
+  return (
+    <div data-shell="new" className="contents">
+      <button
+        type="button"
+        aria-label="打开通知中心"
+        onClick={requestNotification}
+        className="fixed right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/80 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:right-6 md:top-6"
+      >
+        <Bell className="h-4 w-4" aria-hidden />
+      </button>
+      {children}
+    </div>
+  );
+}
+
+export function NewShellContentTools({ onOpenSearch, onOpenChat }: { onOpenSearch: () => void; onOpenChat: () => void }) {
+  return (
+    <div className="flex shrink-0 items-center justify-between border-b border-border/70 bg-background px-4 py-3 md:px-6">
+      <p className="text-sm text-muted-foreground">在当前工作区内搜索与使用 AI 助手</p>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={onOpenSearch} aria-label="打开全局搜索">
+          <Search className="mr-2 h-4 w-4" />搜索 <kbd className="ml-2 hidden rounded border bg-muted px-1.5 text-[10px] sm:inline">⌘K</kbd>
+        </Button>
+        <Button size="sm" onClick={onOpenChat} aria-label="打开 AI 助手">
+          <MessageSquare className="mr-2 h-4 w-4" />AI 助手
+        </Button>
       </div>
     </div>
   );

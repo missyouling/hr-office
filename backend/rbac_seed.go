@@ -88,6 +88,40 @@ func seedRBAC(db *gorm.DB) error {
 		{Module: "invoice", Action: "submit", Label: "提交", SortOrder: 84},
 		{Module: "invoice", Action: "approve", Label: "审批", SortOrder: 85},
 		{Module: "invoice", Action: "reject", Label: "驳回", SortOrder: 86},
+		// 劳动合同管理（P12.3.2 劳动合同批次）
+		{Module: "contract", Action: "view", Label: "查看", SortOrder: 90},
+		{Module: "contract", Action: "create", Label: "创建", SortOrder: 91},
+		{Module: "contract", Action: "edit", Label: "编辑", SortOrder: 92},
+		{Module: "contract", Action: "delete", Label: "删除", SortOrder: 93},
+		// 行政合同管理（P12.3.5 行政合同批次）
+		{Module: "admin_contract", Action: "view", Label: "查看", SortOrder: 94},
+		{Module: "admin_contract", Action: "create", Label: "创建", SortOrder: 95},
+		{Module: "admin_contract", Action: "edit", Label: "编辑", SortOrder: 96},
+		{Module: "admin_contract", Action: "delete", Label: "删除", SortOrder: 97},
+		// 奖惩记录管理（P12.3.6 奖惩记录批次）
+		{Module: "reward", Action: "view", Label: "查看", SortOrder: 98},
+		{Module: "reward", Action: "create", Label: "创建", SortOrder: 99},
+		{Module: "reward", Action: "edit", Label: "编辑", SortOrder: 100},
+		{Module: "reward", Action: "delete", Label: "删除", SortOrder: 101},
+		{Module: "training", Action: "view", Label: "查看", SortOrder: 102},
+		{Module: "training", Action: "create", Label: "创建", SortOrder: 103},
+		{Module: "training", Action: "edit", Label: "编辑", SortOrder: 104},
+		{Module: "training", Action: "delete", Label: "删除", SortOrder: 105},
+		// 安全管理（P12.3.9 安全检查批次）
+		{Module: "safety", Action: "view", Label: "查看", SortOrder: 106},
+		{Module: "safety", Action: "create", Label: "创建", SortOrder: 107},
+		{Module: "safety", Action: "edit", Label: "编辑", SortOrder: 108},
+		{Module: "safety", Action: "delete", Label: "删除", SortOrder: 109},
+		// 车队管理（P12 车队管理最小真实功能）
+		{Module: "fleet", Action: "view", Label: "查看", SortOrder: 110},
+		{Module: "fleet", Action: "create", Label: "创建", SortOrder: 111},
+		{Module: "fleet", Action: "edit", Label: "编辑", SortOrder: 112},
+		{Module: "fleet", Action: "delete", Label: "删除", SortOrder: 113},
+		// 职业卫生检查台账（P12 最小真实功能）
+		{Module: "occupational_health", Action: "view", Label: "查看", SortOrder: 114},
+		{Module: "occupational_health", Action: "create", Label: "创建", SortOrder: 115},
+		{Module: "occupational_health", Action: "edit", Label: "编辑", SortOrder: 116},
+		{Module: "occupational_health", Action: "delete", Label: "删除", SortOrder: 117},
 	}
 
 	for _, perm := range permissions {
@@ -130,6 +164,13 @@ func seedRBAC(db *gorm.DB) error {
 			"logs-view",
 			"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
 			"invoice-submit", "invoice-approve", "invoice-reject",
+			"contract-view", "contract-create", "contract-edit",
+			"admin_contract-view", "admin_contract-create", "admin_contract-edit",
+			"reward-view", "reward-create", "reward-edit",
+			"training-view", "training-create", "training-edit",
+			"safety-view", "safety-create", "safety-edit",
+			"fleet-view", "fleet-create", "fleet-edit",
+			"occupational_health-view", "occupational_health-create", "occupational_health-edit",
 		}
 		assignPermissionsToRole(db, managerRole.ID, managerPerms)
 	}
@@ -148,11 +189,21 @@ func seedRBAC(db *gorm.DB) error {
 			"logs-view",
 			"invoice-view", "invoice-create", "invoice-edit", "invoice-delete",
 			"invoice-submit",
+			"contract-view", "contract-edit",
+			"admin_contract-view", "admin_contract-edit",
+			"reward-view", "reward-edit",
+			"training-view", "training-edit",
+			"safety-view", "safety-edit",
+			"fleet-view", "fleet-edit",
+			"occupational_health-view", "occupational_health-edit",
 		}
 		assignPermissionsToRole(db, editorRole.ID, editorPerms)
 	}
 
 	// viewer: 仅查看业务模块（不含系统设置/备份管理，验收标准：viewer 看不到系统设置）
+	// 注意：viewer 不分配 contract-view / admin_contract-view ——
+	// E2E 验收要求「无 contract.view 的 viewer 无劳动合同入口」「无 admin_contract.view 的 viewer 无行政合同入口」。
+	// assignPermissionsToRole 只增不减，若此处分配会覆盖 seed-e2e 的幂等移除，故必须保持不分配。
 	var viewerRole models.Role
 	if err := db.Where("name = ?", models.RoleViewer).First(&viewerRole).Error; err == nil {
 		viewerPerms := []string{
@@ -162,6 +213,7 @@ func seedRBAC(db *gorm.DB) error {
 			"archives-view",
 			"announcements-view",
 			"invoice-view",
+			// 注意：viewer 不分配 occupational_health-view —— E2E 验收要求「无 occupational_health.view 的 viewer 无职业卫生检查入口」
 		}
 		assignPermissionsToRole(db, viewerRole.ID, viewerPerms)
 	}

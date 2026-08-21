@@ -27,6 +27,7 @@ const REMINDER_TYPE_LABELS: Record<WorkbenchReminderType, string> = {
   dorm_bill_due: "宿舍账单到期",
   invoice_pending: "发票待处理",
   payment_request_pending: "请款待处理",
+  admin_contract_expiring: "行政合同到期",
 };
 
 function getGreeting(): string {

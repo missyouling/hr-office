@@ -340,11 +340,12 @@ type RosterEntry struct {
 
 type Employee struct {
 	ID                    uint      `json:"id" gorm:"primaryKey"`
-	UserID                uint      `json:"user_id" gorm:"index:idx_employee_user_id_number,unique"`
-	EmployeeID            string    `json:"employee_id" gorm:"size:100"`
+	UserID                uint      `json:"user_id" gorm:"index:idx_employee_user_id_number,unique;uniqueIndex:idx_employee_user_employee_id,where:employee_id <> ''"`
+	EmployeeID            string    `json:"employee_id" gorm:"size:100;uniqueIndex:idx_employee_user_employee_id,where:employee_id <> ''"`
 	Name                  string    `json:"name" gorm:"size:100;not null;index"`
 	Department            string    `json:"department" gorm:"size:150"`
 	Position              string    `json:"position" gorm:"size:150"`
+	JobLevel              string    `json:"job_level" gorm:"size:100"`
 	Gender                string    `json:"gender" gorm:"size:20"`
 	HireDate              string    `json:"hire_date" gorm:"size:20"`
 	Age                   string    `json:"age" gorm:"size:20"`
@@ -374,6 +375,9 @@ type Employee struct {
 	Email                 string    `json:"email" gorm:"size:120"`
 	Remarks               string    `json:"remarks" gorm:"size:255"`
 	Status                string    `json:"status" gorm:"size:20;default:'active'"`
+	EmploymentStatus      string    `json:"employment_status" gorm:"size:20"`   // 就业状态（trial/formal，正式默认见 employee.go BeforeCreate）
+	ProbationEndDate      string    `json:"probation_end_date" gorm:"size:20"`  // 试用期结束日期（YYYY-MM-DD）
+	ActualRegularDate     string    `json:"actual_regular_date" gorm:"size:20"` // 实际转正日期（YYYY-MM-DD）
 	ResignDate            string    `json:"resign_date" gorm:"size:20"`
 	ResignProofPath       string    `json:"-" gorm:"size:255"`
 	ResignProofName       string    `json:"resign_proof_name" gorm:"size:255"`

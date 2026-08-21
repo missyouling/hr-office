@@ -98,4 +98,29 @@ describe("FloatingDock 拖动手柄", () => {
     fireEvent.click(screen.getByRole("button", { name: "展开管理 Dock" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  test("新壳变体仅增强桌面 Dock 圆角，不影响现有操作入口", () => {
+    render(<FloatingDock items={items} variant="new" />);
+    expect(document.querySelector("[data-floating-dock]")).toHaveClass("rounded-2xl");
+    expect(screen.getByRole("button", { name: "测试项" })).toBeInTheDocument();
+  });
+
+  test("新壳桌面 Dock 保持在190px侧栏外，默认变体仍使用原位置", () => {
+    const { rerender } = render(<FloatingDock items={items} desktopPosition={{ left: 100, top: 100 }} variant="new" />);
+    expect(document.querySelector("[data-floating-dock]")).toHaveStyle({ left: "208px", top: "100px" });
+
+    rerender(<FloatingDock items={items} desktopPosition={{ left: 100, top: 100 }} />);
+    expect(document.querySelector("[data-floating-dock]")).toHaveStyle({ left: "100px", top: "100px" });
+  });
+
+  test("新壳拖动 Dock 时不允许进入侧栏账户区", () => {
+    const onChange = vi.fn();
+    render(<FloatingDock items={items} desktopPosition={{ left: 240, top: 100 }} onDesktopPositionChange={onChange} variant="new" />);
+    const handle = screen.getByLabelText("拖动 Dock");
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 240, clientY: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0, clientY: 100 });
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ left: 208, top: 100 }));
+  });
 });

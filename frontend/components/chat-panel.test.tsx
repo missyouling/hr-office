@@ -54,4 +54,19 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭 AI 助手" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  test("内嵌变体位于受控容器内，不渲染全局遮罩", () => {
+    const { container } = render(<ChatPanel open onOpenChange={vi.fn()} variant="embedded" />);
+    expect(container.querySelector('[data-variant="embedded"]')).toHaveClass("absolute");
+    expect(container.querySelector(".bg-black\\/20")).not.toBeInTheDocument();
+  });
+
+  test("默认变体保留全局悬浮面板，按 Escape 可关闭", () => {
+    const onOpenChange = vi.fn();
+    const { container } = render(<ChatPanel open onOpenChange={onOpenChange} />);
+    expect(container.querySelector('[data-variant="floating"]')).toHaveClass("fixed");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });

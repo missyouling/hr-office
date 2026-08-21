@@ -110,4 +110,32 @@ describe("NavUser", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "退出系统" }));
     expect(mocks.logout).toHaveBeenCalledOnce();
   });
+
+  test("新壳菜单展示个人资料和我的反馈，系统设置仍受权限控制", async () => {
+    const onOpenFeedback = vi.fn();
+    render(
+      <TooltipProvider>
+        <NavUser displayName="张三" subLine="zhangsan@example.com" variant="new" onOpenSettings={onOpenSettings} onOpenFeedback={onOpenFeedback} />
+      </TooltipProvider>,
+    );
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "个人资料" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("personal");
+
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "我的反馈" }));
+    expect(onOpenFeedback).toHaveBeenCalledOnce();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    mocks.hasPermission.mockReturnValue(false);
+    render(
+      <TooltipProvider>
+        <NavUser displayName="张三" subLine="zhangsan@example.com" variant="new" onOpenSettings={onOpenSettings} onOpenFeedback={onOpenFeedback} />
+      </TooltipProvider>,
+    );
+    const triggers = screen.getAllByRole("button", { name: "打开账户菜单：个人信息" });
+    fireEvent.pointerDown(triggers[triggers.length - 1], { button: 0 });
+    await screen.findByRole("menuitem", { name: "个人资料" });
+    expect(screen.queryByRole("menuitem", { name: "系统设置" })).not.toBeInTheDocument();
+  });
 });

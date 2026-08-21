@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"gorm.io/datatypes"
 	"gorm.io/driver/postgres"
@@ -59,6 +60,34 @@ func main() {
 		&models.RolePermission{},
 		&models.UserRole{},
 		&models.ModelConfig{},
+		&models.Employee{},
+		&models.StorageConfig{},
+		&models.StorageModuleConfig{},
+		&models.StorageRule{},
+		// P12.3.2 入职 E2E 数据底座：仅建表，不预建任何 onboarding 记录
+		&models.Department{},
+		&models.OnboardingRecord{},
+		&models.WorkTodo{},
+		&models.OnboardingImportRun{},
+		// P12.3.3 转正 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.RegularizationRecord{},
+		&models.RegularizationEffectRun{},
+		// P12.3.2 劳动合同 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.LaborContract{},
+		// P12.3.5 行政合同 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.AdminContract{},
+		// P12.3.6 奖惩记录 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.RewardRecord{},
+		// P12.3.7 人事异动 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.PersonnelChange{},
+		// P12.3.8 培训管理 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.TrainingRecord{},
+		// P12 最小真实功能：职业卫生检查 E2E 数据底座
+		&models.OccupationalHealthCheck{},
+		// P12.3.9 安全管理 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.SafetyInspection{},
+		// P12 车队管理 E2E 数据底座：仅建表，记录由 E2E 流程创建
+		&models.FleetVehicle{},
 	); err != nil {
 		log.Fatalf("AutoMigrate 表失败: %v", err)
 	}
@@ -75,6 +104,57 @@ func main() {
 	created, skipped, err := seedAccounts(db)
 	if err != nil {
 		log.Fatalf("Seed 账号失败: %v", err)
+	}
+
+	// 确保存在一名固定 E2E 在职员工（供前端离职流程 E2E 使用，幂等）。
+	// 挂在 admin 账号下（admin 拥有 employee.edit，可操作离职/恢复流程）。
+	var adminUser models.User
+	if err := db.Where("username = ?", "admin").First(&adminUser).Error; err != nil {
+		log.Fatalf("查询 admin 用户失败: %v", err)
+	}
+	if err := ensureE2EEmployee(db, adminUser.ID); err != nil {
+		log.Fatalf("初始化 E2E 员工失败: %v", err)
+	}
+
+	// 确保存在 admin 所属的 E2E 测试部门（供入职流程 E2E 使用，幂等）。
+	// 仅操作精确匹配 E2E 部门名的记录；同名部门归属非 admin 时返回明确错误，不触碰非 E2E 数据。
+	if err := ensureE2EDepartment(db, adminUser.ID); err != nil {
+		log.Fatalf("初始化 E2E 测试部门失败: %v", err)
+	}
+
+	// 确保转正 E2E 三名审批用户同租户（admin/manager/editor，幂等）。
+	// 仅更新精确匹配用户名的 company_id，不触碰其他用户。
+	if err := ensureE2ERegularizationUsers(db); err != nil {
+		log.Fatalf("初始化转正审批用户租户失败: %v", err)
+	}
+
+	// 确保存在两名稳定试用期员工（供转正流程 E2E 使用，幂等）。
+	// 挂在 admin 账号下（admin 拥有 employee.edit，可发起转正申请）。
+	if err := ensureE2ETrialEmployees(db, adminUser.ID); err != nil {
+		log.Fatalf("初始化转正 E2E 员工失败: %v", err)
+	}
+
+	// 确保存在一名固定在职员工（供奖惩记录 E2E 使用，幂等）。
+	// 挂在 admin 账号下（admin 拥有 reward.create/edit/delete，可创建/生效/作废奖惩记录）。
+	// 独立于离职/转正员工，避免被其他流程 E2E 变更状态，保证「奖惩不改变员工状态」验收稳定成立。
+	if err := ensureE2ERewardEmployee(db, adminUser.ID); err != nil {
+		log.Fatalf("初始化奖惩 E2E 员工失败: %v", err)
+	}
+
+	// 确保人事异动 E2E 的基线员工和目标部门存在（幂等）。
+	// 记录由 E2E 流程创建；每次 seed 恢复员工异动前资料，避免跨次执行互相影响。
+	if err := ensureE2EPersonnelChangeData(db, adminUser.ID); err != nil {
+		log.Fatalf("初始化人事异动 E2E 数据失败: %v", err)
+	}
+	if err := ensureE2ETrainingEmployee(db, adminUser.ID); err != nil {
+		log.Fatalf("初始化培训 E2E 员工失败: %v", err)
+	}
+
+	// 确保存在 E2E 本地测试存储配置（离职证明上传所需，幂等）。
+	// 仅创建/恢复 Name 明确标记为 E2E 的记录，不触碰非 E2E/既有配置；
+	// 存储根目录固定在 /tmp 隔离临时范围（可清理），不写入仓库或生产路径。
+	if _, err := ensureE2EStorage(db); err != nil {
+		log.Fatalf("初始化 E2E 存储配置失败: %v", err)
 	}
 
 	// 确保存在可用的全局 LLM 配置（幂等），解除 feedback-closure E2E 的 LLM 配置阻塞
@@ -210,6 +290,225 @@ func createAccountWithRole(db *gorm.DB, acc e2eAccount, roleID uint) error {
 	if err := db.Create(&ur).Error; err != nil {
 		return fmt.Errorf("创建用户角色关联 %s 失败: %w", acc.Username, err)
 	}
+	return nil
+}
+
+// ───────────────────── E2E 员工 Seed ─────────────────────
+
+// E2E 离职流程测试员工的固定信息。
+// IDNumber 为虚构测试身份证号（非真实个人信息），仅用于幂等定位与前端 E2E 识别；
+// 全程不打印身份证号明文，避免敏感信息落日志。
+const (
+	e2eEmployeeName       = "E2E离职测试员工"
+	e2eEmployeeIDNumber   = "110101199001011234" // 虚构测试身份证号，稳定唯一
+	e2eEmployeeDepartment = "E2E测试部"
+	e2eEmployeePosition   = "测试专员"
+)
+
+// ensureE2EEmployee 幂等创建/恢复一名固定 E2E 在职员工（供前端离职流程 E2E 使用）。
+// 按 (user_id, id_number) 唯一索引定位：
+//   - 不存在则创建（status=active）；
+//   - 已存在（含旧残留）则强制恢复为 active 并清空离职字段，保证重复运行安全。
+//
+// 仅操作精确匹配 (user_id, id_number) 的记录，不删除、不触碰其他员工数据。
+func ensureE2EEmployee(db *gorm.DB, userID uint) error {
+	var employee models.Employee
+	err := db.Where("user_id = ? AND id_number = ?", userID, e2eEmployeeIDNumber).First(&employee).Error
+	if err == gorm.ErrRecordNotFound {
+		employee = models.Employee{
+			UserID:     userID,
+			Name:       e2eEmployeeName,
+			IDNumber:   e2eEmployeeIDNumber,
+			Department: e2eEmployeeDepartment,
+			Position:   e2eEmployeePosition,
+			Status:     "active",
+		}
+		if err := db.Create(&employee).Error; err != nil {
+			return fmt.Errorf("创建 E2E 员工失败: %w", err)
+		}
+		fmt.Printf("  [创建] E2E 员工（姓名: %s，部门: %s，岗位: %s，状态: active）\n",
+			e2eEmployeeName, e2eEmployeeDepartment, e2eEmployeePosition)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("查询 E2E 员工失败: %w", err)
+	}
+
+	// 已存在：恢复为 active 并清空离职字段（幂等恢复目标状态）
+	updates := map[string]any{
+		"name":              e2eEmployeeName,
+		"department":        e2eEmployeeDepartment,
+		"position":          e2eEmployeePosition,
+		"status":            "active",
+		"resign_date":       "",
+		"resign_proof_path": "",
+		"resign_proof_name": "",
+		"resign_reasons":    "",
+		"updated_at":        time.Now(),
+	}
+	if err := db.Model(&employee).Updates(updates).Error; err != nil {
+		return fmt.Errorf("恢复 E2E 员工失败: %w", err)
+	}
+	fmt.Printf("  [恢复] E2E 员工（姓名: %s，部门: %s，岗位: %s，状态: active）\n",
+		e2eEmployeeName, e2eEmployeeDepartment, e2eEmployeePosition)
+	return nil
+}
+
+// ───────────────────── E2E 存储配置 Seed ─────────────────────
+
+// E2E 离职证明上传所需的本地测试存储配置。
+// 仅操作 Name/ModuleName 明确标记为 E2E 的记录，绝不覆盖或删除非 E2E/既有配置。
+// 存储根目录固定在 /tmp 隔离临时范围（系统可清理），不写入仓库或生产路径。
+const (
+	e2eStorageConfigName   = "E2E本地测试存储"
+	e2eStorageModuleName   = "E2E-archives模块配置"
+	e2eStorageRuleName     = "E2E-archives/resign_proof规则"
+	e2eStorageRootPath     = "/tmp/siapp-e2e-storage"
+	e2eStorageRulePriority = 100 // 高优先级，确保精确规则优先于模块默认/全局默认
+)
+
+// ensureE2EStorage 幂等创建/恢复 E2E 本地测试存储配置、archives 模块启用配置与
+// archives/resign_proof 规则，返回 E2E 存储配置 ID（供规则引用）。
+// 解析链路：StorageRouter.Resolve(archives, resign_proof) 命中精确规则 → 指向 E2E 本地配置。
+func ensureE2EStorage(db *gorm.DB) (uint, error) {
+	// 1. 确保本地存储根目录存在（/tmp 隔离范围，可清理）
+	if err := os.MkdirAll(e2eStorageRootPath, 0o755); err != nil {
+		return 0, fmt.Errorf("创建 E2E 存储目录失败: %w", err)
+	}
+
+	// 2. 本地存储配置（按 Name 幂等定位）
+	config, err := upsertE2EStorageConfig(db)
+	if err != nil {
+		return 0, err
+	}
+
+	// 3. archives 模块启用配置（按 ModuleCode+ModuleName 幂等定位）
+	if err := upsertE2EStorageModuleConfig(db); err != nil {
+		return 0, err
+	}
+
+	// 4. archives/resign_proof 精确规则（按 ModuleCode+ResourceType+Name 幂等定位）
+	if err := upsertE2EStorageRule(db, config.ID); err != nil {
+		return 0, err
+	}
+
+	return config.ID, nil
+}
+
+// upsertE2EStorageConfig 幂等创建/恢复 E2E 本地存储配置
+func upsertE2EStorageConfig(db *gorm.DB) (*models.StorageConfig, error) {
+	var config models.StorageConfig
+	err := db.Where("name = ?", e2eStorageConfigName).First(&config).Error
+	if err == gorm.ErrRecordNotFound {
+		config = models.StorageConfig{
+			Name:        e2eStorageConfigName,
+			Type:        "local",
+			Enabled:     true,
+			IsDefault:   false,
+			IsBackup:    false,
+			Status:      "active",
+			Config:      datatypes.JSON([]byte(`{"root_path":"` + e2eStorageRootPath + `"}`)),
+			Description: "E2E 离职证明上传本地测试存储（隔离临时目录，可清理）",
+		}
+		if err := db.Create(&config).Error; err != nil {
+			return nil, fmt.Errorf("创建 E2E 存储配置失败: %w", err)
+		}
+		fmt.Printf("  [创建] E2E 存储配置（名称: %s，类型: local，状态: active）\n", config.Name)
+		return &config, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询 E2E 存储配置失败: %w", err)
+	}
+
+	// 已存在：恢复可用（enabled=true, status=active），并确保 root_path 指向隔离目录
+	updates := map[string]any{
+		"type":        "local",
+		"enabled":     true,
+		"is_default":  false,
+		"status":      "active",
+		"config":      datatypes.JSON([]byte(`{"root_path":"` + e2eStorageRootPath + `"}`)),
+		"description": "E2E 离职证明上传本地测试存储（隔离临时目录，可清理）",
+		"updated_at":  time.Now(),
+	}
+	if err := db.Model(&config).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("恢复 E2E 存储配置失败: %w", err)
+	}
+	fmt.Printf("  [恢复] E2E 存储配置（名称: %s，类型: local，状态: active）\n", config.Name)
+	return &config, nil
+}
+
+// upsertE2EStorageModuleConfig 幂等创建/恢复 archives 模块启用配置
+func upsertE2EStorageModuleConfig(db *gorm.DB) error {
+	var module models.StorageModuleConfig
+	err := db.Where("module_code = ? AND module_name = ?", "archives", e2eStorageModuleName).First(&module).Error
+	if err == gorm.ErrRecordNotFound {
+		module = models.StorageModuleConfig{
+			ModuleCode:    "archives",
+			ModuleName:    e2eStorageModuleName,
+			BaseDirectory: e2eStorageRootPath,
+			Description:   "E2E archives 模块存储启用配置（隔离临时目录，可清理）",
+			Enabled:       true,
+		}
+		if err := db.Create(&module).Error; err != nil {
+			return fmt.Errorf("创建 E2E archives 模块配置失败: %w", err)
+		}
+		fmt.Printf("  [创建] E2E archives 模块配置（模块: archives，状态: enabled）\n")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("查询 E2E archives 模块配置失败: %w", err)
+	}
+
+	// 已存在：恢复启用
+	updates := map[string]any{
+		"base_directory": e2eStorageRootPath,
+		"description":    "E2E archives 模块存储启用配置（隔离临时目录，可清理）",
+		"enabled":        true,
+		"updated_at":     time.Now(),
+	}
+	if err := db.Model(&module).Updates(updates).Error; err != nil {
+		return fmt.Errorf("恢复 E2E archives 模块配置失败: %w", err)
+	}
+	fmt.Printf("  [恢复] E2E archives 模块配置（模块: archives，状态: enabled）\n")
+	return nil
+}
+
+// upsertE2EStorageRule 幂等创建/恢复 archives/resign_proof 精确规则
+func upsertE2EStorageRule(db *gorm.DB, storageID uint) error {
+	var rule models.StorageRule
+	err := db.Where("module_code = ? AND resource_type = ? AND name = ?", "archives", "resign_proof", e2eStorageRuleName).First(&rule).Error
+	if err == gorm.ErrRecordNotFound {
+		rule = models.StorageRule{
+			StorageID:    storageID,
+			ModuleCode:   "archives",
+			ResourceType: "resign_proof",
+			Priority:     e2eStorageRulePriority,
+			Enabled:      true,
+			Name:         e2eStorageRuleName,
+			TargetType:   "document",
+		}
+		if err := db.Create(&rule).Error; err != nil {
+			return fmt.Errorf("创建 E2E 存储规则失败: %w", err)
+		}
+		fmt.Printf("  [创建] E2E 存储规则（模块: archives，资源类型: resign_proof，优先级: %d）\n", e2eStorageRulePriority)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("查询 E2E 存储规则失败: %w", err)
+	}
+
+	// 已存在：恢复可用并指向 E2E 存储配置
+	updates := map[string]any{
+		"storage_id":  storageID,
+		"priority":    e2eStorageRulePriority,
+		"enabled":     true,
+		"target_type": "document",
+		"updated_at":  time.Now(),
+	}
+	if err := db.Model(&rule).Updates(updates).Error; err != nil {
+		return fmt.Errorf("恢复 E2E 存储规则失败: %w", err)
+	}
+	fmt.Printf("  [恢复] E2E 存储规则（模块: archives，资源类型: resign_proof，优先级: %d）\n", e2eStorageRulePriority)
 	return nil
 }
 

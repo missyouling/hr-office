@@ -1,0 +1,21 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+
+import { SafetyManagement } from "@/components/safety-management";
+
+const mocks = vi.hoisted(() => ({ hasPermission: vi.fn(), fetchRecords: vi.fn(), create: vi.fn(), update: vi.fn(), complete: vi.fn(), remove: vi.fn(), void: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { id: 1 }, hasPermission: mocks.hasPermission }) }));
+vi.mock("@/lib/api-safety-inspections", () => ({ fetchSafetyInspections: mocks.fetchRecords, createSafetyInspection: mocks.create, updateSafetyInspection: mocks.update, completeSafetyInspection: mocks.complete, deleteSafetyInspection: mocks.remove, voidSafetyInspection: mocks.void }));
+
+const draft = { id: 1, inspection_type: "routine", inspection_date: "2026-09-01", location: "仓库", responsible_person: "张三", issue_description: "通道堆放物料", rectification_requirement: "立即清理", status: "draft", void_reason: "", created_at: "", updated_at: "" } as const;
+const completed = { ...draft, id: 2, inspection_type: "special", status: "completed" as const, issue_description: "防护罩松动" };
+
+describe("SafetyManagement", () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.hasPermission.mockImplementation((resource: string) => resource === "safety"); mocks.fetchRecords.mockResolvedValue([draft, completed]); });
+  test("展示中文检查类型，已完成记录不显示编辑和完成", async () => { render(<SafetyManagement />); await waitFor(() => expect(screen.getByText("例行检查")).toBeInTheDocument()); expect(screen.getByText("专项检查")).toBeInTheDocument(); expect(screen.getAllByRole("button", { name: "编辑" })).toHaveLength(1); expect(screen.getAllByRole("button", { name: "完成" })).toHaveLength(1); });
+  test("草稿完成调用状态接口，草稿和已完成记录均可作废", async () => { render(<SafetyManagement />); await waitFor(() => expect(screen.getByText("例行检查")).toBeInTheDocument()); fireEvent.click(screen.getByRole("button", { name: "完成" })); await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith(1)); expect(screen.getAllByRole("button", { name: "作废" })).toHaveLength(2); });
+  test("作废原因必填，不能直接提交", async () => { render(<SafetyManagement />); await waitFor(() => expect(screen.getByText("例行检查")).toBeInTheDocument()); fireEvent.click(screen.getAllByRole("button", { name: "作废" })[1]); fireEvent.click(screen.getByRole("button", { name: "确认作废" })); expect(mocks.void).not.toHaveBeenCalled(); });
+  test("保存失败时保留对话框和选中的检查类型", async () => { mocks.create.mockRejectedValueOnce(new Error("保存失败")); render(<SafetyManagement />); await waitFor(() => expect(screen.getByText("例行检查")).toBeInTheDocument()); fireEvent.click(screen.getByRole("button", { name: "新建安全检查" })); const dialog = screen.getByRole("dialog", { name: "新建安全检查" }); fireEvent.change(screen.getByLabelText("检查日期 *"), { target: { value: "2026-09-01" } }); fireEvent.change(screen.getByLabelText("检查地点 *"), { target: { value: "仓库" } }); fireEvent.change(screen.getByLabelText("负责人 *"), { target: { value: "张三" } }); fireEvent.change(screen.getByLabelText("问题描述"), { target: { value: "通道堆放物料" } }); fireEvent.change(screen.getByLabelText("整改要求"), { target: { value: "立即清理" } }); fireEvent.click(screen.getByRole("button", { name: "保存草稿" })); await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ inspection_type: "routine" }))); expect(dialog).toBeInTheDocument(); expect(screen.getByLabelText("检查类型")).toHaveValue("routine"); });
+  test("按 safety 操作权限隐藏创建和操作按钮", async () => { mocks.hasPermission.mockImplementation((resource: string, action: string) => resource === "safety" && action === "view"); render(<SafetyManagement />); await waitFor(() => expect(screen.getByText("例行检查")).toBeInTheDocument()); expect(screen.queryByRole("button", { name: "新建安全检查" })).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "完成" })).not.toBeInTheDocument(); expect(screen.queryByRole("button", { name: "作废" })).not.toBeInTheDocument(); });
+  test("无 safety.view 权限时显示明确权限状态", () => { mocks.hasPermission.mockReturnValue(false); render(<SafetyManagement />); expect(screen.getByText("无安全管理查看权限")).toBeInTheDocument(); });
+});

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { FileText, Truck, Utensils, Receipt, GraduationCap, Shield, Briefcase, ArrowLeft, PackageOpen } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileText, Truck, Utensils, Receipt, GraduationCap, Shield, ArrowLeft, PackageOpen } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,13 @@ import InvoiceManagement from "./invoice/InvoiceManagement";
 
 interface DailyAffairsHubProps {
   onNavigate?: (module: string) => void;
+  defaultModule?: string | null;
+}
+
+export const DAILY_AFFAIRS_MODULES = ["archives", "office-supplies", "canteen", "invoice"] as const;
+
+export function isDailyAffairsModule(value: unknown): value is (typeof DAILY_AFFAIRS_MODULES)[number] {
+  return typeof value === "string" && (DAILY_AFFAIRS_MODULES as readonly string[]).includes(value);
 }
 
 const MODULES = [
@@ -71,18 +78,14 @@ const MODULES = [
     gradient: "from-red-500 to-rose-700",
     iconColor: "text-red-500",
   },
-  {
-    id: "social",
-    name: "社保业务",
-    description: "社保公积金业务办理",
-    icon: Briefcase,
-    gradient: "from-indigo-500 to-blue-700",
-    iconColor: "text-indigo-500",
-  },
 ];
 
-export function DailyAffairsHub({ onNavigate }: DailyAffairsHubProps) {
-  const [selectedModule, setSelectedModule] = useState<string | null>(null);
+export function DailyAffairsHub({ onNavigate, defaultModule = null }: DailyAffairsHubProps) {
+  const [selectedModule, setSelectedModule] = useState<string | null>(isDailyAffairsModule(defaultModule) ? defaultModule : null);
+
+  useEffect(() => {
+    setSelectedModule(isDailyAffairsModule(defaultModule) ? defaultModule : null);
+  }, [defaultModule]);
 
   const handleModuleClick = (moduleId: string) => {
     setSelectedModule(moduleId);

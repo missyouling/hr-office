@@ -26,13 +26,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-function TestSidebar() {
+function TestSidebar({ mobileWidth, mobileMaxWidth }: { mobileWidth?: string; mobileMaxWidth?: string }) {
   const { toggleSidebar } = useSidebar();
 
   return (
     <>
       <button onClick={toggleSidebar}>切换</button>
-      <Sidebar collapsible="icon">
+      <Sidebar collapsible="icon" mobileWidth={mobileWidth} mobileMaxWidth={mobileMaxWidth}>
         <SidebarContent>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -109,6 +109,26 @@ describe("SidebarProvider", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "切换" }));
     expect(screen.getByRole("dialog")).toHaveAttribute("data-mobile", "true");
+    setIsMobile(false);
+  });
+
+  test("未传移动尺寸时保持旧壳默认宽度", () => {
+    setIsMobile(true);
+    render(<SidebarProvider><TestSidebar /></SidebarProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "切换" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveStyle({ "--sidebar-mobile-width": "18rem", "--sidebar-mobile-max-width": "none" });
+    setIsMobile(false);
+  });
+
+  test("可选移动尺寸覆盖默认宽度且支持最大宽度", () => {
+    setIsMobile(true);
+    render(<SidebarProvider><TestSidebar mobileWidth="85vw" mobileMaxWidth="24rem" /></SidebarProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "切换" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveStyle({ "--sidebar-mobile-width": "85vw", "--sidebar-mobile-max-width": "24rem" });
     setIsMobile(false);
   });
 });

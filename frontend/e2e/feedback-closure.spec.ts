@@ -58,8 +58,45 @@ async function createFeedbackFromChat(page: Page, question: string, comment: str
 }
 
 async function openMyFeedback(page: Page) {
-  await page.getByRole("button", { name: /我的反馈/ }).click();
+  const newShell = await page.locator('[data-shell="new"]').count() > 0;
+  if (newShell) {
+    const accountButtons = page.getByRole("button", { name: /打开账户菜单/ });
+    await expect(accountButtons.first()).toBeVisible();
+    await accountButtons.first().focus();
+    await accountButtons.first().press("Enter");
+    const feedbackMenuItem = page.getByRole("menuitem", { name: /我的反馈/ });
+    await expect(feedbackMenuItem).toBeVisible();
+    await feedbackMenuItem.evaluate((element) => {
+      (element as HTMLElement).click();
+    });
+  } else {
+    await page.getByRole("button", { name: /我的反馈/ }).click();
+  }
   await expect(page.getByRole("dialog").getByText("我的反馈", { exact: true })).toBeVisible();
+}
+
+/** 固定新壳页面会渲染 [data-shell="new"] 标记。 */
+async function isNewShell(page: Page): Promise<boolean> {
+  return (await page.locator('[data-shell="new"]').count()) > 0;
+}
+
+/**
+ * 刷新后确认员工管理入口仍可达：
+ * - 新壳：只确认折叠分组按钮“员工管理”可见；若页面已展开，则补充确认“员工花名册”可见。
+ * - 旧壳：维持原有顶级按钮“员工管理”可见断言。
+ */
+async function expectEmployeeManagementVisible(page: Page) {
+  if (await isNewShell(page)) {
+    const groupButton = page.getByRole("button", { name: "员工管理", exact: true });
+    await expect(groupButton).toBeVisible();
+    const rosterButton = page.getByRole("button", { name: "员工花名册", exact: true });
+    if ((await rosterButton.count()) > 0) {
+      await expect(rosterButton).toBeVisible();
+    }
+    return;
+  }
+
+  await expect(page.getByRole("button", { name: "员工管理", exact: true })).toBeVisible();
 }
 
 /**
@@ -112,7 +149,7 @@ test.describe("P7.2 用户反馈闭环 E2E", () => {
     await expect(repliedRow.getByText("已回复", { exact: true })).toBeVisible();
 
     await userPage.reload();
-    await expect(userPage.getByRole("button", { name: "员工管理", exact: true })).toBeVisible();
+    await expectEmployeeManagementVisible(userPage);
     await openMyFeedback(userPage);
     const userDialogAfterReply = userPage.getByRole("dialog");
     const userItemAfterReply = feedbackItem(userDialogAfterReply, question);
@@ -129,7 +166,7 @@ test.describe("P7.2 用户反馈闭环 E2E", () => {
     await expect(adminPage.locator("tr").filter({ hasText: comment }).getByText("已关闭", { exact: true })).toBeVisible();
 
     await userPage.reload();
-    await expect(userPage.getByRole("button", { name: "员工管理", exact: true })).toBeVisible();
+    await expectEmployeeManagementVisible(userPage);
     await openMyFeedback(userPage);
     const userDialogAfterClose = userPage.getByRole("dialog");
     const userItemAfterClose = feedbackItem(userDialogAfterClose, question);

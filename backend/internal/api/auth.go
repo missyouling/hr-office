@@ -826,7 +826,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 确认 token 类型为 refresh（防止用 access token 续签）
-	if claims.ID != "refresh" {
+	if claims.TokenType != "refresh" {
 		http.Error(w, `{"error":"仅支持 refresh token 刷新"}`, http.StatusUnauthorized)
 		return
 	}

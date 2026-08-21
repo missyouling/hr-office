@@ -302,19 +302,41 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/employees/template", h.downloadEmployeeTemplate)
 	r.Get("/employees/resigned/template", h.downloadResignedEmployeeTemplate)
 	r.Post("/employees/export", h.exportEmployees)
-	r.Post("/employees/{employeeID}/resign", h.resignEmployee)
+	// 离职/恢复属于员工编辑操作，强制 employee.edit 权限（服务端校验，不依赖前端）
+	r.With(middleware.RequirePermission(h.db, "employee", "edit")).Post("/employees/{employeeID}/resign", h.resignEmployee)
 	r.Get("/employees/{employeeID}/resign-proof", h.downloadResignProof)
-	r.Post("/employees/restore", h.restoreEmployees)
-	r.Get("/social-insurance/changes", h.listSocialInsuranceChanges)
-	r.Get("/social-insurance/options", h.getSocialInsuranceOptions)
-	r.Post("/social-insurance/changes", h.createSocialInsuranceChange)
-	r.Put("/social-insurance/changes/{changeID}", h.updateSocialInsuranceChange)
-	r.Post("/social-insurance/changes/import", h.importSocialInsuranceChanges)
-	r.Post("/social-insurance/changes/delete", h.deleteSocialInsuranceChanges)
-	r.Get("/callback-records", h.listCallbackRecords)
-	r.Post("/callback-records/upload", h.uploadCallbackRecords)
-	r.Delete("/callback-records", h.clearCallbackRecords)
-	r.Get("/insurance-template", h.downloadInsuranceTemplate)
+	r.With(middleware.RequirePermission(h.db, "employee", "edit")).Post("/employees/restore", h.restoreEmployees)
+	// 入职管理（P12.3.2.2）
+	h.registerOnboardingRoutes(r)
+	// 转正管理（P12.3.3-2）：只读列表/详情（employee.edit）
+	h.registerRegularizationRoutes(r)
+	// 劳动合同批次（P12.3.2 劳动合同）
+	h.registerContractRoutes(r)
+	// 行政合同批次（P12.3.5）
+	h.registerAdminContractRoutes(r)
+	// 奖惩记录批次（P12.3.6）
+	h.registerRewardRoutes(r)
+	// 人事异动批次（P12.3.7）
+	h.registerPersonnelChangeRoutes(r)
+	// 培训管理批次（P12.3.8）
+	h.registerTrainingRoutes(r)
+	// 职业卫生检查台账（P12 最小真实功能）
+	h.registerOccupationalHealthRoutes(r)
+	// 安全管理批次（P12.3.9）
+	h.registerSafetyInspectionRoutes(r)
+	// 车队管理（P12 车队管理最小真实功能）
+	h.registerFleetVehicleRoutes(r)
+	// 社保管理（insurance 模块 RBAC：读=view / 创建·导入·上传=create / 更新·处理=edit / 删除·清空=delete）
+	r.With(middleware.RequirePermission(h.db, "insurance", "view")).Get("/social-insurance/changes", h.listSocialInsuranceChanges)
+	r.With(middleware.RequirePermission(h.db, "insurance", "view")).Get("/social-insurance/options", h.getSocialInsuranceOptions)
+	r.With(middleware.RequirePermission(h.db, "insurance", "create")).Post("/social-insurance/changes", h.createSocialInsuranceChange)
+	r.With(middleware.RequirePermission(h.db, "insurance", "edit")).Put("/social-insurance/changes/{changeID}", h.updateSocialInsuranceChange)
+	r.With(middleware.RequirePermission(h.db, "insurance", "create")).Post("/social-insurance/changes/import", h.importSocialInsuranceChanges)
+	r.With(middleware.RequirePermission(h.db, "insurance", "delete")).Post("/social-insurance/changes/delete", h.deleteSocialInsuranceChanges)
+	r.With(middleware.RequirePermission(h.db, "insurance", "view")).Get("/callback-records", h.listCallbackRecords)
+	r.With(middleware.RequirePermission(h.db, "insurance", "create")).Post("/callback-records/upload", h.uploadCallbackRecords)
+	r.With(middleware.RequirePermission(h.db, "insurance", "delete")).Delete("/callback-records", h.clearCallbackRecords)
+	r.With(middleware.RequirePermission(h.db, "insurance", "view")).Get("/insurance-template", h.downloadInsuranceTemplate)
 
 	r.Route("/dormitories", func(dr chi.Router) {
 		dr.Get("/sites", h.listDormSites)
@@ -358,6 +380,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Post("/meter-readings", h.createDormMeterReading)
 		dr.Put("/meter-readings/{readingID}", h.updateDormMeterReading)
 		dr.Delete("/meter-readings/{readingID}", h.deleteDormMeterReading)
+
+		// 能耗汇总（只读，dormitory.view 保护）
+		dr.With(middleware.RequirePermission(h.db, "dormitory", "view")).Get("/energy/summary", h.getDormEnergySummary)
 
 		dr.Get("/bills", h.listDormBills)
 		r.Post("/bills", h.createDormBill)

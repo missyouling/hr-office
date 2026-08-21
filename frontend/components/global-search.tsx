@@ -15,6 +15,9 @@ import type { GlobalSearchResult } from "@/lib/api";
 
 interface GlobalSearchProps {
   onNavigate: (module: string, id?: number) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }
 
 const MODULE_ICONS: Record<string, React.ReactNode> = {
@@ -29,8 +32,10 @@ const MODULE_COLORS: Record<string, string> = {
   宿舍: "bg-purple-100 text-purple-800",
 };
 
-export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function GlobalSearch({ onNavigate, open, onOpenChange, hideTrigger = false }: GlobalSearchProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+  const setIsOpen = onOpenChange ?? setInternalOpen;
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +54,7 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [setIsOpen]);
 
   const performSearch = useCallback(
     async (query: string) => {
@@ -223,7 +228,7 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
         </DialogContent>
       </Dialog>
 
-      <div className="fixed top-4 right-4 z-30">
+      {!hideTrigger && <div className="fixed top-4 right-4 z-30">
         <button
           onClick={() => setIsOpen(true)}
           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-600 shadow-sm transition"
@@ -234,7 +239,7 @@ export function GlobalSearch({ onNavigate }: GlobalSearchProps) {
             ⌘K
           </kbd>
         </button>
-      </div>
+      </div>}
     </>
   );
 }
