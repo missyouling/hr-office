@@ -8,6 +8,7 @@
  *   本模块负责解析视图 ID、按视图注入上下文 props 并渲染，page.tsx 不再维护 switch。
  */
 import { createElement, type ComponentType, type ReactNode } from "react";
+import type { SystemSettingsPanel } from "@/components/system-settings";
 
 /** 全部合法视图 ID，顺序与 page.tsx 装配保持一致。 */
 export const VIEW_IDS = [
@@ -41,6 +42,7 @@ export const VIEW_IDS = [
   "feedback",
   "departments",
   "knowledge",
+  "knowledge-qa",
 ] as const;
 
 /** 合法视图 ID 联合类型 */
@@ -68,8 +70,18 @@ export interface ViewRenderContext {
   userName?: string | null;
   /** system / personal-settings 的“返回”按钮回调 */
   onBackFromSettings?: () => void;
-  /** 系统设置内部初始面板；默认不指定，保持旧行为 */
+  /** 系统设置内部初始面板；默认不指定，保持旧行为（仅受控值缺省时的非受控回退入口） */
   systemSettingsPanel?: "audit" | "monitoring";
+  /** 受控：系统设置当前子页 tab（与侧栏 settingsTab 同源） */
+  systemSettingsTab?: string;
+  /** 受控：设置子页 tab 变更回调 */
+  onSystemSettingsTabChange?: (tab: string) => void;
+  /** 受控：当前打开的系统观察面板；null 表示未打开（与侧栏 settingsPanel 同源） */
+  systemSettingsPanelState?: SystemSettingsPanel | null;
+  /** 受控：打开/关闭观察面板回调；null 表示关闭 */
+  onSystemSettingsPanelChange?: (panel: SystemSettingsPanel | null) => void;
+  /** knowledge-qa 页跳转其他视图的回调（如切到 knowledge 管理页），由页面装配点注入 */
+  onViewChange?: (view: string) => void;
 }
 
 /** 视图 → 既有 React 组件的映射表（Record 类型强制要求覆盖全部 ViewId，缺任一视图编译失败） */
@@ -110,13 +122,28 @@ export function renderView(view: string, components: ViewComponentMap, ctx: View
     return createElement(Component as ComponentType<{ defaultModule?: string | null }>, { defaultModule: "invoice" });
   }
   if (viewId === "system") {
-    return createElement(Component as ComponentType<{ onBack?: () => void; initialPanel?: "audit" | "monitoring" }>, {
+    return createElement(Component as ComponentType<{
+      onBack?: () => void;
+      initialPanel?: SystemSettingsPanel;
+      activeSubTab?: string;
+      onSubTabChange?: (tab: string) => void;
+      settingsPanel?: SystemSettingsPanel | null;
+      onOpenPanel?: (panel: SystemSettingsPanel | null) => void;
+    }>, {
       onBack: ctx.onBackFromSettings,
+      // initialPanel 仅作非受控回退兼容；组件内部受控值（settingsPanel）存在时优先
       initialPanel: ctx.systemSettingsPanel,
+      activeSubTab: ctx.systemSettingsTab,
+      onSubTabChange: ctx.onSystemSettingsTabChange,
+      settingsPanel: ctx.systemSettingsPanelState,
+      onOpenPanel: ctx.onSystemSettingsPanelChange,
     });
   }
   if (viewId === "personal-settings") {
     return createElement(Component as ComponentType<{ onBack?: () => void }>, { onBack: ctx.onBackFromSettings });
+  }
+  if (viewId === "knowledge-qa") {
+    return createElement(Component as ComponentType<{ onViewChange?: (view: string) => void }>, { onViewChange: ctx.onViewChange });
   }
   return createElement(Component);
 }

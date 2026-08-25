@@ -92,7 +92,8 @@ function getTimeLabel(dateStr: string): string {
 type ChatPanelProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  variant?: "floating" | "embedded";
+  /** floating 浮动侧滑（默认）/ embedded 主容器内侧滑 / page 整页铺满（AI 知识库问答页） */
+  variant?: "floating" | "embedded" | "page";
 };
 
 export function ChatPanel({ open, onOpenChange, variant = "floating" }: ChatPanelProps) {
@@ -369,11 +370,12 @@ export function ChatPanel({ open, onOpenChange, variant = "floating" }: ChatPane
   if (!open) return null;
 
   const isEmbedded = variant === "embedded";
+  const isPage = variant === "page";
 
   return (
     <>
       {/* 背景遮罩 */}
-      {!isEmbedded && <div
+      {!isEmbedded && !isPage && <div
         className="fixed inset-0 z-40 bg-black/20 transition-opacity"
         onClick={() => onOpenChange(false)}
       />}
@@ -383,7 +385,9 @@ export function ChatPanel({ open, onOpenChange, variant = "floating" }: ChatPane
         data-variant={variant}
         className={isEmbedded
           ? "absolute inset-y-0 right-0 z-30 flex w-full max-w-[880px] flex-col rounded-none border-y-0 border-r-0 border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-300 md:w-[min(880px,calc(100%-1rem))]"
-          : "fixed inset-y-0 right-0 z-50 flex w-[880px] max-w-[95vw] flex-col rounded-l-2xl border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-300"}
+          : isPage
+            ? "absolute inset-0 w-full rounded-none border-0 shadow-none"
+            : "fixed inset-y-0 right-0 z-50 flex w-[880px] max-w-[95vw] flex-col rounded-l-2xl border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-300"}
       >
         {/* ─── 顶栏 ──────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-3 border-b bg-gradient-to-r from-muted to-background">

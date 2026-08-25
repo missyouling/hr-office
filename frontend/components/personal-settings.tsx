@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowLeft, LockKeyhole, Monitor, Moon, ShieldCheck, Sun, UserRound } from "lucide-react";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { changePassword, updateUserProfile } from "@/lib/api";
+import { changePassword, fetchUserPreferences, updateUserPreferences, updateUserProfile } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const MIN_PASSWORD_LENGTH = 6;
 
@@ -21,10 +23,29 @@ export function PersonalSettings({ onBack }: { onBack?: () => void }) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     setFullName(user?.full_name ?? "");
   }, [user?.full_name]);
+
+  useEffect(() => {
+    fetchUserPreferences().then((preferences) => {
+      const storedTheme = preferences.user_theme;
+      if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") setTheme(storedTheme);
+    }).catch(() => {
+      // 偏好接口不可用时由 next-themes 使用本地存储中的既有主题。
+    });
+  }, [setTheme]);
+
+  const handleThemeChange = async (nextTheme: "light" | "dark" | "system") => {
+    setTheme(nextTheme);
+    try {
+      await updateUserPreferences({ user_theme: nextTheme });
+    } catch {
+      toast.message("外观已在本设备保存，稍后会同步到账号偏好");
+    }
+  };
 
   const handleProfileSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -99,43 +120,35 @@ export function PersonalSettings({ onBack }: { onBack?: () => void }) {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-border/80 shadow-sm">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <span className="rounded-xl bg-primary/10 p-2.5 text-primary"><UserRound className="h-5 w-5" /></span>
-              <div><CardTitle>个人资料</CardTitle><CardDescription>姓名会显示在系统的账户入口中。</CardDescription></div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-5" onSubmit={handleProfileSubmit}>
-              <div className="space-y-2"><Label htmlFor="profile-username">用户名</Label><Input id="profile-username" value={user?.username ?? ""} disabled /></div>
-              <div className="space-y-2"><Label htmlFor="profile-email">邮箱</Label><Input id="profile-email" value={user?.email ?? ""} disabled /></div>
-              <div className="space-y-2"><Label htmlFor="profile-full-name">姓名</Label><Input id="profile-full-name" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="请输入姓名" maxLength={100} required /></div>
-              <Button type="submit" disabled={isSavingProfile}>{isSavingProfile ? "保存中…" : "保存资料"}</Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/80 shadow-sm">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <span className="rounded-xl bg-amber-500/10 p-2.5 text-amber-600 dark:text-amber-400"><LockKeyhole className="h-5 w-5" /></span>
-              <div><CardTitle>登录密码</CardTitle><CardDescription>使用至少 6 位的新密码保护账户安全。</CardDescription></div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-5" onSubmit={handlePasswordSubmit}>
-              <div className="space-y-2"><Label htmlFor="current-password">当前密码</Label><Input id="current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></div>
-              <div className="space-y-2"><Label htmlFor="new-password">新密码</Label><Input id="new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /></div>
-              <div className="space-y-2"><Label htmlFor="confirm-password">确认新密码</Label><Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /></div>
-              <Button type="submit" variant="secondary" disabled={isChangingPassword}>{isChangingPassword ? "修改中…" : "修改密码"}</Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground"><ShieldCheck className="h-4 w-4 text-primary" />资料和密码均会在提交成功后提示结果。</div>
+      <Tabs defaultValue="account">
+        <TabsList aria-label="个人资料设置标签">
+          <TabsTrigger value="account">账户资料</TabsTrigger>
+          <TabsTrigger value="appearance">外观偏好</TabsTrigger>
+        </TabsList>
+        <TabsContent value="account" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card className="border-border/80 shadow-sm">
+              <CardHeader><div className="flex items-center gap-3"><span className="rounded-xl bg-primary/10 p-2.5 text-primary"><UserRound className="h-5 w-5" /></span><div><CardTitle>个人资料</CardTitle><CardDescription>姓名会显示在系统的账户入口中。</CardDescription></div></div></CardHeader>
+              <CardContent><form className="space-y-5" onSubmit={handleProfileSubmit}><div className="space-y-2"><Label htmlFor="profile-username">用户名</Label><Input id="profile-username" value={user?.username ?? ""} disabled /></div><div className="space-y-2"><Label htmlFor="profile-email">邮箱</Label><Input id="profile-email" value={user?.email ?? ""} disabled /></div><div className="space-y-2"><Label htmlFor="profile-full-name">姓名</Label><Input id="profile-full-name" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="请输入姓名" maxLength={100} required /></div><Button type="submit" disabled={isSavingProfile}>{isSavingProfile ? "保存中…" : "保存资料"}</Button></form></CardContent>
+            </Card>
+            <Card className="border-border/80 shadow-sm">
+              <CardHeader><div className="flex items-center gap-3"><span className="rounded-xl bg-amber-500/10 p-2.5 text-amber-600 dark:text-amber-400"><LockKeyhole className="h-5 w-5" /></span><div><CardTitle>登录密码</CardTitle><CardDescription>使用至少 6 位的新密码保护账户安全。</CardDescription></div></div></CardHeader>
+              <CardContent><form className="space-y-5" onSubmit={handlePasswordSubmit}><div className="space-y-2"><Label htmlFor="current-password">当前密码</Label><Input id="current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></div><div className="space-y-2"><Label htmlFor="new-password">新密码</Label><Input id="new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /></div><div className="space-y-2"><Label htmlFor="confirm-password">确认新密码</Label><Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} required /></div><Button type="submit" variant="secondary" disabled={isChangingPassword}>{isChangingPassword ? "修改中…" : "修改密码"}</Button></form></CardContent>
+            </Card>
+          </div>
+          <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground"><ShieldCheck className="h-4 w-4 text-primary" />资料和密码均会在提交成功后提示结果。</div>
+        </TabsContent>
+        <TabsContent value="appearance">
+          <Card className="max-w-2xl border-border/80 shadow-sm">
+            <CardHeader><div className="flex items-center gap-3"><span className="rounded-xl bg-primary/10 p-2.5 text-primary"><Monitor className="h-5 w-5" /></span><div><CardTitle>外观偏好</CardTitle><CardDescription>选择浅色、深色或跟随设备系统设置。</CardDescription></div></div></CardHeader>
+            <CardContent><div className="grid grid-cols-3 gap-2" role="group" aria-label="外观主题"><ThemeButton active={theme === "light"} icon={<Sun className="h-4 w-4" />} label="浅色" onClick={() => void handleThemeChange("light")} /><ThemeButton active={theme === "dark"} icon={<Moon className="h-4 w-4" />} label="深色" onClick={() => void handleThemeChange("dark")} /><ThemeButton active={theme === "system" || !theme} icon={<Monitor className="h-4 w-4" />} label="跟随系统" onClick={() => void handleThemeChange("system")} /></div></CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </section>
   );
+}
+
+function ThemeButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
+  return <Button type="button" variant={active ? "default" : "outline"} className="h-20 flex-col gap-2" onClick={onClick}>{icon}{label}</Button>;
 }

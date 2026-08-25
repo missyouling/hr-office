@@ -79,6 +79,7 @@ export function useThemeUtils() {
       default: USER_THEME.SYSTEM,
     });
     setTheme(targetTheme);
+    return targetTheme;
   }, [setTheme, select]);
 
   const getIcon = (className: string) => {

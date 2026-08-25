@@ -106,49 +106,6 @@ interface SettingsTabItem {
   icon?: string;
 }
 
-interface SettingsTabGroup {
-  group: string;
-  icon: string;
-  items: SettingsTabItem[];
-}
-
-const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
-  {
-    group: "基础配置",
-    icon: "🔧",
-    items: [
-      { id: "announcements", label: "公告管理" },
-      { id: "logs", label: "系统日志" },
-      { id: "maintenance", label: "系统维护" },
-      { id: "model-usage", label: "模型分布" },
-      { id: "storage", label: "存储配置" },
-    ],
-  },
-  {
-    group: "全局配置",
-    icon: "⚙️",
-    items: [
-      { id: "ai", label: "模型配置" },
-      { id: "notification", label: "通知配置" },
-    ],
-  },
-  {
-    group: "档案配置",
-    icon: "📁",
-    items: [
-      { id: "archive-classification", label: "档案分类" },
-      { id: "archive-global", label: "全局配置" },
-    ],
-  },
-  {
-    group: "权限配置",
-    icon: "👥",
-    items: [
-      { id: "roles", label: "角色权限" },
-    ],
-  },
-];
-
 const SYSTEM_OBSERVABILITY_ITEMS: SettingsTabItem[] = [
   { id: "audit", label: "审计日志" },
   { id: "monitoring", label: "系统监控" },
@@ -3403,14 +3360,56 @@ function CodeRulesTab() {
 
 // 存储配置 Tab
 
-type SystemSettingsPanel = "audit" | "monitoring";
+export type SystemSettingsPanel = "audit" | "monitoring";
 
-export function SystemSettings({ onBack, initialPanel }: { onBack?: () => void; initialPanel?: SystemSettingsPanel }) {
+/** 概览页次级入口卡片：点击切换到对应设置子页 */
+const OVERVIEW_SHORTCUTS: SettingsTabItem[] = [
+  { id: "logs", label: "系统日志" },
+  { id: "maintenance", label: "系统维护" },
+  { id: "model-usage", label: "模型分布" },
+  { id: "archive-classification", label: "档案分类" },
+  { id: "archive-global", label: "档案全局配置" },
+];
+
+interface SystemSettingsProps {
+  onBack?: () => void;
+  initialPanel?: SystemSettingsPanel;
+  /** 受控：当前设置子页 tab；缺省时组件内部自持（回退模式） */
+  activeSubTab?: string;
+  onSubTabChange?: (tab: string) => void;
+  /** 受控：当前打开的系统观察面板；null 表示未打开 */
+  settingsPanel?: SystemSettingsPanel | null;
+  /** 打开/关闭面板回调；null 表示关闭（返回系统设置） */
+  onOpenPanel?: (panel: SystemSettingsPanel | null) => void;
+}
+
+export function SystemSettings({ onBack, initialPanel, activeSubTab: controlledTab, onSubTabChange, settingsPanel: controlledPanel, onOpenPanel }: SystemSettingsProps) {
   const { user, hasPermission } = useAuth();
   const router = useRouter();
-  const [activeSubTab, setActiveSubTab] = useState("announcements");
+  const [internalTab, setInternalTab] = useState("announcements");
   const [internalPanel, setInternalPanel] = useState<SystemSettingsPanel | null>(initialPanel ?? null);
   const canViewSystemObservability = hasPermission("users", "view");
+
+  // 受控/回退双模式：传入受控值即交由外部状态驱动，否则内部自持（兼容旧引用点）
+  const isTabControlled = controlledTab !== undefined;
+  const isPanelControlled = controlledPanel !== undefined;
+  const activeSubTab = isTabControlled ? controlledTab : internalTab;
+  const openedPanel = isPanelControlled ? controlledPanel : internalPanel;
+
+  const setActiveSubTab = (tab: string) => {
+    if (!isTabControlled) setInternalTab(tab);
+    onSubTabChange?.(tab);
+  };
+
+  const openPanel = (panel: SystemSettingsPanel) => {
+    if (!isPanelControlled) setInternalPanel(panel);
+    onOpenPanel?.(panel);
+  };
+
+  const closePanel = () => {
+    if (!isPanelControlled) setInternalPanel(null);
+    onOpenPanel?.(null);
+  };
 
   // 权限校验
   useEffect(() => {
@@ -3458,17 +3457,17 @@ export function SystemSettings({ onBack, initialPanel }: { onBack?: () => void; 
     return null;
   }
 
-  if (internalPanel) {
-    const panel = internalPanel === "audit" ? <AuditLogs /> : <SystemMonitoring />;
-    const title = internalPanel === "audit" ? "审计日志" : "系统监控";
+  if (openedPanel) {
+    const panel = openedPanel === "audit" ? <AuditLogs /> : <SystemMonitoring />;
+    const title = openedPanel === "audit" ? "审计日志" : "系统监控";
     return (
-      <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground min-h-[calc(100vh-4rem)]">
+      <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 text-foreground">
         <header className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
             <p className="text-muted-foreground">系统设置内的安全与运行信息</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setInternalPanel(null)}>返回系统设置</Button>
+          <Button variant="outline" size="sm" onClick={closePanel}>返回系统设置</Button>
         </header>
         {panel}
       </div>
@@ -3476,7 +3475,7 @@ export function SystemSettings({ onBack, initialPanel }: { onBack?: () => void; 
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground min-h-[calc(100vh-4rem)]">
+    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 text-foreground">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -3492,49 +3491,48 @@ export function SystemSettings({ onBack, initialPanel }: { onBack?: () => void; 
         </div>
       </header>
 
-      <div className="flex gap-6">
-        <div className="w-56 shrink-0 space-y-1">
-          {SETTINGS_TAB_GROUPS.map((group) => (
-            <div key={group.group} className="mb-4">
-              <div className="px-3 py-1.5 text-base font-semibold text-foreground">{group.group}</div>
-              <div className="space-y-0.5 mt-1">
-                {group.items.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      setActiveSubTab(item.id);
-                    }}
-                    className={cn(
-                      "w-full text-left px-3 py-1.5 text-sm rounded-md transition-all duration-200",
-                      activeSubTab === item.id ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-          {canViewSystemObservability && (
-            <div className="mb-4">
-              <div className="px-3 py-1.5 text-base font-semibold text-foreground">系统观察</div>
-              <div className="space-y-0.5 mt-1">
-                {SYSTEM_OBSERVABILITY_ITEMS.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setInternalPanel(item.id as SystemSettingsPanel)}
-                    className="w-full text-left px-3 py-1.5 text-sm rounded-md text-muted-foreground transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300">{renderTabContent()}</div>
-      </div>
+      {/* 概览 = 公告管理 + 次级入口卡片；其余子页直接渲染对应内容（菜单职责已移交侧栏） */}
+      {activeSubTab === "announcements" ? (
+        <>
+          <AnnouncementTab />
+          <OverviewShortcuts
+            shortcuts={OVERVIEW_SHORTCUTS}
+            showObservability={!isPanelControlled && canViewSystemObservability}
+            onSelect={setActiveSubTab}
+            onOpenPanel={openPanel}
+          />
+        </>
+      ) : (
+        <div className="min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300">{renderTabContent()}</div>
+      )}
     </div>
+  );
+}
+
+/** 概览次级入口卡片网格；回退模式额外提供审计/监控直达卡（受控模式的入口由侧栏承担） */
+function OverviewShortcuts({ shortcuts, showObservability, onSelect, onOpenPanel }: {
+  shortcuts: SettingsTabItem[];
+  showObservability: boolean;
+  onSelect: (tab: string) => void;
+  onOpenPanel: (panel: SystemSettingsPanel) => void;
+}) {
+  return (
+    <section aria-label="更多设置" className="flex flex-col gap-3">
+      <h2 className="text-lg font-semibold tracking-tight">更多设置</h2>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {shortcuts.map((item) => (
+          <button key={item.id} type="button" aria-label={item.label} onClick={() => onSelect(item.id)} className="w-full rounded-xl border p-5 text-left transition-all hover:border-border hover:shadow-sm">
+            <p className="text-sm font-semibold">{item.label}</p>
+            <p className="mt-1 text-xs text-muted-foreground">进入{item.label}配置</p>
+          </button>
+        ))}
+        {showObservability && SYSTEM_OBSERVABILITY_ITEMS.map((item) => (
+          <button key={item.id} type="button" aria-label={item.label} onClick={() => onOpenPanel(item.id as SystemSettingsPanel)} className="w-full rounded-xl border p-5 text-left transition-all hover:border-border hover:shadow-sm">
+            <p className="text-sm font-semibold">{item.label}</p>
+            <p className="mt-1 text-xs text-muted-foreground">查看{item.label}</p>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }

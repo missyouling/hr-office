@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/supabase/auth-context";
 import { useRouter } from "next/navigation";
 import { DEFAULT_VIEW, renderView, type ViewComponentMap } from "@/lib/view-mapping";
@@ -26,14 +26,15 @@ import { AuditLogs } from "@/components/audit-logs";
 import { SystemMonitoring } from "@/components/system-monitoring";
 import { OrganizationManagement } from "@/components/organization-management";
 import { DailyAffairsHub } from "@/components/daily-affairs-hub";
-import { SystemSettings } from "@/components/system-settings";
+import { SystemSettings, type SystemSettingsPanel } from "@/components/system-settings";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { NewAppSidebar } from "@/components/layout/new-app-sidebar";
 import type { SettingsMode } from "@/components/layout/nav-user";
 import { ManagementBar } from "@/components/layout/management-bar";
+import { APP_SHELL_CLASS, APP_SIDEBAR_WIDTH_VARS, MAIN_SCROLL_CLASS, AppMainContainer, NewShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, Bell, MessageSquare, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { fetchAnnouncements, type Announcement } from "@/lib/api";
 import { ChatPanel } from "@/components/chat-panel";
 import { NotificationCenter } from "@/components/notification-center";
@@ -42,6 +43,7 @@ import { KnowledgeStats } from "@/components/knowledge-stats";
 import { FeedbackPanel } from "@/components/feedback-panel";
 import { DepartmentManagement } from "@/components/admin/department-management";
 import KnowledgeBaseManagement from "@/components/knowledge/KnowledgeBaseManagement";
+import { KnowledgeQaPage } from "@/components/knowledge/knowledge-qa-page";
 import { PersonalSettings } from "@/components/personal-settings";
 import { WorkbenchOverview } from "@/components/workbench-overview";
 import { FleetVehicleManagement } from "@/components/fleet-vehicle-management";
@@ -62,6 +64,9 @@ export default function HomePage() {
   const [currentView, setCurrentView] = useState<string>(DEFAULT_VIEW);
   // 记录进入设置前的来源视图，供“返回”按钮恢复
   const [settingsReturnView, setSettingsReturnView] = useState<string | null>(null);
+  // 系统设置受控状态：侧栏与内容区共享同一子页 tab 与观察面板
+  const [settingsTab, setSettingsTab] = useState("announcements");
+  const [settingsPanel, setSettingsPanel] = useState<SystemSettingsPanel | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -72,6 +77,8 @@ export default function HomePage() {
     if (currentView !== "system" && currentView !== "personal-settings") {
       setSettingsReturnView(currentView);
     }
+    // 重新进入系统设置时关闭遗留观察面板，避免直接落在审计/监控页
+    setSettingsPanel(null);
     setCurrentView(mode === "personal" ? "personal-settings" : "system");
   };
 
@@ -106,6 +113,7 @@ export default function HomePage() {
       setCurrentView("dormitory");
     };
     const handleChat = () => setChatOpen(true);
+    const handleOpenSearch = () => setSearchOpen(true);
     const handleGoHome = () => setCurrentView("landing");
     const handleSupport = () => {
       if (currentView !== "dormitory") {
@@ -119,6 +127,8 @@ export default function HomePage() {
     window.addEventListener("dock:open-notification", handleNotification as EventListener);
     window.addEventListener("dock:open-chat", handleChat as EventListener);
     window.addEventListener("dock:open-ai", handleChat as EventListener);
+    // dock 全局搜索入口：打开 GlobalSearch 面板（AI 助手已从 dock 移除，浮动面板事件监听保留兼容）
+    window.addEventListener("dock:open-search", handleOpenSearch as EventListener);
     window.addEventListener("dock:open-site-memo", handleSiteMemo);
     window.addEventListener("dock:request-support", handleSupport as EventListener);
     window.addEventListener("dock:go-home", handleGoHome as EventListener);
@@ -127,6 +137,7 @@ export default function HomePage() {
       window.removeEventListener("dock:open-notification", handleNotification as EventListener);
       window.removeEventListener("dock:open-chat", handleChat as EventListener);
       window.removeEventListener("dock:open-ai", handleChat as EventListener);
+      window.removeEventListener("dock:open-search", handleOpenSearch as EventListener);
       window.removeEventListener("dock:open-site-memo", handleSiteMemo);
       window.removeEventListener("dock:request-support", handleSupport as EventListener);
       window.removeEventListener("dock:go-home", handleGoHome as EventListener);
@@ -143,9 +154,9 @@ export default function HomePage() {
   // Show loading spinner while authentication is being checked
   if (isLoading) {
     return (
-      <div className="app-shell flex h-[100dvh] min-h-0 overflow-hidden bg-muted">
-        {/* 侧栏骨架：桌面 190px 白底边框；移动端隐藏（正式侧栏移动端为抽屉，不占文档流，避免页面滚动） */}
-        <div className="hidden w-[11.875rem] shrink-0 border-r bg-background p-4 md:block">
+      <div className={cnShell("flex")}>
+        {/* 侧栏骨架：桌面直角贴边 #F9F9FB，宽度与正式侧栏(--sidebar-width 15rem)一致；移动端隐藏（正式侧栏移动端为抽屉，不占文档流） */}
+        <div className="hidden w-[15rem] shrink-0 bg-sidebar p-4 md:block">
           <Skeleton className="h-8 w-full mb-4" />
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -153,8 +164,8 @@ export default function HomePage() {
             <Skeleton className="h-10 w-full" />
           </div>
         </div>
-        {/* 主区：外层不滚动，内部内容容器滚动，与正式 app-main-content 一致 */}
-        <main className="min-h-0 flex-1 overflow-hidden">
+        {/* 主区：白色圆角容器，外层不滚动，内部内容滚动，与正式壳层一致 */}
+        <main className="min-h-0 flex-1 overflow-hidden rounded-2xl bg-background shadow-sm">
           <div className="h-full overflow-y-auto p-4 md:p-6">
             <div className="space-y-4">
               <Skeleton className="h-8 w-64" />
@@ -179,32 +190,51 @@ export default function HomePage() {
     renderView(currentView, VIEW_COMPONENTS, {
       userName: user.full_name || user.username,
       onBackFromSettings: handleBackFromSettings,
+      systemSettingsTab: settingsTab,
+      onSystemSettingsTabChange: setSettingsTab,
+      systemSettingsPanelState: settingsPanel,
+      onSystemSettingsPanelChange: setSettingsPanel,
+      onViewChange: setCurrentView,
     });
 
   const appShell = (
-    <SidebarProvider className="app-shell h-[100dvh] overflow-hidden bg-muted">
-      <NewAppSidebar currentView={currentView} onViewChange={setCurrentView} onOpenSettings={handleOpenSettings} />
-      <SidebarInset className="relative h-full min-h-0 bg-muted">
-        <ManagementBar variant="new" />
+    /* --sidebar-width 提升至 wrapper 层：Sidebar 组件的 style 只作用于 fixed 可见层，
+       若仅在 NewAppSidebar 传 15rem，占位层(sidebar-gap)仍是全局 11.875rem(190px)，
+       fixed 层(240px)会右溢 50px 压住主容器左缘，遮盖左缘上下圆角（用户反馈"看似直角"的根因） */
+    <SidebarProvider className={APP_SHELL_CLASS} style={APP_SIDEBAR_WIDTH_VARS as React.CSSProperties}>
+      <NewAppSidebar
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        onOpenSettings={handleOpenSettings}
+        settingsTab={settingsTab}
+        onSettingsTabChange={setSettingsTab}
+        settingsPanel={settingsPanel}
+        onOpenSettingsPanel={setSettingsPanel}
+        onReturnHome={handleBackFromSettings}
+      />
+      <SidebarInset className="relative h-full min-h-0 bg-transparent">
+        <AppMainContainer>
+          <ManagementBar variant="new" />
+          <div data-slot="app-main-content" className={MAIN_SCROLL_CLASS}>{renderMainContent()}</div>
+          <ChatPanel open={chatOpen} onOpenChange={setChatOpen} variant="embedded" />
+        </AppMainContainer>
         <GlobalSearch
           onNavigate={(module) => { setCurrentView(module); }}
           open={searchOpen}
           onOpenChange={setSearchOpen}
           hideTrigger
         />
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <NewShellContentTools onOpenSearch={() => setSearchOpen(true)} onOpenChat={() => setChatOpen(true)} />
-          <div data-slot="app-main-content" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted p-4 md:p-6">
-            {renderMainContent()}
-          </div>
-          <ChatPanel open={chatOpen} onOpenChange={setChatOpen} variant="embedded" />
-        </div>
         <NotificationCenter open={notificationOpen} onOpenChange={setNotificationOpen} />
       </SidebarInset>
     </SidebarProvider>
   );
 
   return <NewShell>{appShell}</NewShell>;
+}
+
+/** 组合壳层类名的小工具：骨架屏与正式壳共用同一套留白节奏（契约常量见 components/layout/app-shell） */
+function cnShell(extra: string): string {
+  return `${APP_SHELL_CLASS} ${extra}`;
 }
 
 function LandingContent({ userName }: { userName?: string | null }) {
@@ -340,42 +370,5 @@ const VIEW_COMPONENTS: ViewComponentMap = {
   feedback: FeedbackPanel,
   departments: DepartmentManagement,
   knowledge: KnowledgeBaseManagement,
+  "knowledge-qa": KnowledgeQaPage,
 };
-
-/**
- * P12.0.3 新壳占位包装器：仅以 data-shell 属性标记开关路径，
- * display:contents 保证无任何可见 UI 变化；后续 P12.1 以真实新壳实现替换本占位。
- */
-export function NewShell({ children }: { children: ReactNode }) {
-  const requestNotification = () => window.dispatchEvent(new CustomEvent("dock:open-notification"));
-
-  return (
-    <div data-shell="new" className="contents">
-      <button
-        type="button"
-        aria-label="打开通知中心"
-        onClick={requestNotification}
-        className="fixed right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/80 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:right-6 md:top-6"
-      >
-        <Bell className="h-4 w-4" aria-hidden />
-      </button>
-      {children}
-    </div>
-  );
-}
-
-export function NewShellContentTools({ onOpenSearch, onOpenChat }: { onOpenSearch: () => void; onOpenChat: () => void }) {
-  return (
-    <div className="flex shrink-0 items-center justify-between border-b border-border/70 bg-background px-4 py-3 md:px-6">
-      <p className="text-sm text-muted-foreground">在当前工作区内搜索与使用 AI 助手</p>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={onOpenSearch} aria-label="打开全局搜索">
-          <Search className="mr-2 h-4 w-4" />搜索 <kbd className="ml-2 hidden rounded border bg-muted px-1.5 text-[10px] sm:inline">⌘K</kbd>
-        </Button>
-        <Button size="sm" onClick={onOpenChat} aria-label="打开 AI 助手">
-          <MessageSquare className="mr-2 h-4 w-4" />AI 助手
-        </Button>
-      </div>
-    </div>
-  );
-}

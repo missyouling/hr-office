@@ -58,6 +58,7 @@ const stubMap: ViewComponentMap = {
   feedback: makeStub("feedback"),
   departments: makeStub("departments"),
   knowledge: makeStub("knowledge"),
+  "knowledge-qa": makeStub("knowledge-qa"),
 };
 
 const ctx: ViewRenderContext = { userName: "张三", onBackFromSettings: () => {} };
@@ -95,6 +96,7 @@ describe("视图映射常量", () => {
       "feedback",
       "departments",
       "knowledge",
+      "knowledge-qa",
     ]);
   });
 

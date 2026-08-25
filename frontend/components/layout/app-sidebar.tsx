@@ -96,10 +96,7 @@ export function AppSidebar({ currentView, onViewChange, onOpenSettings, ...props
               <SidebarMenuButton asChild tooltip="人事行政管理系统" className="h-auto items-center gap-2 rounded-md px-2 py-1.5">
                 <Link href="/">
                   <SquareArrowUpRight className="h-5 w-5" />
-                  <span className="rolling-text text-base font-semibold">
-                    <span>人事行政管理系统</span>
-                    <span aria-hidden>人事行政管理系统</span>
-                  </span>
+                  <span className="truncate text-base font-semibold">人事行政管理系统</span>
                   <span className="text-[11px] text-muted-foreground">v 1.0.1</span>
                 </Link>
               </SidebarMenuButton>

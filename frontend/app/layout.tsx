@@ -9,7 +9,7 @@ export const dynamicParams = true;
 
 // Use system fonts to avoid Google Fonts network issues during Docker build
 const fontVariables = {
-  "--font-geist-sans": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  "--app-font-sans": "Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Source Han Sans SC', 'Noto Sans SC', 'Segoe UI', system-ui, sans-serif",
   "--font-geist-mono": "ui-monospace, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace"
 } as React.CSSProperties;
 

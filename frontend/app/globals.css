@@ -6,7 +6,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--app-font-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -44,6 +44,7 @@
 }
 
 :root {
+  --app-font-sans: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.18 0 0);
@@ -55,7 +56,10 @@
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.96 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.96 0 0);
+  /* 浅色壳层留白底色 #F0F0F3：比旧值(oklch 0.96≈#F5F5F5)深一档，
+     保证右侧白色主容器 rounded-2xl 的圆角缺口与侧栏(#F9F9FB)拉开对比；
+     表头主题化(table thead)共用此变量属预期联动 */
+  --muted: #F0F0F3;
   --muted-foreground: oklch(0.56 0 0);
   --accent: oklch(0.96 0 0);
   --accent-foreground: oklch(0.205 0 0);
@@ -68,48 +72,70 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: #f8f8f8;
+  --sidebar: #F9F9FB;
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent: #CDCDCF;
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* 主容器多层柔影（悬浮感）：接触影 + 近距影 + 中距影，全部 0 扩展(spread)。
+     负 spread 会把阴影轮廓收缩进盒子，在圆角弧线与矩形角之间的角隙沉积出方形楔角暗块
+     （用户反馈"左下/右下圆角方形阴影残留"根因之一，Playwright 像素采样证实：
+     去掉阴影后角隙亮度立即回到底层色）。各层向下延伸在壳层 12px 底部留白内平滑衰减 */
+  --main-surface-shadow:
+    0 1px 3px rgb(15 18 25 / 0.05),
+    0 4px 12px rgb(15 18 25 / 0.05),
+    0 12px 28px rgb(15 18 25 / 0.05);
+  /* 控制坞柔影：0 扩展避免 dock 圆角角隙沉积同类暗块；dock 距主容器底边 16px，
+     阴影向下延伸约 13px 不会触及容器底边被裁切 */
+  --dock-shadow:
+    0 1px 2px rgb(15 18 25 / 0.06),
+    0 3px 10px rgb(15 18 25 / 0.1);
 }
 
 .dark {
-  --background: oklch(0.18 0 0); /* 再提亮一档，避免过暗 */
+  /* 深色主题基线：#101012 底 / #19191B 侧栏 / #222225 选中 / #444446 悬停 */
+  --background: #101012;
   --foreground: oklch(0.97 0 0);
-  --card: oklch(0.28 0 0); /* 卡片再亮一层，接近宿舍页视觉 */
+  --card: #18181B; /* 卡片略亮于 background 一档，形成浮起分层 */
   --card-foreground: oklch(0.97 0 0);
-  --popover: oklch(0.28 0 0);
+  --popover: #101012;
   --popover-foreground: oklch(0.97 0 0);
   --primary: oklch(0.78 0.05 255);
   --primary-foreground: oklch(0.12 0 0);
-  --secondary: oklch(0.24 0 0);
+  --secondary: #2A2A2E; /* 次级按钮底色：比 muted(#222225) 亮半档 */
   --secondary-foreground: oklch(0.95 0 0);
-  --muted: oklch(0.24 0 0);
+  --muted: #222225; /* 菜单选中态 bg-muted 自动命中此色 */
   --muted-foreground: oklch(0.82 0 0);
-  --accent: oklch(0.18 0 0);
+  --accent: #1C1C1F; /* 泛悬停底色：略亮于 background，与选中态(#222225)区分层级 */
   --accent-foreground: oklch(0.95 0 0);
   --destructive: oklch(0.7 0.2 22.216);
-  --border: oklch(0.34 0 0);
-  --input: oklch(0.34 0 0);
+  --border: #303034; /* 描边层：介于 muted(#222225) 与 sidebar-accent(#444446) 之间 */
+  --input: #303034;
   --ring: oklch(0.62 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.18 0 0);
+  --sidebar: #19191B;
   --sidebar-foreground: oklch(0.96 0 0);
   --sidebar-primary: oklch(0.78 0.05 255);
   --sidebar-primary-foreground: oklch(0.12 0 0);
-  --sidebar-accent: oklch(0.18 0 0);
+  --sidebar-accent: #444446; /* 菜单悬停态 hover:bg-sidebar-accent 自动命中此色 */
   --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(0.26 0 0);
+  --sidebar-border: #232327; /* 侧栏内分隔线：仅比侧栏本体(#19191B)略亮 */
   --sidebar-ring: oklch(0.55 0 0);
+  /* 深色主题阴影：纯黑高透明度补偿深底下阴影可见度，0 扩展节奏与浅色一致 */
+  --main-surface-shadow:
+    0 1px 3px rgb(0 0 0 / 0.35),
+    0 4px 12px rgb(0 0 0 / 0.4),
+    0 12px 28px rgb(0 0 0 / 0.45);
+  --dock-shadow:
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 3px 10px rgb(0 0 0 / 0.5);
 }
 
 @layer base {
@@ -118,6 +144,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
   }
 
   .app-shell {
@@ -125,22 +152,7 @@
     min-height: 0;
     overflow: hidden;
   }
-  .rolling-text {
-    position: relative;
-    display: inline-block;
-    height: 20px;
-    overflow: hidden;
-  }
-  .rolling-text > span {
-    display: block;
-    animation: rolling-text 6s ease-in-out infinite;
-  }
-  @keyframes rolling-text {
-    0% { transform: translateY(0%); }
-    45% { transform: translateY(0%); }
-    55% { transform: translateY(-100%); }
-    100% { transform: translateY(-100%); }
-  }
+  /* 右侧纯白圆角主容器的底色契约由 page.tsx 的 MAIN_SURFACE_CLASS（bg-background，浅色即 #FFFFFF）承载 */
   /* 表头主题化：使用 --muted 变量，自动适配深浅主题（P10.2.4） */
   table thead tr {
     background-color: var(--muted);
@@ -148,4 +160,36 @@
   table thead tr:hover {
     background-color: var(--muted);
   }
+
+  /* 主内容滚动层细滚动条：仅作用于 [data-slot="app-main-content"]，不影响页面其他滚动区 */
+  [data-slot="app-main-content"] {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  [data-slot="app-main-content"]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  [data-slot="app-main-content"]::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+  [data-slot="app-main-content"]::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: var(--border);
+  }
+  [data-slot="app-main-content"]::-webkit-scrollbar-thumb:hover {
+    /* hover 略深一档：向前景色混入 20%，浅色变深 / 深色变亮，主题自适应 */
+    background-color: color-mix(in srgb, var(--border), var(--foreground) 20%);
+  }
+}
+
+/* 新壳内放开 SidebarInset 的 overflow 裁切（主容器圆角方形阴影残留根因之二）：
+   SidebarInset 与主容器同尺寸且基类自带 overflow-hidden，会把主容器向外延伸的柔影
+   在容器边界硬裁成方形暗带（Playwright 像素采样证实：容器底边下方零延伸、
+   圆角暗晕被切断呈方形直线边界）。放开后柔影自然延伸进壳层 12px 留白平滑衰减。
+   滚动职责不受影响：业务滚动在 [data-slot="app-main-content"]（overflow-y-auto），
+   侧栏滚动在 SidebarContent（overflow-y-auto），wrapper overflow-hidden 兜底防页面级滚动。
+   注意：必须置于 @layer 之外，否则会被 utilities 层的 overflow-hidden 工具类覆盖 */
+.app-shell [data-slot="sidebar-inset"] {
+  overflow: visible;
 }

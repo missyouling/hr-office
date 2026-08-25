@@ -2,13 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Search, FileText, Users, Building2 } from "lucide-react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { globalSearch } from "@/lib/api";
 import type { GlobalSearchResult } from "@/lib/api";
@@ -123,26 +118,31 @@ export function GlobalSearch({ onNavigate, open, onOpenChange, hideTrigger = fal
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* 直接组装 Radix Dialog 原语：遮罩模糊加深 + 面板居中偏上，样式不依赖 ui/dialog 的通用弹窗契约 */}
+      <DialogPrimitive.Root open={isOpen} onOpenChange={setIsOpen}>
+        <DialogPrimitive.Portal>
+          {/* 遮罩：半透明加深 + 背景模糊，聚焦搜索内容 */}
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content
+            className="fixed left-1/2 top-[20%] z-50 w-full max-w-2xl -translate-x-1/2 rounded-2xl border border-border/70 bg-card p-6 text-card-foreground shadow-[0_24px_60px_-24px_rgba(0,0,0,0.65)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+            aria-describedby={undefined}
+          >
+            <DialogPrimitive.Title className="flex items-center gap-2 text-lg font-semibold leading-none">
               <Search className="w-5 h-5" />
               全局搜索
-            </DialogTitle>
-          </DialogHeader>
+            </DialogPrimitive.Title>
 
-          <div className="space-y-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="搜索档案、员工、宿舍... (Cmd+K)"
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="pl-10"
-                autoFocus
-              />
-            </div>
+            <div className="mt-4 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                <Input
+                  placeholder="搜索档案、员工、宿舍... (Cmd+K)"
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  className="pl-10"
+                  autoFocus
+                />
+              </div>
 
             <div className="max-h-96 overflow-y-auto">
               {isLoading && (
@@ -224,9 +224,10 @@ export function GlobalSearch({ onNavigate, open, onOpenChange, hideTrigger = fal
                 找到 {results.length} 个结果
               </div>
             )}
-          </div>
-        </DialogContent>
-      </Dialog>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
 
       {!hideTrigger && <div className="fixed top-4 right-4 z-30">
         <button

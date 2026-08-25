@@ -127,7 +127,7 @@ export function DailyAffairsHub({ onNavigate, defaultModule = null }: DailyAffai
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 bg-card text-foreground">
+    <div className="mx-auto flex w-full max-w-none flex-col gap-6 p-6 pb-16 text-foreground">
       {/* 页面标题 */}
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-4">

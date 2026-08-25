@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { ACCOUNTS, login } from "./helpers/auth";
 
-const SYSTEM_TITLE = "人事行政管理系统";
+const SYSTEM_TITLE = "人事行政管理";
 const SCREENSHOT_DIRECTORY = "test-results/screenshots";
 
 test("管理员新壳工作台保留浅色与深色视觉取证", async ({ page }) => {
@@ -12,12 +12,12 @@ test("管理员新壳工作台保留浅色与深色视觉取证", async ({ page 
 
   await login(page, ACCOUNTS.admin.username, ACCOUNTS.admin.password);
 
-  const systemTitle = page.locator("span.rolling-text.text-base.font-semibold").filter({ hasText: SYSTEM_TITLE });
+  const systemTitle = page.getByText(SYSTEM_TITLE, { exact: true });
   const floatingDock = page.locator("[data-floating-dock]");
 
   await expect(page.locator('[data-shell="new"]')).toHaveCount(1);
   await expect(systemTitle).toBeVisible();
-  await expect(systemTitle.locator("> span").first()).toHaveCSS("animation-name", "rolling-text");
+  await expect(systemTitle).not.toHaveClass(/rolling-text/);
   await expect(page.locator('[data-slot="app-main-content"]')).toBeVisible();
   await expect(floatingDock).toBeVisible();
 

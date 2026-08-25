@@ -22,8 +22,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     changePassword: vi.fn(),
+    fetchUserPreferences: vi.fn().mockResolvedValue({}),
+    updateUserPreferences: vi.fn().mockResolvedValue({}),
   };
 });
+
+vi.mock("next-themes", () => ({ useTheme: () => ({ theme: "system", setTheme: vi.fn() }) }));
 
 const changePasswordMock = vi.mocked(changePassword);
 
@@ -95,5 +99,20 @@ describe("PersonalSettings 组件", () => {
   it("未传入 onBack 时不渲染返回按钮", () => {
     render(<PersonalSettings />);
     expect(screen.queryByRole("button", { name: "返回" })).not.toBeInTheDocument();
+  });
+
+  it("默认展示账户资料标签，并将主题选择收纳在外观偏好标签", () => {
+    render(<PersonalSettings />);
+    expect(screen.getByRole("tab", { name: "账户资料" })).toHaveAttribute("data-state", "active");
+    expect(screen.getByLabelText("当前密码")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "浅色" })).not.toBeInTheDocument();
+
+    const appearanceTab = screen.getByRole("tab", { name: "外观偏好" });
+    fireEvent.mouseDown(appearanceTab, { button: 0, ctrlKey: false });
+    fireEvent.click(appearanceTab);
+    expect(screen.getByRole("button", { name: "浅色" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "深色" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "跟随系统" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("当前密码")).not.toBeInTheDocument();
   });
 });
